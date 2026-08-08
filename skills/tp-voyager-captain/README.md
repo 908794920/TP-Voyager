@@ -7,18 +7,19 @@
 ## 当前版本
 
 ```text
-Captain Skill 1.0.1
+Captain Skill 1.0.2
 ```
 
-本轮真实使用反馈后，Skill 新增：
+本轮 v1.0.2 新增：
 
-- 首次派遣预检；
-- `quick / investigation / review / patch / verify` 超时预设；
-- CodeBuddy 只读任务通过 `task_dispatch(context_files=...)` 自动建立最小 Context Manifest；
-- Qoder 在需要显式模型时优先验证当前是否仍提供已实测成功的 `Lite`，不静默替换模型；
-- Patch 前要求明确/确认写入路径、验证命令和改动预算；
-- 默认只使用 6 个 Captain MCP 工具；
-- 读取 `task_result.execution_budget` 判断实际耗时和预算，而不是把超时直接解释为 Crew 不可用。
+- 标准 YAML frontmatter 与宿主无关 Skill 标识；
+- `tp-voyager.manifest.json` 声明 MCP 启动、Captain tools 与 doctor 入口；
+- 新只读任务优先使用统一 `read_scope`，CodeBuddy/Qoder 由 Runtime 各自映射；
+- `model_policy.allowed_models` 只做 Passenger/Captain 模型池约束，不自动选模或 fallback；
+- `worker_profile_ref` 通过 `name/version/sha256` 解析可信 Worker Profile；
+- `correlation_id` 只关联外部任务，不接管外部生命周期；
+- `task_result.usage` 返回真实 provider Usage Evidence；缺失 Token/Credit/Cost 不推算；
+- 保留 `context_files` 作为 CodeBuddy v1.0.1 兼容入口。
 
 ## 默认 Captain 工具
 
@@ -69,33 +70,38 @@ Captain 根据 Verification / Evidence / Budget 做决定
 
 超时预设不是自动重试策略。任务超时后由 Captain 决定是否以更大的显式预算重新派遣。
 
-## CodeBuddy 只读
+## 统一 Read Scope
 
-CodeBuddy 受控只读路线不允许原生文件系统工具自由读取仓库。
+新任务优先通过 `task_dispatch(read_scope=...)` 描述只读范围：
 
-Captain 应把最小相关文件列表直接传给：
-
-```text
-task_dispatch(..., context_files=[...])
+```json
+{
+  "files": ["README.md"],
+  "directories": ["src/parser"],
+  "globs": ["tests/parser/**/*.py"]
+}
 ```
 
-TP-Voyager 会复用现有 Context Manifest 机制完成：
+TP-Voyager 将同一 Captain Contract 解析为有界具体文件集合：
 
 ```text
-文件列表
-  → SHA-256 Manifest
-  → 漂移校验
-  → 有界 Context Snapshot
-  → CodeBuddy SDK
+read_scope
+  ├─ CodeBuddy → Context Manifest → immutable snapshot
+  └─ Qoder     → ACP host allowed_paths
 ```
 
-使用者不需要再手工调用 `context_register/context_verify`。
+转换必须 fail-closed，不得因为某个 Crew 的内部机制不同而扩大读取权限。
+`context_files` 仍保留给旧 CodeBuddy 调用兼容。
 
-## Qoder 只读
+## Model / Profile / Correlation
 
-Qoder 继续走受控 ACP Read-only 路线。
+- `model_policy.allowed_models`：Passenger/Captain 允许池；选择仍由 Captain 显式完成。
+- `worker_profile_ref`：可信 Profile 的 `name/version/sha256`，内容只进入瞬时 Prompt，不写入 Session metadata。
+- `correlation_id`：仅外部关联键，不建立第二任务系统。
 
-本项目真实使用已经验证过 `Lite` 可用于长调查任务；但模型可用性可能变化，因此需要显式模型时应以当前 Qoder 动态目录为准。若 `Lite` 不再可用，Captain 不得静默切换其他模型。
+## Usage Evidence
+
+TP-Voyager 只记录 CLI/SDK/ACP 实际返回的使用事实，例如 input/output tokens、credits 或 provider-reported cost。不存在的字段保持未知，不按公开价格、倍率或 Token 公式推算。Qoder 在失败/超时前已经返回的 Usage 也会尽量绑定到当前 Attempt。
 
 ## Patch
 
@@ -128,6 +134,8 @@ Skill 不得为了“让任务成功”自动扩大这些边界。
 
 ```text
 tp-voyager-captain/
-├── SKILL.md   # Captain AI 正式操作规范
-└── README.md  # 面向中文使用者的说明
+├── SKILL.md                   # Captain AI 正式操作规范
+├── tp-voyager.manifest.json  # TP-Voyager 自有发现/启动契约
+├── worker-profiles/           # 可选：受哈希约束的 operator-owned Profile store
+└── README.md                  # 面向中文使用者的说明
 ```

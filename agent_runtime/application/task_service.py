@@ -145,6 +145,7 @@ SAFE_METADATA_KEYS = (
     "workspace_mode",
     "workspace_base_revision",
     "patch_policy",
+    "routing_metadata",
 )
 
 
@@ -684,6 +685,88 @@ class TaskService:
                     ),
                 ),
             )
+
+    def append_usage_evidence(
+        self,
+        task_id: str,
+        *,
+        usage: dict[str, Any],
+        lease: LeaseInfo | None = None,
+    ) -> bool:
+        """Append one immutable provider-reported Usage Evidence per Attempt.
+
+        The Runtime never calculates price or fills missing usage values.  A
+        repeated callback for the same Attempt is an idempotent no-op.
+        """
+        payload = dict(usage or {})
+        if payload.get("schema") != "tp-voyager.usage/v1":
+            raise ValueError("usage evidence must use tp-voyager.usage/v1")
+        try:
+            detail_json = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("usage evidence must be JSON serializable") from exc
+        if len(detail_json.encode("utf-8")) > 32 * 1024:
+            raise ValueError("usage evidence exceeds the bounded detail limit")
+
+        with self.db.immediate_fenced_transaction() as (connection, db_now):
+            durable = self.tasks.get_by_id_in_connection(connection, task_id)
+            if durable is None:
+                raise TaskNotFoundError("Task not found")
+            if lease is not None and not self._lease_still_valid(
+                connection, task_id, lease, db_now,
+            ):
+                raise LeaseLostError(
+                    f"task {task_id} lease lost (owner/generation/expiry mismatch)"
+                )
+            attempt_id = durable.current_attempt_id
+            if not attempt_id:
+                raise RuntimePersistenceError(
+                    f"task {task_id} has no durable current_attempt_id"
+                )
+            if self.evidence.has_type_for_attempt(
+                connection,
+                task_id=task_id,
+                attempt_id=attempt_id,
+                evidence_type=EvidenceType.USAGE.value,
+            ):
+                return False
+            digest = hashlib.sha256(
+                f"{task_id}\0{attempt_id}\0usage".encode("utf-8")
+            ).hexdigest()[:16]
+            self.evidence.insert_many(
+                connection,
+                [
+                    Evidence(
+                        evidence_id=f"evd-{digest}",
+                        task_id=task_id,
+                        attempt_id=attempt_id,
+                        evidence_type=EvidenceType.USAGE.value,
+                        trust_state=TrustState.OBSERVED.value,
+                        origin=EvidenceOrigin.BACKEND.value,
+                        summary="Provider-reported usage observed",
+                        detail_json=detail_json,
+                        captured_at=db_now,
+                        created_at=db_now,
+                    )
+                ],
+            )
+            return True
+
+    def latest_usage_evidence(
+        self, task_id: str, attempt_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Return the bounded Usage Evidence payload for one Attempt, if any."""
+        attempt = self.resolve_attempt(task_id, attempt_id)
+        items = self.evidence.list_for_attempt(task_id, attempt.attempt_id)
+        for item in reversed(items):
+            if item.evidence_type != EvidenceType.USAGE.value:
+                continue
+            try:
+                payload = json.loads(item.detail_json or "{}")
+            except json.JSONDecodeError:
+                return {}
+            return payload if isinstance(payload, dict) else {}
+        return {}
 
     def save_result(
         self,

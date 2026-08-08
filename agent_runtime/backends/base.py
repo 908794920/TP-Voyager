@@ -102,6 +102,48 @@ class BackendExecution:
     cancel: Callable[[], None] | None = None
 
 
+
+
+@dataclass(frozen=True)
+class BackendUsage:
+    """Provider-reported usage fact.  Values are recorded, never priced or inferred."""
+
+    provider: str
+    model: str = ""
+    source: str = ""
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    credits_used: float | None = None
+    reported_cost: float | None = None
+    currency: str | None = None
+    provider_usage: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        def non_negative(value: int | float | None) -> int | float | None:
+            if value is None:
+                return None
+            return value if value >= 0 else None
+
+        raw: dict[str, Any] = {}
+        for key, value in list(self.provider_usage.items())[:32]:
+            if isinstance(value, (str, int, float, bool)) or value is None:
+                raw[str(key)[:80]] = value
+        return {
+            "schema": "tp-voyager.usage/v1",
+            "provider": str(self.provider or "")[:80],
+            "model": str(self.model or "")[:160] or None,
+            "source": str(self.source or "")[:120],
+            "usage": {
+                "input_tokens": non_negative(self.input_tokens),
+                "output_tokens": non_negative(self.output_tokens),
+                "credits_used": non_negative(self.credits_used),
+                "reported_cost": non_negative(self.reported_cost),
+                "currency": str(self.currency or "")[:16] or None,
+            },
+            "provider_usage": raw,
+        }
+
+
 @dataclass
 class BackendResult:
     """Final result from a backend execution."""
@@ -188,6 +230,10 @@ class BackendCallbacks(Protocol):
         ...
 
     def on_activity(self, activity: BackendActivity) -> None:
+        ...
+
+    def on_usage(self, usage: BackendUsage) -> None:
+        """Report provider-returned usage without estimating missing values."""
         ...
 
     def on_result(self, result: BackendResult) -> None:

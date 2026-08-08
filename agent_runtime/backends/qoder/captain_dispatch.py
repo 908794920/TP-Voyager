@@ -46,6 +46,8 @@ class QoderReadOnlyDispatcher:
                 idle_timeout_seconds=idle,
                 max_task_duration_seconds=timeout,
                 execution_mode="background",
+                agent_profile=(request.worker_profile_ref.profile_id if request.worker_profile_ref else ""),
+                routing_metadata=request.routing_metadata(),
             )
         )
         if not result.get("ok"):
@@ -82,6 +84,8 @@ class QoderReadOnlyDispatcher:
                 idle_timeout_seconds=idle,
                 max_task_duration_seconds=timeout,
                 execution_mode="background",
+                agent_profile=(request.worker_profile_ref.profile_id if request.worker_profile_ref else ""),
+                routing_metadata=request.routing_metadata(),
                 allowed_paths=list(policy.allowed_paths),
                 forbidden_paths=list(policy.forbidden_paths),
                 verification_command_specs=list(policy.verification_commands()),

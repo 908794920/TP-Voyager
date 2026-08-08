@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
+import re
 from typing import Any
 
 
@@ -155,6 +156,127 @@ class PatchPolicy:
 
 
 @dataclass(frozen=True)
+class ModelPolicy:
+    """Passenger/Captain supplied allow-list; never an automatic selector."""
+
+    allowed_models: tuple[str, ...]
+
+    @classmethod
+    def from_dict(cls, value: object) -> "ModelPolicy":
+        if not isinstance(value, dict):
+            raise ValueError("model_policy must be an object")
+        raw = value.get("allowed_models")
+        if not isinstance(raw, list) or not raw:
+            raise ValueError("model_policy.allowed_models must be a non-empty list")
+        models: list[str] = []
+        for item in raw:
+            model = str(item or "").strip()
+            if not model or len(model) > 160 or "\x00" in model:
+                raise ValueError("model_policy contains an invalid model id")
+            if model not in models:
+                models.append(model)
+        if len(models) > 64:
+            raise ValueError("model_policy allows at most 64 models")
+        return cls(tuple(models))
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"allowed_models": list(self.allowed_models)}
+
+
+@dataclass(frozen=True)
+class ReadScope:
+    """Vendor-neutral Captain intent for a bounded read-only filesystem scope."""
+
+    files: tuple[str, ...] = ()
+    directories: tuple[str, ...] = ()
+    globs: tuple[str, ...] = ()
+
+    @classmethod
+    def from_dict(cls, value: object) -> "ReadScope":
+        if not isinstance(value, dict):
+            raise ValueError("read_scope must be an object")
+
+        def paths(name: str) -> tuple[str, ...]:
+            raw = value.get(name) or []
+            if not isinstance(raw, list):
+                raise ValueError(f"read_scope.{name} must be a list")
+            out: list[str] = []
+            for item in raw:
+                path = _safe_relpath(item, field_name=f"read_scope.{name}")
+                if path not in out:
+                    out.append(path)
+            if len(out) > 256:
+                raise ValueError(f"read_scope.{name} exceeds 256 entries")
+            return tuple(out)
+
+        raw_globs = value.get("globs") or []
+        if not isinstance(raw_globs, list):
+            raise ValueError("read_scope.globs must be a list")
+        globs: list[str] = []
+        for item in raw_globs:
+            pattern = str(item or "").strip().replace("\\", "/")
+            pure = PurePosixPath(pattern)
+            if (
+                not pattern
+                or pattern.startswith("/")
+                or (len(pattern) >= 2 and pattern[1] == ":")
+                or any(part in {"", ".", ".."} for part in pure.parts)
+                or len(pattern) > 512
+            ):
+                raise ValueError("read_scope.globs contains an unsafe pattern")
+            if pattern not in globs:
+                globs.append(pattern)
+        if len(globs) > 128:
+            raise ValueError("read_scope.globs exceeds 128 entries")
+        result = cls(files=paths("files"), directories=paths("directories"), globs=tuple(globs))
+        if not (result.files or result.directories or result.globs):
+            raise ValueError("read_scope must contain files, directories, or globs")
+        return result
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "files": list(self.files),
+            "directories": list(self.directories),
+            "globs": list(self.globs),
+        }
+
+
+_PROFILE_TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
+_SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
+
+
+@dataclass(frozen=True)
+class WorkerProfileRef:
+    """Immutable reference to trusted Worker role text."""
+
+    name: str
+    version: str
+    sha256: str
+
+    @classmethod
+    def from_dict(cls, value: object) -> "WorkerProfileRef":
+        if not isinstance(value, dict):
+            raise ValueError("worker_profile_ref must be an object")
+        name = str(value.get("name") or "").strip()
+        version = str(value.get("version") or "").strip()
+        sha256 = str(value.get("sha256") or "").strip().lower()
+        if not _PROFILE_TOKEN_RE.fullmatch(name):
+            raise ValueError("worker_profile_ref.name is invalid")
+        if not _PROFILE_TOKEN_RE.fullmatch(version):
+            raise ValueError("worker_profile_ref.version is invalid")
+        if not _SHA256_RE.fullmatch(sha256):
+            raise ValueError("worker_profile_ref.sha256 must be a 64-character hex digest")
+        return cls(name=name, version=version, sha256=sha256)
+
+    def to_dict(self) -> dict[str, str]:
+        return {"name": self.name, "version": self.version, "sha256": self.sha256}
+
+    @property
+    def profile_id(self) -> str:
+        return f"{self.name}@{self.version}"
+
+
+@dataclass(frozen=True)
 class CaptainDispatchRequest:
     objective: str
     crew: str
@@ -167,3 +289,24 @@ class CaptainDispatchRequest:
     timeout_seconds: int = 300
     required_capabilities: tuple[str, ...] = ()
     patch_policy: PatchPolicy | None = None
+    model_policy: ModelPolicy | None = None
+    read_scope: ReadScope | None = None
+    resolved_read_files: tuple[str, ...] = ()
+    worker_profile_ref: WorkerProfileRef | None = None
+    worker_profile_content: str = ""
+    correlation_id: str = ""
+
+    def routing_metadata(self) -> dict[str, Any]:
+        """Return bounded routing facts safe to persist with the durable Session."""
+        data: dict[str, Any] = {}
+        if self.model_policy is not None:
+            data["model_policy"] = self.model_policy.to_dict()
+        if self.read_scope is not None:
+            scope = self.read_scope.to_dict()
+            scope["resolved_files"] = list(self.resolved_read_files)
+            data["read_scope"] = scope
+        if self.worker_profile_ref is not None:
+            data["worker_profile_ref"] = self.worker_profile_ref.to_dict()
+        if self.correlation_id:
+            data["correlation_id"] = self.correlation_id
+        return data

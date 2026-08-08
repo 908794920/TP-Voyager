@@ -71,6 +71,7 @@ class TaskState:
     workspace_mode: str = ""
     workspace_base_revision: str = ""
     patch_policy: dict[str, Any] = field(default_factory=dict)
+    routing_metadata: dict[str, Any] = field(default_factory=dict)
     condition: threading.Condition = field(default_factory=threading.Condition)
     # Durable-runtime bookkeeping: ``persisted`` marks tasks created through
     # the SQLite path; ``version`` mirrors the optimistic-concurrency counter;

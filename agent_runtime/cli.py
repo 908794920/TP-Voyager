@@ -8,12 +8,16 @@ cancel, retry, resume, or mutate a task.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import sys
 from pathlib import Path
 from typing import Any
 
+from agent_runtime.api.schemas import CAPTAIN_TOOL_NAMES
+from agent_runtime.backends.codebuddy.process import probe_codebuddy_cli
+from agent_runtime.backends.qoder.process import probe_qoder_cli
 from agent_runtime.persistence.runtime_paths import resolve_runtime_database, runtime_database_path
 
 from agent_runtime.runtime.diagnostics import (
@@ -25,6 +29,75 @@ from agent_runtime.runtime.diagnostics import (
 
 def _json_print(value: Any) -> None:
     print(json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True))
+
+
+
+
+def _safe_probe(probe: Any) -> dict[str, Any]:
+    """Run a non-model installation probe without exposing paths or credentials."""
+    try:
+        observed = dict(probe() or {})
+        allowed = {
+            "installed", "cli_installed", "sdk_installed", "version", "region",
+            "dispatch_ready", "auth_probe_performed",
+        }
+        return {
+            "ok": bool(observed.get("installed", observed.get("cli_installed", True))),
+            **{key: observed[key] for key in sorted(allowed) if key in observed},
+        }
+    except Exception as exc:  # installation diagnostics are intentionally bounded
+        return {"ok": False, "error": type(exc).__name__}
+
+
+def _doctor_projection(overview: dict[str, Any]) -> dict[str, Any]:
+    required = sorted(CAPTAIN_TOOL_NAMES)
+    runtime_ok = bool(overview.get("schema_supported") and overview.get("integrity_ok"))
+    mcp_available = importlib.util.find_spec("mcp") is not None
+    codebuddy = _safe_probe(probe_codebuddy_cli)
+    qoder = _safe_probe(probe_qoder_cli)
+    installation_ready = bool(
+        runtime_ok
+        and mcp_available
+        and codebuddy.get("ok")
+        and qoder.get("ok")
+    )
+    projection = dict(overview)
+    projection.update({
+        "schema": "tp-voyager.doctor/v1",
+        "version": "1.0.2",
+        "ok": installation_ready,
+        "runtime": {
+            "ok": runtime_ok,
+            "schema_version": overview.get("schema_version"),
+            "supported_schema_version": overview.get("supported_schema_version"),
+            "schema_supported": bool(overview.get("schema_supported")),
+            "integrity_ok": bool(overview.get("integrity_ok")),
+        },
+        "mcp_transport": {
+            "ok": mcp_available,
+            "transport": "stdio",
+            "package_available": mcp_available,
+        },
+        "captain_tools": {
+            "ok": len(required) == 6,
+            "required": required,
+            "declared": required,
+        },
+        "crew": {
+            "codebuddy": codebuddy,
+            "qoder": qoder,
+        },
+        # Installation readiness is informational so doctor remains useful on
+        # development hosts where one optional Crew CLI is intentionally absent.
+        "installation_ready": installation_ready,
+        "safety": {
+            "model_invocation_performed": False,
+            "credentials_returned": False,
+            "task_content_returned": False,
+            "usage_returned": False,
+        },
+    })
+    return projection
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -39,7 +112,12 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    subparsers.add_parser("doctor", help="Show schema and aggregate Runtime health")
+    doctor_parser = subparsers.add_parser("doctor", help="Show installation and Runtime health")
+    doctor_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit the stable tp-voyager.doctor/v1 JSON contract",
+    )
 
     audit_parser = subparsers.add_parser(
         "artifact-audit",
@@ -130,10 +208,11 @@ def main(argv: list[str] | None = None) -> int:
                 "marker_file": str(marker),
                 "marker_exists": marker.is_file(),
             }
-            _json_print(overview)
-            if not overview["schema_supported"]:
+            doctor = _doctor_projection(overview)
+            _json_print(doctor)
+            if not doctor["schema_supported"]:
                 return 2
-            return 0 if overview["integrity_ok"] else 3
+            return 0 if doctor["integrity_ok"] else 3
         if args.command == "artifact-audit":
             audit = inspector.audit_artifact_store(
                 issue_limit=args.issue_limit

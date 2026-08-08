@@ -61,6 +61,7 @@ class TaskLaunchRequest:
     workspace_mode: str = ""
     workspace_base_revision: str = ""
     patch_policy: dict[str, Any] | None = None
+    routing_metadata: dict[str, Any] | None = None
 
 
 class TaskLaunchService:
@@ -110,6 +111,7 @@ class TaskLaunchService:
             max_changed_files=request.max_changed_files,
             verification_timeout_seconds=request.verification_timeout_seconds,
             require_patch=request.require_patch,
+            routing_metadata=request.routing_metadata,
         )
 
         official_extra = dict(

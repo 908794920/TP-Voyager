@@ -24,7 +24,7 @@ from agent_runtime.domain.structured_result import RESULT_SCHEMA, StructuredResu
 from agent_runtime.domain.task import Task
 from agent_runtime.domain.workflow import WorkflowStageSpec
 from agent_runtime.persistence.database import Database
-from agent_runtime.persistence.migrations import _MIGRATIONS
+from agent_runtime.persistence.migrations import SCHEMA_VERSION, _MIGRATIONS
 from agent_runtime.persistence.plan_execution_repository import PlanExecutionRepository
 
 
@@ -344,7 +344,7 @@ class V10ToV11MigrationTests(unittest.TestCase):
 
             db = Database(path)
             db.initialize()
-            self.assertEqual(db.schema_version(), 11)
+            self.assertEqual(db.schema_version(), SCHEMA_VERSION)
             with db.connect() as connection:
                 stage = connection.execute(
                     "SELECT status, verification_required, completion_policy FROM workflow_stages WHERE stage_id='stage-old'"

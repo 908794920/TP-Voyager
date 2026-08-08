@@ -24,6 +24,7 @@ from typing import Any, Callable
 from agent_runtime.backends.base import (
     BackendActivity,
     BackendResult,
+    BackendUsage,
 )
 
 
@@ -35,11 +36,13 @@ class RuntimeBackendCallbacks:
         *,
         on_dispatch_accepted: Callable[[str], None],
         on_activity: Callable[[str], None],
+        on_usage: Callable[[BackendUsage], None] | None = None,
         on_result: Callable[[BackendResult], None] | None = None,
         on_raw_event: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
         self._dispatch_accepted = on_dispatch_accepted
         self._activity = on_activity
+        self._usage = on_usage
         self._result = on_result
         self._raw_event = on_raw_event
 
@@ -52,6 +55,11 @@ class RuntimeBackendCallbacks:
 
     def on_activity(self, activity: BackendActivity) -> None:
         self._activity(activity.kind)
+
+    def on_usage(self, usage: BackendUsage) -> None:
+        """Persist a provider-reported usage fact through the Runtime-owned sink."""
+        if self._usage is not None:
+            self._usage(usage)
 
     def on_result(self, result: BackendResult) -> None:
         """Mark the execution finished; the runtime closes its finalization window."""

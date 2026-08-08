@@ -21,6 +21,7 @@ env/
 work/
 outputs/
 runtime-home/
+runtime-home-*/
 logs/
 *.log
 *.sqlite

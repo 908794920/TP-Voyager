@@ -16,6 +16,7 @@ from agent_runtime.backends.base import (
     BackendResumeRequest,
     BackendResult,
     BackendStartRequest,
+    BackendUsage,
 )
 from agent_runtime.domain.dispatch import CommandSpec
 from agent_runtime.backends.errors import (
@@ -140,6 +141,39 @@ class QoderBackend:
         resolve_qoder_cli()
         return {"ok": True, "runtime": "qoder", "capabilities": self.capabilities().to_dict()}
 
+
+    @staticmethod
+    def _usage_fact(
+        request: BackendStartRequest | BackendResumeRequest,
+        raw: dict[str, Any],
+    ) -> BackendUsage | None:
+        if not raw:
+            return None
+
+        def number(*names: str) -> float | int | None:
+            for name in names:
+                value = raw.get(name)
+                if isinstance(value, bool):
+                    continue
+                if isinstance(value, (int, float)) and value >= 0:
+                    return value
+            return None
+
+        input_tokens = number("inputTokens", "input_tokens", "prompt_tokens")
+        output_tokens = number("outputTokens", "output_tokens", "completion_tokens")
+        credits = number("creditsUsed", "credits_used", "credit_used")
+        reported_cost = number("cost", "reported_cost", "total_cost")
+        return BackendUsage(
+            provider="qoder",
+            model=request.model,
+            source="qoder_acp_usage_update",
+            input_tokens=int(input_tokens) if input_tokens is not None else None,
+            output_tokens=int(output_tokens) if output_tokens is not None else None,
+            credits_used=float(credits) if credits is not None else None,
+            reported_cost=float(reported_cost) if reported_cost is not None else None,
+            provider_usage=raw,
+        )
+
     def _register(self, task_id: str, live: _LiveExecution) -> None:
         with self._lock:
             if task_id in self._live:
@@ -172,8 +206,24 @@ class QoderBackend:
                 except ValueError as exc:
                     raise BackendProtocolError("Qoder patch policy contains an invalid command spec") from exc
         if mode == "read_only":
+            routing = request.metadata.get("routing_metadata")
+            routing = routing if isinstance(routing, dict) else {}
+            read_scope = routing.get("read_scope")
+            read_scope = read_scope if isinstance(read_scope, dict) else None
             factory = self._read_only_acp_client_factory
-            client = factory(cwd=request.cwd, on_activity=callbacks.on_activity)
+            if read_scope is None:
+                client = factory(cwd=request.cwd, on_activity=callbacks.on_activity)
+            else:
+                resolved_files = tuple(
+                    str(item) for item in read_scope.get("resolved_files", [])
+                    if isinstance(item, str) and item
+                )
+                client = factory(
+                    cwd=request.cwd,
+                    on_activity=callbacks.on_activity,
+                    allowed_paths=resolved_files,
+                    forbidden_paths=(".git", ".codebuddy", ".qoder"),
+                )
             route = "acp_read_only"
         elif mode == "patch":
             factory = self._patch_acp_client_factory
@@ -207,6 +257,11 @@ class QoderBackend:
                 max_task_duration_seconds=request.max_task_duration_seconds,
                 on_dispatch_accepted=accepted,
             )
+            usage_fact = self._usage_fact(request, dict(result.usage or {}))
+            if usage_fact is not None:
+                usage_sink = getattr(callbacks, "on_usage", None)
+                if callable(usage_sink):
+                    usage_sink(usage_fact)
             backend_result = BackendResult(
                 backend="qoder",
                 stop_reason=result.stop_reason,
@@ -217,7 +272,7 @@ class QoderBackend:
                     "stopReason": result.stop_reason,
                     "reasoning_effort_applied": result.reasoning_effort_applied,
                     "model_applied": result.model_applied,
-                    "usage": dict(result.usage or {}),
+                    "usage": usage_fact.to_dict() if usage_fact is not None else {},
                 },
                 observability={
                     **result.observability,
@@ -229,5 +284,17 @@ class QoderBackend:
             callbacks.on_result(backend_result)
             return backend_result
         finally:
+            # ACP may report usage before a timeout/cancel/protocol failure.
+            # Capture that observed fact even when no terminal result exists.
+            try:
+                raw_usage = client.usage_snapshot()
+                usage_fact = self._usage_fact(request, raw_usage)
+                usage_sink = getattr(callbacks, "on_usage", None)
+                if usage_fact is not None and callable(usage_sink):
+                    usage_sink(usage_fact)
+            except Exception:
+                # Usage evidence is auxiliary and must never mask the backend
+                # execution outcome.  The Runtime records only facts it got.
+                pass
             client.close()
             self._unregister(request.task_id)
