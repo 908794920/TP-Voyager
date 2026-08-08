@@ -1,3 +1,11 @@
+> **v1.0.2 发布状态（2026-08-09）**
+>
+> 本文定义的 Captain Cognition Live Matrix 已在隔离环境 `%TEMP%\tp-voyager-v102-live` 以真实 MCP stdio、CodeBuddy CLI 与 Qoder CLI 执行并通过；对应范围为 doctor、两家 Crew 的 read_scope/Usage、Qoder timeout Usage 保留及两家 bounded patch。
+>
+> 下文“标记 stable 前”的措辞保留为后续版本复用的准入规则，不表示当前 v1.0.2 仍待发布。
+
+---
+
 # TP-Voyager 测试策略
 
 测试只保护**当前支持 Contract**，不永久保存每个历史实现阶段。
