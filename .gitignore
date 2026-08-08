@@ -1,0 +1,38 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Runtime traces and temporary working files
+work/
+
+# User-facing output directory may contain generated artifacts
+outputs/
+
+# Local secrets and environment overrides
+.env
+.env.*
+*.local
+
+.codebuddy/
+.qoder/
+
+# Runtime home and durable state (runtime database, task history, session data, artifact cache)
+runtime-home/
+*.sqlite
+*.db
+logs/
+*.log
+
+# IDE and tool local state
+.idea/
+.vscode/
+.codex/
+.workbuddy/
+
+# Generated review-package outputs
+/docs/review-info.txt
+/docs/TP-Voyager-Review.zip
