@@ -119,6 +119,7 @@ class EvidenceType(str, Enum):
     FILE = "file"
     REVIEW = "review"
     ARTIFACT = "artifact"
+    USAGE = "usage"
 
 
 class TrustState(str, Enum):

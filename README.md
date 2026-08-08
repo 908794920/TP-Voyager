@@ -35,9 +35,19 @@ WorkBuddy 已从当前生产执行路径移除，仅保留必要的历史数据�
 
 ## 当前状态
 
-**TP-Voyager v1.0.1 — stable**
+**TP-Voyager v1.0.2 — stable**
 
-`v1.0.0` 已完成首轮真实环境验收，进入真实使用后发现的 Patch 生命周期竞态（任务可能先对 Captain 暴露 `completed`，随后才清理隔离 worktree）已在 `v1.0.1` 中修复：只有 worktree 已确认清理后才能对外可见 `completed`。`v1.0.1` 已通过真实环境 Live 验收（CodeBuddy/Qoder 只读 + bounded patch + completed 时刻无 `patch-*` worktree 残留 + 无隐藏 fallback）。
+`v1.0.1` 是已完成真实环境 Live 验收的稳定基线；`v1.0.2` 不改变 Captain / Voyager / Crew 三层、Runtime 核心状态机、Task/Result/Artifact 边界或 MCP 执行模型，只增强 Captain 可见的互操作契约与真实 Usage 事实记录。`v1.0.2` 已在真实 Windows + 正式 `mcp` + CodeBuddy/Qoder CLI 主机通过 Live Gate（docs/TESTING.md Captain Cognition Live Matrix 5 项全 PASS）。
+
+`v1.0.2` 新增：
+
+- 标准 Captain Skill YAML frontmatter 与 `tp-voyager.manifest/v1`；
+- `doctor --json` 安装/Runtime/MCP/Crew 只读诊断；
+- `tp-voyager.usage/v1` Usage Evidence（只记录 provider/CLI 实际返回）；
+- Passenger/Captain `model_policy.allowed_models`，不自动选模、不 fallback；
+- 受 SHA-256 约束的 `worker_profile_ref`；
+- CodeBuddy/Qoder 共用的 Captain-facing `read_scope`；
+- 外部任务只关联、不接管生命周期的 `correlation_id`。
 
 当前状态：
 
@@ -47,10 +57,11 @@ T1 Crew Registry          ACCEPTED
 T2 Captain Boundary       ACCEPTED
 T3 受控只读 Worker        ACCEPTED
 T4 Patch Worker           ACCEPTED (v1.0.1)
+v1.0.2 Captain cognition  LIVE-GATE PASSED / stable
 默认 Captain MCP Surface  6 tools
 ```
 
-`v1.0.1` 已满足稳定化 Gate：**Smoke 全绿 + CodeBuddy/Qoder 最小 Live Patch 矩阵通过 + 无 `patch-*` worktree 残留**。
+`v1.0.1` 已满足稳定化 Gate：**Smoke 全绿 + CodeBuddy/Qoder 最小 Live Patch 矩阵通过 + 无 `patch-*` worktree 残留**。`v1.0.2` 保持这条稳定执行基线不变，新增能力已通过真实 CLI Live Gate。
 
 因此：
 
@@ -327,7 +338,7 @@ MIT 是非常宽松、友好的开源协议，允许个人和商业场景自由�
 
 ## 当前开发策略
 
-TP-Voyager 已进入真实航行阶段；当前 `v1.0.1` 已收口首轮真实使用反馈，不扩展架构。
+TP-Voyager 已进入真实航行阶段；`v1.0.2` 只在 v1.0.1 stable 基线上增强 Captain 认知与互操作契约，不扩展为 Planner、计费系统或自动模型路由。
 
 当前不主动扩展：
 

@@ -12,9 +12,9 @@
 
 ## 当前基线
 
-**TP-Voyager v1.0.1 — stable**
+**TP-Voyager v1.0.2 — stable（v1.0.1 stable 基线）**
 
-T0–T4 已完成真实环境验收，当前进入 **Real Voyage（真实使用）** 阶段：
+T0–T4 已完成真实环境验收；v1.0.2 已通过真实 Live Gate，当前进入 **Real Voyage（真实使用）** 阶段：
 
 ```text
 T0 目标架构收口      ACCEPTED
@@ -22,6 +22,7 @@ T1 Crew Registry     ACCEPTED
 T2 Captain Boundary  ACCEPTED
 T3 受控只读 Worker   ACCEPTED
 T4 Patch Worker      ACCEPTED (v1.0.1)
+v1.0.2 cognition      LIVE-GATE PASSED / stable
 
 Passenger → Captain AI → TP-Voyager → Crew
                               ├─ CodeBuddy CLI
@@ -33,6 +34,8 @@ Passenger → Captain AI → TP-Voyager → Crew
 - Crew：执行边界明确的具体工作。
 
 **TP-Voyager 不得演化成第二个 Captain。**
+
+v1.0.2 新增的 Model Policy、Usage Evidence、Worker Profile、read_scope、correlation_id 都只能增强 Captain 认知与受控执行；不得据此引入自动选模、自动 fallback、第二任务系统或 Planner。
 
 ## Backend 边界
 

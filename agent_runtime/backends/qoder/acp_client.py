@@ -174,13 +174,6 @@ class QoderAcpClient:
         config_options = session_response.get("configOptions")
         if not isinstance(config_options, list):
             config_options = []
-        if not model.strip():
-            # Qoder ACP sessions can come up with a stale default model alias
-            # (for example "lite") that no longer exists in the current account
-            # catalog.  Pin an explicit catalog model so a bare Captain dispatch
-            # does not fail with "Model ... is not available in the current
-            # Qoder catalog".
-            model = self._default_model(config_options)
         model_applied, config_options = self._apply_config_option(
             session_id=session_id,
             config_options=config_options,
@@ -224,6 +217,10 @@ class QoderAcpClient:
             model_applied=model_applied,
             usage=dict(self._usage),
         )
+
+    def usage_snapshot(self) -> dict[str, Any]:
+        """Return only scalar usage fields actually observed from ACP."""
+        return dict(self._usage)
 
     def cancel(self, session_id: str = "") -> None:
         self._cancelled.set()
@@ -277,21 +274,6 @@ class QoderAcpClient:
         # Preserve the session/new options so subsequent independent settings
         # (for example thought level after model) can still be applied.
         return True, updated if isinstance(updated, list) and updated else config_options
-
-    @staticmethod
-    def _default_model(config_options: list[Any]) -> str:
-        """Return the first catalog model value, or "" when unavailable."""
-        option = QoderAcpClient._find_config_option(config_options, "model")
-        if option is None:
-            return ""
-        raw_options = option.get("options")
-        if isinstance(raw_options, list):
-            for item in raw_options:
-                if isinstance(item, dict):
-                    value = str(item.get("value") or "")
-                    if value:
-                        return value
-        return ""
 
     @staticmethod
     def _find_config_option(config_options: list[Any], category: str) -> dict[str, Any] | None:

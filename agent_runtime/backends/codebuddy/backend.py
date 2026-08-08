@@ -16,6 +16,7 @@ from agent_runtime.backends.base import (
     BackendResumeRequest,
     BackendResult,
     BackendStartRequest,
+    BackendUsage,
 )
 from agent_runtime.backends.codebuddy.process import resolve_codebuddy_cli
 from agent_runtime.backends.codebuddy.sdk_client import CodeBuddySdkClient, load_codebuddy_sdk
@@ -132,6 +133,44 @@ class CodeBuddyBackend:
             "capabilities": self.capabilities().to_dict(),
         }
 
+
+    @staticmethod
+    def _usage_fact(
+        request: BackendStartRequest | BackendResumeRequest,
+        raw: dict[str, Any],
+        total_cost_usd: float | None,
+    ) -> BackendUsage | None:
+        if not raw and total_cost_usd is None:
+            return None
+
+        def number(*names: str) -> float | int | None:
+            for name in names:
+                value = raw.get(name)
+                if isinstance(value, bool):
+                    continue
+                if isinstance(value, (int, float)) and value >= 0:
+                    return value
+            return None
+
+        input_tokens = number("input_tokens", "inputTokens", "prompt_tokens")
+        output_tokens = number("output_tokens", "outputTokens", "completion_tokens")
+        credits = number("credits_used", "creditsUsed", "credit_used")
+        return BackendUsage(
+            provider="codebuddy",
+            model=request.model,
+            source="codebuddy_sdk_result",
+            input_tokens=int(input_tokens) if input_tokens is not None else None,
+            output_tokens=int(output_tokens) if output_tokens is not None else None,
+            credits_used=float(credits) if credits is not None else None,
+            reported_cost=(
+                float(total_cost_usd)
+                if isinstance(total_cost_usd, (int, float)) and not isinstance(total_cost_usd, bool) and total_cost_usd >= 0
+                else None
+            ),
+            currency="USD" if total_cost_usd is not None else None,
+            provider_usage=raw,
+        )
+
     def _register(self, task_id: str, live: _LiveExecution) -> None:
         with self._lock:
             if task_id in self._live:
@@ -201,6 +240,11 @@ class CodeBuddyBackend:
                 max_task_duration_seconds=request.max_task_duration_seconds,
                 on_dispatch_accepted=accepted,
             )
+            usage_fact = self._usage_fact(request, dict(result.usage or {}), result.total_cost_usd)
+            if usage_fact is not None:
+                usage_sink = getattr(callbacks, "on_usage", None)
+                if callable(usage_sink):
+                    usage_sink(usage_fact)
             backend_result = BackendResult(
                 backend="codebuddy",
                 stop_reason=result.stop_reason,
@@ -210,7 +254,7 @@ class CodeBuddyBackend:
                     "backend": "codebuddy",
                     "stopReason": result.stop_reason,
                     "model_applied": bool(request.model) if request.model else None,
-                    "usage": dict(result.usage or {}),
+                    "usage": usage_fact.to_dict() if usage_fact is not None else {},
                     "total_cost_usd": result.total_cost_usd,
                 },
                 observability={**result.observability},

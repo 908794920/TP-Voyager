@@ -1,6 +1,14 @@
+---
+name: tp-voyager-captain
+description: Route bounded work through TP-Voyager MCP.
+metadata:
+  version: "1.0.2"
+  protocol: "tp-voyager-captain/v1"
+---
+
 # TP-Voyager Captain Skill
 
-> Version: 1.0.1
+> Version: 1.0.2
 >
 > Role: Captain-side orchestration skill for TP-Voyager.
 >
@@ -432,20 +440,45 @@ objective
 chosen Crew
 task kind
 working directory when required
-context scope when required
+read scope when useful
+explicit model / model policy when the Passenger constrains models
 timeout budget
 patch policy for patch work
+optional worker_profile_ref
+optional correlation_id
 ```
 
-For **CodeBuddy read-only** work, prefer the high-level `context_files` argument
-to `task_dispatch`.  Pass the smallest relevant list of relative UTF-8 text
-files.  TP-Voyager creates and verifies the existing Context Manifest
-internally; the Captain does not need to call low-level `context_*` tools.
+For new **read-only** work, prefer the vendor-neutral `read_scope` contract:
 
-Do not supply both `context_id` and `context_files`.
+```json
+{
+  "files": ["README.md"],
+  "directories": ["src/parser"],
+  "globs": ["tests/parser/**/*.py"]
+}
+```
 
-For **Qoder read-only** work, do not manufacture a Context Manifest merely for
-symmetry; use its accepted controlled ACP read-only route.
+TP-Voyager resolves that intent to a bounded concrete file set. CodeBuddy maps
+it through its immutable Context Manifest/snapshot path; Qoder maps it through
+the ACP host filesystem boundary. The Captain does not need to understand those
+vendor differences. Scope conversion must fail closed and never widen access.
+
+Legacy `context_files` remains accepted only for CodeBuddy compatibility. Do
+not supply `context_id` together with `read_scope` or `context_files`.
+
+When the Passenger supplies a model pool, pass `model_policy.allowed_models`
+and explicitly select `model` from that pool. TP-Voyager validates the choice;
+it does not choose or fall back to another model. If no model policy is supplied,
+existing Crew default-model semantics remain available for compatibility, but
+TP-Voyager itself must never replace an omitted model with a catalog guess.
+
+`worker_profile_ref` is a trusted profile reference (`name`, `version`,
+`sha256`). TP-Voyager resolves and hashes the operator-owned profile before
+injecting it into the transient Crew prompt; profile content is not persisted
+as routing metadata.
+
+Use `correlation_id` only to link an external work item to the Voyager Task. It
+does not transfer external task lifecycle ownership into TP-Voyager.
 
 Before patch dispatch, the Passenger must already have provided or explicitly
 confirmed the effective write scope and verification boundary.  If allowed
@@ -513,7 +546,12 @@ execution_budget.elapsed_seconds
 changed paths
 patch/evidence references
 risk or warning fields
+usage (when the Crew/provider actually reported it)
 ```
+
+`usage` is provider-reported Usage Evidence, not a TP-Voyager bill or price
+estimate. Missing token/credit/cost fields stay unknown. Failed, timed-out, or
+cancelled attempts may still expose usage already observed before termination.
 
 ---
 

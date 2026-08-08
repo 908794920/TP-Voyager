@@ -46,6 +46,7 @@ SMOKE_TARGETS = (
     TestTarget("tests.test_v2_task_launch.TaskLaunchServiceTests.test_qoder_routes_explicit_fields_and_rejects_legacy_review_fields", 90, "shared launch boundary"),
     TestTarget("tests.test_v2_plan_execution_controller.PlanExecutionControllerTests.test_pump_advances_one_task_at_a_time_to_completion", 120, "durable plan execution spine"),
     TestTarget("tests.test_runtime_migrations.MigrationTests.test_empty_database_initializes_to_current_schema", 120, "schema initialization"),
+    TestTarget("tests.test_captain_policy_evidence.CaptainPolicyEvidenceTests.test_usage_evidence_records_only_provider_reported_values", 90, "Usage Evidence contract"),
     TestTarget("tests.test_tp_voyager_architecture", 90, "TP-Voyager architecture gate"),
     TestTarget("tests.test_test_profiles", 90, "test-profile policy"),
 )
@@ -67,6 +68,7 @@ REGRESSION_MODULES = (
     "test_activity_log",
     "test_backend_contract",
     "test_captain_boundary",
+    "test_captain_policy_evidence",
     "test_codebuddy_backend",
     "test_crew_registry",
     "test_patch_worker",

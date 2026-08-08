@@ -12,6 +12,7 @@ from mcp.server.fastmcp import FastMCP
 
 from agent_runtime.activity_log import ActivityLogger
 from agent_runtime.runtime.backend_callbacks import RuntimeBackendCallbacks
+from agent_runtime.api.schemas import CAPTAIN_TOOL_NAMES
 from agent_runtime.domain.enums import (
     TERMINAL_STATUS_VALUES,
     EventType,
@@ -94,8 +95,19 @@ from agent_runtime.application.plan_execution_service import (
 from agent_runtime.application.outcome_service import assess_task_result
 from agent_runtime.application.crew import CrewProvider, CrewRegistryService
 from agent_runtime.application.dispatch import CaptainDispatchService
+from agent_runtime.application.dispatch.profiles import (
+    WorkerProfileError,
+    WorkerProfileResolver,
+)
 from agent_runtime.application.voyage import VoyageOverviewService
-from agent_runtime.domain.dispatch import CaptainDispatchRequest, CommandSpec, PatchPolicy
+from agent_runtime.domain.dispatch import (
+    CaptainDispatchRequest,
+    CommandSpec,
+    ModelPolicy,
+    PatchPolicy,
+    ReadScope,
+    WorkerProfileRef,
+)
 from agent_runtime.backends.codebuddy import CodeBuddyBackend
 from agent_runtime.backends.codebuddy.captain_dispatch import CodeBuddyContextReadOnlyDispatcher
 from agent_runtime.backends.codebuddy.capability import descriptor as codebuddy_crew_descriptor
@@ -122,6 +134,7 @@ from agent_runtime.backends.base import (
     BackendResult,
     BackendResumeRequest,
     BackendStartRequest,
+    BackendUsage,
     SubAgentBackend,
 )
 from agent_runtime.backends.qoder import QoderBackend
@@ -142,14 +155,7 @@ mcp = FastMCP(
 )
 
 
-_CAPTAIN_TOOL_NAMES = frozenset({
-    "crew_catalog",
-    "crew_health",
-    "crew_recommend",
-    "voyager_overview",
-    "task_dispatch",
-    "task_result",
-})
+_CAPTAIN_TOOL_NAMES = CAPTAIN_TOOL_NAMES
 
 
 def _mcp_surface() -> str:
@@ -250,6 +256,12 @@ def _replay_service() -> ReplayService:
 
 def _context_service() -> ProjectContextService:
     return ProjectContextService(_get_runtime_database())
+
+
+def _worker_profile_resolver() -> WorkerProfileResolver:
+    configured = str(os.getenv("TP_VOYAGER_WORKER_PROFILE_ROOT") or "").strip()
+    root = Path(configured).expanduser() if configured else ROOT / "skills" / "tp-voyager-captain" / "worker-profiles"
+    return WorkerProfileResolver(root)
 
 
 def _knowledge_service() -> KnowledgeRuntimeService:
@@ -596,6 +608,10 @@ def _task_state_from_durable(
         task.workspace_mode = str(metadata.get("workspace_mode") or "")
         task.workspace_base_revision = str(metadata.get("workspace_base_revision") or "")
         task.patch_policy = dict(metadata.get("patch_policy")) if isinstance(metadata.get("patch_policy"), dict) else {}
+        task.routing_metadata = (
+            dict(metadata.get("routing_metadata"))
+            if isinstance(metadata.get("routing_metadata"), dict) else {}
+        )
     lineage = service.get_lineage(durable.task_id)
     if lineage is not None:
         task.parent_task_id = lineage.parent_task_id
@@ -643,6 +659,7 @@ def _merge_durable(
     view.workspace_mode = handle.workspace_mode or view.workspace_mode
     view.workspace_base_revision = handle.workspace_base_revision or view.workspace_base_revision
     view.patch_policy = dict(handle.patch_policy or view.patch_policy)
+    view.routing_metadata = dict(handle.routing_metadata or view.routing_metadata)
     view.agent_profile = handle.agent_profile or view.agent_profile
     view.execution_mode = handle.execution_mode or view.execution_mode
     view.verification_plan = dict(handle.verification_plan or view.verification_plan)
@@ -1266,6 +1283,21 @@ def _make_backend_callbacks(
             )
         _note_task_activity(task, kind)
 
+    def on_usage(usage: BackendUsage) -> None:
+        if not task.persisted:
+            return
+        try:
+            _runtime_service().append_usage_evidence(
+                task.task_id,
+                usage=usage.to_dict(),
+                lease=task.lease,
+            )
+        except (LeaseLostError, RuntimePersistenceError, TaskNotFoundError, ValueError):
+            # Usage is auxiliary provider evidence.  Never alter task truth,
+            # patch cleanup, or terminal persistence because usage capture
+            # itself could not be durably appended.
+            return
+
     def on_result(result: Any) -> None:
         # The backend produced its final result; the runtime is now
         # finalizing (history sync + terminal persistence).  Mark the
@@ -1282,6 +1314,7 @@ def _make_backend_callbacks(
     return RuntimeBackendCallbacks(
         on_dispatch_accepted=on_dispatch_accepted,
         on_activity=on_activity,
+        on_usage=on_usage,
         on_result=on_result,
         on_raw_event=log_event,
     )
@@ -1371,6 +1404,7 @@ def _run_official_cli_task(
             ),
             "verification_plan": dict(task.verification_plan or {}),
             "patch_policy": dict(task.patch_policy or {}),
+            "routing_metadata": dict(task.routing_metadata or {}),
         }
         if task.resume_session_id:
             request = BackendResumeRequest(
@@ -1533,6 +1567,7 @@ def _durable_cli_start(
     workspace_mode: str = "",
     workspace_base_revision: str = "",
     patch_policy: dict[str, Any] | None = None,
+    routing_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Shared durable launcher for official CLI adapters.
 
@@ -1566,6 +1601,17 @@ def _durable_cli_start(
         )
     except ValueError as exc:
         return {"ok": False, "error": str(exc)}
+    routing = dict(routing_metadata or {})
+    allowed_routing_keys = {"read_scope", "worker_profile_ref", "correlation_id", "model_policy"}
+    if set(routing) - allowed_routing_keys:
+        return {"ok": False, "error": "routing_metadata contains unsupported keys"}
+    try:
+        encoded_routing = json.dumps(routing, ensure_ascii=False, sort_keys=True)
+    except (TypeError, ValueError):
+        return {"ok": False, "error": "routing_metadata must be JSON serializable"}
+    if len(encoded_routing.encode("utf-8")) > 32 * 1024:
+        return {"ok": False, "error": "routing_metadata exceeds 32 KiB"}
+
     try:
         service = _runtime_service()
     except RuntimePersistenceError as exc:
@@ -1620,6 +1666,7 @@ def _durable_cli_start(
             "agent_profile": agent_profile.strip(),
             "execution_mode": execution_mode.strip().lower(),
             "verification_plan": plan.to_dict(),
+            "routing_metadata": routing,
         },
     )
     if canonical_key:
@@ -1670,6 +1717,7 @@ def _durable_cli_start(
         "workspace_mode": workspace_mode.strip(),
         "workspace_base_revision": workspace_base_revision.strip(),
         "patch_policy": dict(patch_policy or {}),
+        "routing_metadata": routing,
     }
     durable_task = Task(
         task_id=task_id,
@@ -1746,6 +1794,7 @@ def _durable_cli_start(
         workspace_mode=workspace_mode.strip(),
         workspace_base_revision=workspace_base_revision.strip(),
         patch_policy=dict(patch_policy or {}),
+        routing_metadata=routing,
     )
     with TASKS_LOCK:
         TASKS[task_id] = task
@@ -1797,6 +1846,7 @@ def _qoder_start(
     workspace_mode: str = "",
     workspace_base_revision: str = "",
     patch_policy: dict[str, Any] | None = None,
+    routing_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     canonical_route = route.strip().lower() or "acp_read_only"
     if canonical_route not in {"acp_read_only", "acp_patch"}:
@@ -1843,6 +1893,7 @@ def _qoder_start(
         workspace_mode=workspace_mode,
         workspace_base_revision=workspace_base_revision,
         patch_policy=patch_policy,
+        routing_metadata=routing_metadata,
     )
 
 
@@ -1875,6 +1926,7 @@ def _codebuddy_start(
     workspace_mode: str = "",
     workspace_base_revision: str = "",
     patch_policy: dict[str, Any] | None = None,
+    routing_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     canonical_route = route.strip().lower() or "sdk_context_read_only"
     if canonical_route not in {"sdk_context_read_only", "sdk_patch"}:
@@ -1929,6 +1981,7 @@ def _codebuddy_start(
         workspace_mode=workspace_mode,
         workspace_base_revision=workspace_base_revision,
         patch_policy=patch_policy,
+        routing_metadata=routing_metadata,
     )
 
 def _safe_relative_values(values: list[str] | None, *, field_name: str) -> tuple[str, ...]:
@@ -2059,6 +2112,37 @@ def _task_wait(task_id: str, timeout_seconds: int = 55) -> dict[str, Any]:
     return {"ok": True, "wait_timed_out": wait_timed_out, **_public(task)}
 
 
+def _usage_evidence_for_task(task_id: str) -> dict[str, Any]:
+    try:
+        return _runtime_service().latest_usage_evidence(task_id)
+    except (TaskNotFoundError, ValueError, RuntimePersistenceError):
+        return {}
+
+
+def _routing_projection(task: TaskState) -> dict[str, Any]:
+    routing = task.routing_metadata if isinstance(task.routing_metadata, dict) else {}
+    output: dict[str, Any] = {}
+    correlation_id = routing.get("correlation_id")
+    if isinstance(correlation_id, str) and correlation_id:
+        output["correlation_id"] = correlation_id
+    profile = routing.get("worker_profile_ref")
+    if isinstance(profile, dict):
+        output["worker_profile_ref"] = dict(profile)
+    policy = routing.get("model_policy")
+    if isinstance(policy, dict):
+        output["model_policy"] = dict(policy)
+    scope = routing.get("read_scope")
+    if isinstance(scope, dict):
+        resolved = scope.get("resolved_files")
+        output["read_scope"] = {
+            "files": list(scope.get("files") or []),
+            "directories": list(scope.get("directories") or []),
+            "globs": list(scope.get("globs") or []),
+            "resolved_file_count": len(resolved) if isinstance(resolved, list) else 0,
+        }
+    return output
+
+
 def _task_result_response(task_id: str) -> dict[str, Any]:
     """Return final task material only after a task completed successfully.
 
@@ -2079,12 +2163,16 @@ def _task_result_response(task_id: str) -> dict[str, Any]:
             "ok": False,
             "error": "Final subagent material is not available for this task state",
             **_public(task),
+            **_routing_projection(task),
+            "usage": _usage_evidence_for_task(task_id),
         }
     if task.result_parse_error:
         return {
             "ok": False,
             "state": "completed",
             **_public(task),
+            **_routing_projection(task),
+            "usage": _usage_evidence_for_task(task_id),
             "error": "Task completed, but persisted final material is unreadable",
         }
     if not (
@@ -2096,6 +2184,8 @@ def _task_result_response(task_id: str) -> dict[str, Any]:
             "ok": False,
             "state": "completed",
             **_public(task),
+            **_routing_projection(task),
+            "usage": _usage_evidence_for_task(task_id),
             "error": "Task completed, but final subagent material could not be recovered",
         }
     parsed = None
@@ -2129,6 +2219,7 @@ def _task_result_response(task_id: str) -> dict[str, Any]:
         "root_task_id": task.root_task_id or task.task_id,
         "context_id": task.context_id,
         "execution_mode": task.execution_mode,
+        **_routing_projection(task),
         "answer": parsed.answer if parsed is not None else task.answer,
         "changed_files": parsed.changed_files if parsed is not None else [],
         "tests": parsed.tests if parsed is not None else [],
@@ -2136,7 +2227,10 @@ def _task_result_response(task_id: str) -> dict[str, Any]:
         "risks": parsed.risks if parsed is not None else [],
         "claims": parsed.claims if parsed is not None else [],
         "verification": parsed.verification if parsed is not None else {},
-        "usage": parsed.usage if parsed is not None else {},
+        "usage": (
+            _usage_evidence_for_task(task_id)
+            or (parsed.usage if parsed is not None else {})
+        ),
         "result_summary": _result_summary(task),
     }
 
@@ -2554,85 +2648,117 @@ def task_dispatch(
     idempotency_key: str = "",
     context_id: str = "",
     context_files: list[str] | None = None,
+    read_scope: dict[str, Any] | None = None,
+    model_policy: dict[str, Any] | None = None,
+    worker_profile_ref: dict[str, Any] | None = None,
+    correlation_id: str = "",
     timeout_seconds: int = 300,
     required_capabilities: list[str] | None = None,
     patch_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Dispatch one explicit Captain-selected Crew task under bounded policy.
 
-    For CodeBuddy read-only work, ``context_files`` is the high-level Captain
-    convenience path: TP-Voyager creates the existing bounded Context Manifest
-    internally so normal users do not need to call low-level context tools.
+    ``read_scope`` is the vendor-neutral read-only contract.  Legacy
+    ``context_files`` remains accepted for CodeBuddy Context Manifest
+    compatibility.  TP-Voyager never chooses a
+    model or resolves an unverified Worker profile on the Crew's behalf.
     """
+    normalized_crew = str(crew or "").strip().lower()
+    normalized_kind = str(task_kind or "").strip().lower()
+    normalized_mode = str(access_mode or "read_only").strip().lower()
+
+    def reject(reason_code: str, detail: str) -> dict[str, Any]:
+        return {
+            "ok": False,
+            "schema": "tp-voyager.dispatch/v1",
+            "reason_code": reason_code,
+            "detail": detail,
+            "crew": normalized_crew or None,
+            "task_kind": normalized_kind or None,
+            "selection_performed": False,
+            "dispatch_performed": False,
+        }
+
     parsed_policy: PatchPolicy | None = None
     if patch_policy is not None:
         try:
             parsed_policy = PatchPolicy.from_dict(patch_policy)
         except (TypeError, ValueError) as exc:
-            return {
-                "ok": False,
-                "schema": "tp-voyager.dispatch/v1",
-                "reason_code": "INVALID_PATCH_POLICY",
-                "detail": str(exc),
-                "crew": str(crew or "").strip().lower() or None,
-                "task_kind": str(task_kind or "").strip().lower() or None,
-                "selection_performed": False,
-                "dispatch_performed": False,
-            }
-    normalized_crew = str(crew or "").strip().lower()
-    normalized_mode = str(access_mode or "read_only").strip().lower()
+            return reject("INVALID_PATCH_POLICY", str(exc))
+
+    parsed_model_policy: ModelPolicy | None = None
+    if model_policy is not None:
+        try:
+            parsed_model_policy = ModelPolicy.from_dict(model_policy)
+        except (TypeError, ValueError) as exc:
+            return reject("INVALID_MODEL_POLICY", str(exc))
+
+    parsed_scope: ReadScope | None = None
     supplied_files = list(context_files or [])
+    if supplied_files and read_scope is not None:
+        return reject("INVALID_READ_SCOPE", "pass read_scope or legacy context_files, not both")
+    if read_scope is not None:
+        try:
+            parsed_scope = ReadScope.from_dict(read_scope)
+        except (TypeError, ValueError) as exc:
+            return reject("INVALID_READ_SCOPE", str(exc))
+    elif supplied_files:
+        if normalized_crew != "codebuddy" or normalized_mode != "read_only":
+            return reject(
+                "CONTEXT_FILES_NOT_APPLICABLE",
+                "legacy context_files is only accepted for CodeBuddy read-only dispatch; use read_scope",
+            )
+
     effective_context_id = str(context_id or "").strip()
+    if supplied_files and effective_context_id:
+        return reject("INVALID_CONTEXT_REQUEST", "pass context_id or context_files, not both")
+    if parsed_scope is not None and effective_context_id:
+        return reject("INVALID_CONTEXT_REQUEST", "pass context_id or read_scope, not both")
+    if parsed_scope is not None and normalized_mode != "read_only":
+        return reject("READ_SCOPE_NOT_APPLICABLE", "read_scope is only accepted for read_only access_mode")
+    if effective_context_id and normalized_crew == "qoder":
+        return reject("CONTEXT_ID_NOT_APPLICABLE", "Qoder Captain dispatch uses read_scope, not Context Manifest ids")
+
+    resolved_files: tuple[str, ...] = ()
     context_auto_created = False
     if supplied_files:
-        if effective_context_id:
-            return {
-                "ok": False,
-                "schema": "tp-voyager.dispatch/v1",
-                "reason_code": "INVALID_CONTEXT_REQUEST",
-                "detail": "pass context_id or context_files, not both",
-                "crew": normalized_crew or None,
-                "task_kind": str(task_kind or "").strip().lower() or None,
-                "selection_performed": False,
-                "dispatch_performed": False,
-            }
-        if normalized_crew != "codebuddy" or normalized_mode != "read_only":
-            return {
-                "ok": False,
-                "schema": "tp-voyager.dispatch/v1",
-                "reason_code": "CONTEXT_FILES_NOT_APPLICABLE",
-                "detail": "context_files is only used by the CodeBuddy controlled read-only route",
-                "crew": normalized_crew or None,
-                "task_kind": str(task_kind or "").strip().lower() or None,
-                "selection_performed": False,
-                "dispatch_performed": False,
-            }
         try:
             registered = _context_service().register(cwd, supplied_files)
             effective_context_id = str(registered.manifest.get("context_id") or "")
             context_auto_created = True
         except (ValueError, TypeError, ContextError) as exc:
-            return {
-                "ok": False,
-                "schema": "tp-voyager.dispatch/v1",
-                "reason_code": "CONTEXT_INVALID",
-                "detail": str(exc),
-                "crew": normalized_crew or None,
-                "task_kind": str(task_kind or "").strip().lower() or None,
-                "selection_performed": False,
-                "dispatch_performed": False,
-            }
+            return reject("CONTEXT_INVALID", str(exc))
         except RuntimePersistenceError:
-            return {
-                "ok": False,
-                "schema": "tp-voyager.dispatch/v1",
-                "reason_code": "RUNTIME_UNAVAILABLE",
-                "detail": "runtime database unavailable",
-                "crew": normalized_crew or None,
-                "task_kind": str(task_kind or "").strip().lower() or None,
-                "selection_performed": False,
-                "dispatch_performed": False,
-            }
+            return reject("RUNTIME_UNAVAILABLE", "runtime database unavailable")
+    elif parsed_scope is not None:
+        try:
+            resolved_files = tuple(_context_service().resolve_read_scope(cwd, parsed_scope))
+            if normalized_crew == "codebuddy":
+                registered = _context_service().register(cwd, resolved_files)
+                effective_context_id = str(registered.manifest.get("context_id") or "")
+                context_auto_created = True
+        except (ValueError, TypeError, ContextError) as exc:
+            return reject("READ_SCOPE_INVALID", str(exc))
+        except RuntimePersistenceError:
+            return reject("RUNTIME_UNAVAILABLE", "runtime database unavailable")
+
+    parsed_profile: WorkerProfileRef | None = None
+    profile_content = ""
+    if worker_profile_ref is not None:
+        try:
+            parsed_profile = WorkerProfileRef.from_dict(worker_profile_ref)
+            profile_content = _worker_profile_resolver().resolve(parsed_profile).content
+        except (TypeError, ValueError, WorkerProfileError) as exc:
+            return reject("WORKER_PROFILE_INVALID", str(exc))
+
+    external_correlation_id = str(correlation_id or "").strip()
+    if external_correlation_id:
+        if (
+            len(external_correlation_id) > 160
+            or "\x00" in external_correlation_id
+            or any(ord(ch) < 32 for ch in external_correlation_id)
+        ):
+            return reject("INVALID_CORRELATION_ID", "correlation_id must be printable and at most 160 characters")
 
     result = _captain_dispatch_service().dispatch(
         CaptainDispatchRequest(
@@ -2647,6 +2773,12 @@ def task_dispatch(
             timeout_seconds=timeout_seconds,
             required_capabilities=tuple(required_capabilities or ()),
             patch_policy=parsed_policy,
+            model_policy=parsed_model_policy,
+            read_scope=parsed_scope,
+            resolved_read_files=resolved_files,
+            worker_profile_ref=parsed_profile,
+            worker_profile_content=profile_content,
+            correlation_id=external_correlation_id,
         )
     )
     if context_auto_created:
@@ -2655,6 +2787,14 @@ def task_dispatch(
             "context_id": effective_context_id,
             "context_auto_created": True,
         }
+        if parsed_scope is not None:
+            result = {**result, "read_scope_resolved_file_count": len(resolved_files)}
+    elif parsed_scope is not None:
+        result = {**result, "read_scope_resolved_file_count": len(resolved_files)}
+    if external_correlation_id:
+        result = {**result, "correlation_id": external_correlation_id}
+    if parsed_profile is not None:
+        result = {**result, "worker_profile_ref": parsed_profile.to_dict()}
     return result
 
 

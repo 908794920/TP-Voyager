@@ -75,6 +75,36 @@ AND Git worktree registration 无残留
 
 正式恢复 Patch production-ready 声明前，只需要做最小 Live Matrix：CodeBuddy/Qoder 各一个 bounded patch，并检查原始工作树与 Runtime worktree。不要重跑历史多小时套件。
 
+## v1.0.2 Captain Cognition Gate
+
+代码侧必须满足：
+
+```text
+Smoke 全绿
++ Current 全绿
++ schema 11 -> 12 迁移保留既有 Evidence/Workflow 数据
++ doctor --json 不调用模型且不返回 Credential/任务内容/Usage
++ Usage Evidence 只保存 provider 实际返回字段
++ Qoder timeout/cancel 前已观察到的 Usage 不因无最终 Result 而丢失
++ model_policy 不做自动选择/fallback
++ read_scope 对 CodeBuddy/Qoder 都 fail-closed
++ worker_profile_ref SHA-256 不匹配必须拒绝
++ 默认 Captain MCP Surface 仍为 6 tools
+```
+
+正式把 v1.0.2 标记为 stable 前，在装有正式 MCP、CodeBuddy SDK/CLI、Qoder CLI 的主机执行最小 Live Matrix：
+
+```text
+1. doctor --json
+2. CodeBuddy read_scope read-only + task_result usage
+3. Qoder read_scope read-only + 显式 model_policy/model + task_result usage
+4. 一个 Qoder cancel/timeout 样本，确认已返回 Usage 时 Evidence 仍存在
+5. CodeBuddy/Qoder 各一个现有 bounded patch，确认 v1.0.1 Patch Gate 未回归
+```
+
+不要用公开 Token 单价、Credit 倍率或 Benchmark 推算 Usage 来伪造 Live 结果。
+
+
 ## 防止测试膨胀
 
 删除一个正式功能时，应同时删除：

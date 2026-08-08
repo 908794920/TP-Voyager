@@ -8,6 +8,7 @@ legacy backend, never auto-selects another Crew, and never invokes WorkBuddy.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any, Callable, Mapping
 
 from agent_runtime.application.crew import CrewRegistryService
@@ -63,6 +64,49 @@ class CaptainDispatchService:
             )
         if int(request.timeout_seconds) <= 0:
             return self._reject("INVALID_REQUEST", "timeout_seconds must be positive", crew=crew, task_kind=kind)
+
+        selected_model = str(request.model or "").strip()
+        if request.model_policy is not None:
+            if not selected_model:
+                return self._reject(
+                    "MODEL_REQUIRED",
+                    "model_policy requires the Captain to explicitly choose a model",
+                    crew=crew,
+                    task_kind=kind,
+                )
+            if selected_model not in request.model_policy.allowed_models:
+                return self._reject(
+                    "MODEL_NOT_ALLOWED",
+                    "selected model is outside the Passenger/Captain allowed model pool",
+                    crew=crew,
+                    task_kind=kind,
+                )
+
+        if mode != "read_only" and (request.read_scope is not None or request.resolved_read_files):
+            return self._reject(
+                "READ_SCOPE_NOT_APPLICABLE",
+                "read_scope is only accepted for read_only access_mode",
+                crew=crew,
+                task_kind=kind,
+            )
+
+        if request.worker_profile_ref is not None:
+            if not str(request.worker_profile_content or "").strip():
+                return self._reject(
+                    "WORKER_PROFILE_UNRESOLVED",
+                    "worker_profile_ref must resolve and verify before dispatch",
+                    crew=crew,
+                    task_kind=kind,
+                )
+            objective = (
+                "# TP-Voyager verified Worker Profile\n\n"
+                f"Profile: {request.worker_profile_ref.profile_id}\n"
+                f"SHA256: {request.worker_profile_ref.sha256}\n\n"
+                f"{request.worker_profile_content.strip()}\n\n"
+                "# Assigned bounded task\n\n"
+                f"{objective}"
+            )
+            request = replace(request, objective=objective)
         if mode == "patch":
             if kind != "small_patch":
                 return self._reject(

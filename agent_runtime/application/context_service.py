@@ -17,6 +17,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Iterable
 
 from agent_runtime.domain.context import ContextEntry, ContextManifest
+from agent_runtime.domain.dispatch import ReadScope
 from agent_runtime.domain.ids import new_context_manifest_id
 from agent_runtime.persistence.database import Database
 from agent_runtime.persistence.context_repository import ContextRepository
@@ -54,6 +55,85 @@ class ProjectContextService:
     def __init__(self, db: Database) -> None:
         self.db = db
         self.repo = ContextRepository(db)
+
+    def resolve_read_scope(self, cwd: str, scope: ReadScope) -> list[str]:
+        """Expand one normalized read scope into a bounded concrete file set.
+
+        CodeBuddy and Qoder receive the same concrete set.  Mandatory vendor
+        state directories are always excluded; external symlinks are rejected.
+        """
+        root = self._root(cwd)
+        mandatory_forbidden = (".git", ".codebuddy", ".qoder")
+
+        def forbidden(relpath: str) -> bool:
+            return any(
+                relpath == prefix or relpath.startswith(prefix + "/")
+                for prefix in mandatory_forbidden
+            )
+
+        resolved: set[str] = set()
+
+        for relpath in scope.files:
+            normalized = self._normalize_relpath(relpath)
+            if forbidden(normalized):
+                raise ContextError("read_scope includes a mandatory forbidden path")
+            candidate = self._resolved_candidate(
+                root, normalized, allow_external_symlinks=False
+            )
+            if not candidate.is_file():
+                raise ContextError(f"read_scope file does not exist: {normalized}")
+            resolved.add(normalized)
+
+        for relpath in scope.directories:
+            normalized = self._normalize_relpath(relpath)
+            if forbidden(normalized):
+                raise ContextError("read_scope includes a mandatory forbidden path")
+            directory = self._resolved_candidate(
+                root, normalized, allow_external_symlinks=False
+            )
+            if not directory.is_dir():
+                raise ContextError(f"read_scope directory does not exist: {normalized}")
+            for candidate in directory.rglob("*"):
+                if not candidate.is_file():
+                    continue
+                try:
+                    rel = candidate.resolve(strict=True).relative_to(root).as_posix()
+                except (OSError, RuntimeError, ValueError) as exc:
+                    raise ContextError("read_scope directory contains an external symlink") from exc
+                if not forbidden(rel):
+                    resolved.add(rel)
+                if len(resolved) > MAX_CONTEXT_FILES:
+                    raise ContextError(f"read_scope file limit is {MAX_CONTEXT_FILES}")
+
+        for pattern in scope.globs:
+            matched = False
+            try:
+                candidates = root.glob(pattern)
+            except (OSError, ValueError) as exc:
+                raise ContextError("read_scope glob could not be evaluated") from exc
+            for candidate in candidates:
+                if not candidate.is_file():
+                    continue
+                try:
+                    rel = candidate.resolve(strict=True).relative_to(root).as_posix()
+                except (OSError, RuntimeError, ValueError) as exc:
+                    raise ContextError("read_scope glob resolved outside cwd") from exc
+                if forbidden(rel):
+                    continue
+                matched = True
+                resolved.add(rel)
+                if len(resolved) > MAX_CONTEXT_FILES:
+                    raise ContextError(f"read_scope file limit is {MAX_CONTEXT_FILES}")
+            if not matched:
+                raise ContextError(f"read_scope glob matched no files: {pattern}")
+
+        if not resolved:
+            raise ContextError("read_scope resolved to no readable files")
+        ordered = sorted(resolved)
+        # Use the existing capture boundary to enforce existence, symlink and
+        # aggregate byte limits for both Crew families.
+        self._capture(root, ordered, allow_external_symlinks=False)
+        return ordered
 
     def register(
         self,

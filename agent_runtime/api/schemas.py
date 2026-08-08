@@ -6,3 +6,13 @@ require dedicated DTOs; this module is the stable home for new public schemas.
 from __future__ import annotations
 
 PUBLIC_API_VERSION = "workbuddy.api/v1"
+
+
+CAPTAIN_TOOL_NAMES = frozenset({
+    "crew_catalog",
+    "crew_health",
+    "crew_recommend",
+    "voyager_overview",
+    "task_dispatch",
+    "task_result",
+})

@@ -12,7 +12,7 @@ from typing import Sequence
 
 from agent_runtime.persistence.errors import RuntimePersistenceError
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 _MIGRATIONS: dict[int, Sequence[str]] = {
     1: [
@@ -1077,6 +1077,128 @@ def _migrate_v11(connection: sqlite3.Connection) -> None:
         connection.execute("PRAGMA foreign_keys = ON")
 
 
+
+def _migrate_v12(connection: sqlite3.Connection) -> None:
+    """Allow immutable ``usage`` Evidence without adding a second store.
+
+    SQLite cannot alter the existing evidence-type CHECK in place, so rebuild
+    only the Evidence table, preserve every row, and verify all foreign keys
+    before publishing schema v12.
+    """
+    if connection.in_transaction:
+        raise RuntimePersistenceError(
+            "V12 migration must start outside an explicit transaction"
+        )
+    connection.execute("PRAGMA foreign_keys = OFF")
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        try:
+            connection.execute(
+                """
+                CREATE TABLE evidences_v12 (
+                    evidence_id         TEXT PRIMARY KEY,
+                    task_id             TEXT NOT NULL,
+                    attempt_id          TEXT NOT NULL,
+                    subject_evidence_id TEXT,
+                    artifact_id         TEXT,
+                    evidence_type       TEXT NOT NULL,
+                    trust_state         TEXT NOT NULL,
+                    origin              TEXT NOT NULL,
+                    summary             TEXT NOT NULL DEFAULT '',
+                    detail_json         TEXT NOT NULL DEFAULT '{}',
+                    captured_at         REAL NOT NULL,
+                    created_at          REAL NOT NULL,
+
+                    FOREIGN KEY (task_id, attempt_id)
+                        REFERENCES attempts(task_id, attempt_id)
+                        ON DELETE CASCADE,
+                    FOREIGN KEY (task_id, attempt_id, subject_evidence_id)
+                        REFERENCES evidences_v12(task_id, attempt_id, evidence_id)
+                        ON DELETE CASCADE,
+                    FOREIGN KEY (task_id, attempt_id, artifact_id)
+                        REFERENCES artifacts(task_id, attempt_id, artifact_id)
+                        ON DELETE CASCADE,
+
+                    UNIQUE (task_id, attempt_id, evidence_id),
+                    CHECK (evidence_type IN (
+                        'agent_claim', 'test', 'command',
+                        'file', 'review', 'artifact', 'usage'
+                    )),
+                    CHECK (trust_state IN (
+                        'declared', 'observed',
+                        'verified_passed', 'verified_failed',
+                        'needs_review', 'skipped'
+                    )),
+                    CHECK (origin IN (
+                        'agent', 'backend', 'runtime',
+                        'verifier', 'human'
+                    )),
+                    CHECK (
+                        (trust_state = 'declared'
+                            AND origin IN ('agent', 'backend', 'human'))
+                        OR (trust_state = 'observed'
+                            AND origin IN ('backend', 'runtime', 'human'))
+                        OR (trust_state IN (
+                                'verified_passed', 'verified_failed', 'needs_review')
+                            AND origin IN ('verifier', 'human'))
+                        OR (trust_state = 'skipped'
+                            AND origin IN ('backend', 'runtime', 'verifier', 'human'))
+                    ),
+                    CHECK (
+                        evidence_type != 'agent_claim'
+                        OR (origin = 'agent' AND trust_state = 'declared')
+                    ),
+                    CHECK (
+                        (evidence_type = 'artifact' AND artifact_id IS NOT NULL)
+                        OR (evidence_type != 'artifact' AND artifact_id IS NULL)
+                    ),
+                    CHECK (subject_evidence_id IS NULL
+                        OR subject_evidence_id != evidence_id)
+                )
+                """
+            )
+            connection.execute(
+                """
+                INSERT INTO evidences_v12 (
+                    evidence_id, task_id, attempt_id, subject_evidence_id,
+                    artifact_id, evidence_type, trust_state, origin, summary,
+                    detail_json, captured_at, created_at
+                )
+                SELECT
+                    evidence_id, task_id, attempt_id, subject_evidence_id,
+                    artifact_id, evidence_type, trust_state, origin, summary,
+                    detail_json, captured_at, created_at
+                FROM evidences
+                """
+            )
+            connection.execute("DROP TABLE evidences")
+            connection.execute("ALTER TABLE evidences_v12 RENAME TO evidences")
+            connection.execute(
+                "CREATE INDEX idx_evidences_task_attempt "
+                "ON evidences(task_id, attempt_id, created_at)"
+            )
+            connection.execute(
+                "CREATE INDEX idx_evidences_subject "
+                "ON evidences(subject_evidence_id)"
+            )
+            connection.execute(
+                "CREATE INDEX idx_evidences_type_state "
+                "ON evidences(evidence_type, trust_state)"
+            )
+            violations = connection.execute("PRAGMA foreign_key_check").fetchall()
+            if violations:
+                raise sqlite3.IntegrityError(
+                    f"V12 foreign key check failed: {len(violations)} violation(s)"
+                )
+            connection.execute("PRAGMA user_version = 12")
+            connection.commit()
+        except BaseException:
+            connection.rollback()
+            raise
+    finally:
+        connection.execute("PRAGMA foreign_keys = ON")
+
+
 def migrate(connection: sqlite3.Connection) -> None:
     """Apply all pending migrations; idempotent and repeatable."""
     if connection.in_transaction:
@@ -1102,6 +1224,9 @@ def migrate(connection: sqlite3.Connection) -> None:
             current = version
         if current < 11:
             _migrate_v11(connection)
+        current = _user_version(connection)
+        if current < 12:
+            _migrate_v12(connection)
     except sqlite3.Error as exc:
         raise RuntimePersistenceError(f"migration failed: {exc}") from exc
 
