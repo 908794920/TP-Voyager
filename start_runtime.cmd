@@ -1,26 +1,45 @@
 @echo off
 setlocal EnableExtensions DisableDelayedExpansion
 
-rem Keep the MCP process environment small and deterministic.
+rem TP-Voyager Runtime launcher.
+rem Python priority:
+rem   1. AGENT_RUNTIME_PYTHON
+rem   2. .venv\Scripts\python.exe
+rem   3. python.exe from PATH
+
 set "ELECTRON_RUN_AS_NODE="
 set "PYTHONHOME="
 set "PYTHONPATH="
-set "VIRTUAL_ENV="
-set "CONDA_PREFIX="
-set "CONDA_DEFAULT_ENV="
 
-if not defined AGENT_RUNTIME_PYTHON set "AGENT_RUNTIME_PYTHON=D:\ProgramData\miniconda3\python.exe"
-if not exist "%AGENT_RUNTIME_PYTHON%" (
-  >&2 echo agent-runtime: Python was not found: "%AGENT_RUNTIME_PYTHON%"
-  >&2 echo Set AGENT_RUNTIME_PYTHON to the absolute python.exe path.
+set "_TPV_PYTHON="
+
+if defined AGENT_RUNTIME_PYTHON (
+  if exist "%AGENT_RUNTIME_PYTHON%" (
+    set "_TPV_PYTHON=%AGENT_RUNTIME_PYTHON%"
+  ) else (
+    >&2 echo TP-Voyager: AGENT_RUNTIME_PYTHON does not exist: "%AGENT_RUNTIME_PYTHON%"
+    exit /b 9009
+  )
+)
+
+if not defined _TPV_PYTHON (
+  if exist "%~dp0.venv\Scripts\python.exe" (
+    set "_TPV_PYTHON=%~dp0.venv\Scripts\python.exe"
+  )
+)
+
+if not defined _TPV_PYTHON (
+  for %%I in (python.exe) do set "_TPV_PYTHON=%%~$PATH:I"
+)
+
+if not defined _TPV_PYTHON (
+  >&2 echo TP-Voyager: Python was not found.
+  >&2 echo Create .venv or set AGENT_RUNTIME_PYTHON to an absolute python.exe path.
   exit /b 9009
 )
 
-for %%I in ("%AGENT_RUNTIME_PYTHON%") do set "_RUNTIME_PYTHON_DIR=%%~dpI"
-set "PATH=%_RUNTIME_PYTHON_DIR%;%_RUNTIME_PYTHON_DIR%Library\bin;%_RUNTIME_PYTHON_DIR%Scripts;%SystemRoot%\System32;%SystemRoot%"
-
 pushd "%~dp0"
-"%AGENT_RUNTIME_PYTHON%" -m agent_runtime.server
+"%_TPV_PYTHON%" -m agent_runtime.server
 set "_RUNTIME_EXIT=%ERRORLEVEL%"
 popd
 exit /b %_RUNTIME_EXIT%

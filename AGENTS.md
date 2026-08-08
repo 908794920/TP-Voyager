@@ -1,18 +1,18 @@
-# TP-Voyager — AI Execution Rules
+# TP-Voyager — AI 执行规则
 
-## Mandatory read order
+## 强制阅读顺序
 
-Before any architecture, implementation, test, or documentation change, read:
+任何 AI 在进行架构、开发、测试或文档修改前，必须依次阅读：
 
 1. `TP_VOYAGER_CHARTER.md`
 2. `TP_VOYAGER_DIRECTORY_BASELINE.md`
-3. this `AGENTS.md`
+3. 本文件 `AGENTS.md`
 
-If a proposal conflicts with the Charter or Directory Baseline, stop and report the conflict before implementing it.
+如果拟议修改与 Charter 或 Directory Baseline 冲突，必须先停止并报告冲突，不得自行“优化后继续”。
 
-## Current baseline
+## 当前基线
 
-TP-Voyager T0–T4 are accepted. The product model is:
+TP-Voyager T0–T4 已完成验收：
 
 ```text
 Passenger → Captain AI → TP-Voyager → Crew
@@ -20,26 +20,30 @@ Passenger → Captain AI → TP-Voyager → Crew
                               └─ Qoder CLI
 ```
 
-The Captain owns goal interpretation, decomposition, Crew choice, risk decisions, review, and final delivery. TP-Voyager owns reliable bounded execution, persistence, recovery, policy, verification, evidence, progress projection, and result retrieval. TP-Voyager must not become a second Captain.
+- Captain：理解目标、拆解任务、选择 Crew、风险判断、结果评审与最终交付。
+- TP-Voyager：可靠且受控的执行、持久化、恢复、权限、验证、证据、进度投影与结果读取。
+- Crew：执行边界明确的具体工作。
 
-## Backend boundary
+**TP-Voyager 不得演化成第二个 Captain。**
 
-Supported target Crew backends are only:
+## Backend 边界
+
+当前正式 Crew 只有：
 
 ```text
 CodeBuddy CLI
 Qoder CLI
 ```
 
-All new integration behavior must use their official public CLI/SDK/ACP contracts as Source of Truth.
+任何新集成能力必须以它们的官方公开 CLI / SDK / ACP Contract 为依据。
 
-WorkBuddy is removed from current production execution. Do not reintroduce WorkBuddy transport, Gateway/ACP execution, public tools, tests, or feature abstractions. Historical `workbuddy.* /v1` schema strings and old WorkBuddy runtime-home paths may remain only where necessary to read/migrate accepted historical data.
+WorkBuddy 已从当前生产执行路径移除。不得重新引入 WorkBuddy transport、Gateway/ACP 执行、公共工具、当前测试或新抽象。历史 `workbuddy.* /v1` schema 字符串和旧 Runtime Home 路径只能在读取/迁移历史数据所必需的位置保留。
 
-Controlled readiness is stricter than vendor capability. A Crew capability is Captain-dispatchable only after TP-Voyager has bounded and accepted it.
+“厂商支持某能力”不等于“TP-Voyager 已允许 Captain 调度该能力”。只有经过 Voyager 受控边界并验收的能力才可标记为 dispatch-ready。
 
-## Directory boundary
+## 目录边界
 
-Production code keeps the stable top level:
+生产代码顶层保持：
 
 ```text
 agent_runtime/
@@ -54,55 +58,129 @@ agent_runtime/
 └── server.py
 ```
 
-Target backend slots are:
+目标 Backend 槽位：
 
 ```text
 backends/codebuddy/
 backends/qoder/
 ```
 
-No new repository top-level or `agent_runtime/` top-level directory without explicit architecture review. Do not introduce generic dumping layers such as `core/`, `platform/`, `services/`, `managers/`, or `engine/`.
+未经明确架构审查：
 
-## Durable ownership
+- 不得新增仓库顶层目录；
+- 不得新增 `agent_runtime/` 顶层目录；
+- 不得创建 `core/`、`platform/`、`services/`、`managers/`、`engine/` 等模糊层；
+- 不得为了“更优雅”大规模移动文件。
 
-- SQLite Durable Row remains Source of Truth.
-- Existing Task Runtime is the only Task state machine.
-- Existing Workflow/PlanExecution remain reusable durable foundations; do not expand Planner intelligence.
-- Captain dispatch must not require the internal Planner.
-- Backend/model/fallback/retry remain explicit unless a future Charter-approved policy says otherwise.
-- Prompt/business content stays transient by default unless an accepted contract explicitly persists it.
+## Durable Ownership
 
-## Captain-facing direction
+- SQLite Durable Row 是 Source of Truth。
+- 现有 Task Runtime 是唯一 Task 状态机。
+- 现有 Workflow / PlanExecution 是可复用的 Durable Foundation，不继续扩展 Planner 智能。
+- Captain Dispatch 不得依赖内部 Planner 才能工作。
+- Backend / Model / Fallback / Retry 默认必须显式。
+- Prompt 与业务内容默认保持瞬态，除非现有 Contract 明确要求持久化。
+- 不得创建第二套 Result、Evidence、Artifact、Session、Retry 或 Task 系统。
 
-Normal Captain concepts stay compact:
+## Captain 边界
 
-```text
-Voyage
-Crew
-Task
-Result
-```
-
-Vendor-specific APIs must not become the normal Captain interface. Vendor diagnostics are the exception.
-
-## Test policy
-
-Default:
+Captain 正常使用应优先：
 
 ```text
-Smoke + directly affected tests
+voyager_overview
+crew_catalog
+crew_health
+crew_recommend
+task_dispatch
+task_result
 ```
 
-Escalation:
+不要让 Captain 默认读取：
 
-1. Smoke — normal changes/new sessions.
-2. Current/targeted — current changed module only.
-3. Regression — durable lifecycle, public/shared adapter contract, persistence, workflow/recovery changes.
-4. Live — CodeBuddy/Qoder auth, invocation, SDK/ACP, streaming, cancel/resume, model discovery, permissions.
-5. Release/Stress — formal release or major core boundary only.
+```text
+完整 Worker transcript
+完整日志
+完整 Patch
+Vendor CLI 内部参数
+SQLite 内部结构
+```
 
-Do not run broad historical discovery/audit by habit. When a supported feature is removed, remove its current production code, current tests, and current docs together.
+大内容通过 Artifact 按需读取。
 
-## AI change rule
+## Crew 安全边界
 
-An execution AI must not independently decide that TP-Voyager would be cleaner after a large reorganization. Locate the existing responsibility slot, change the smallest required surface, run only justified tests, and report any proposed structural deviation before implementing it.
+- Captain 选择 Crew，Runtime 只能推荐，不得偷偷替换。
+- 不允许隐藏 Fallback。
+- 不允许 Worker 默认递归调度其他 Worker。
+- 受控路线不得使用 `--yolo` / permission bypass。
+- Patch 必须使用 Runtime-owned isolated worktree。
+- Patch Policy 必须 fail-closed。
+- Worker 自述不能替代 Verification / Evidence。
+
+## 测试规则
+
+默认：
+
+```text
+Smoke + 直接受影响专项
+```
+
+只有以下变化才升级到 Regression：
+
+```text
+Durable Task 生命周期
+Session / Lease / Reconciliation
+共享 Backend 抽象
+公共 Contract
+持久化 Schema
+Workflow / Recovery
+```
+
+只有真实 Backend 集成变化才需要针对性的 Live 测试。
+
+`stress` / `release` 不得成为日常默认测试。
+
+删除功能时：
+
+```text
+生产代码
++
+对应当前测试
++
+对应当前文档
+```
+
+一起删除。不要保留僵尸测试。
+
+## Scope Gate
+
+新增功能至少满足一项：
+
+1. 明确降低 Captain Token / 交互成本；
+2. 是可靠执行、安全、恢复、验证或证据所必需；
+3. 是 CodeBuddy/Qoder 官方 Contract 兼容所必需。
+
+三项都不满足：
+
+```text
+REJECT / PARK
+```
+
+## 修改原则
+
+任何执行 AI 必须：
+
+```text
+读 Charter
+→ 读 Directory Baseline
+→ 找现有职责槽位
+→ 修改最小表面
+→ 跑 Smoke + 受影响测试
+→ 报告结果
+```
+
+不得自行决定：
+
+> “为了架构更整洁，我顺便重构一下。”
+
+当前阶段是 **Real Voyage**，不是继续造船。

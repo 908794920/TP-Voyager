@@ -1,19 +1,47 @@
 # CodeBuddy CLI Backend
 
-## Official sources
+## 官方资料
 
 - https://www.workbuddy.ai/docs/cli/
 - https://www.workbuddy.ai/docs/cli/reference
 - https://www.workbuddy.ai/docs/cli/iam
 - https://www.workbuddy.ai/docs/cli/sdk-python
 
-## TP-Voyager routes
+## TP-Voyager 当前受控路线
 
 ```text
 sdk_context_read_only
 sdk_patch
 ```
 
-China accounts use `CODEBUDDY_INTERNET_ENVIRONMENT=internal`. The Captain path uses the official Python SDK. `sdk_context_read_only` disables native tools and supplies only Runtime-rendered, hash-verified context. `sdk_patch` runs inside a Runtime-owned Git worktree and uses SDK host permission callbacks for path/command enforcement. Permission bypass mode is not used.
+## 中国区环境
 
-Model discovery is not claimed as machine-readable until an official supported catalog is confirmed; unknown catalog fields remain unknown rather than guessed.
+```text
+CODEBUDDY_INTERNET_ENVIRONMENT=internal
+```
+
+Captain 路径使用官方 Python SDK。
+
+### `sdk_context_read_only`
+
+- Runtime 先验证 Context Manifest；
+- 只把受控、Hash 验证后的上下文提供给 CodeBuddy；
+- CodeBuddy 原生工具关闭；
+- 不允许扩大文件读取边界。
+
+### `sdk_patch`
+
+- 在 Runtime-owned Git worktree 中运行；
+- 使用 SDK Host Permission Callback 做路径/命令约束；
+- 命令必须匹配 Captain 显式批准的 Policy；
+- 不使用 Permission Bypass。
+
+## Model Catalog
+
+在没有确认官方机器可读模型目录之前，TP-Voyager 不猜测 CodeBuddy 模型清单。
+
+未知字段保持：
+
+```text
+unknown
+```

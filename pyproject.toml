@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tp-voyager"
+version = "1.0.0"
+description = "AI Voyage Command System — durable execution and control layer for Captain AI and specialized AI Crew."
+readme = "README.md"
+requires-python = ">=3.10"
+license = {file = "LICENSE"}
+authors = [
+  {name = "gosick233-cloud"}
+]
+keywords = ["ai-agent", "mcp", "agent-runtime", "code-agent", "automation"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+  "httpx>=0.27,<1",
+  "mcp>=1.0,<2",
+  "codebuddy-agent-sdk>=0.1,<1",
+]
+
+[project.scripts]
+agent-runtime = "agent_runtime.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["agent_runtime*"]

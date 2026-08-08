@@ -1,38 +1,53 @@
+# Python
 __pycache__/
 *.py[cod]
+*.pyd
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+build/
+dist/
+*.egg-info/
+
+# Virtual environments
 .venv/
 venv/
+env/
 
-# Runtime traces and temporary working files
+# Runtime data / local state
 work/
-
-# User-facing output directory may contain generated artifacts
 outputs/
-
-# Local secrets and environment overrides
-.env
-.env.*
-*.local
-
-.codebuddy/
-.qoder/
-
-# Runtime home and durable state (runtime database, task history, session data, artifact cache)
 runtime-home/
-*.sqlite
-*.db
 logs/
 *.log
+*.sqlite
+*.sqlite3
+*.db
 
-# IDE and tool local state
-.idea/
-.vscode/
+# Secrets / local environment
+.env
+.env.*
+!.env.example
+*.local
+
+# AI / CLI local state
+.codebuddy/
+.qoder/
 .codex/
 .workbuddy/
 
-# Generated review-package outputs
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Generated review/release artifacts
 /docs/review-info.txt
 /docs/TP-Voyager-Review.zip
+*.tmp
+*.bak

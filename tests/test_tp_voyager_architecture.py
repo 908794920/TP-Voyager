@@ -16,8 +16,9 @@ class TPVoyagerArchitectureBaselineTests(unittest.TestCase):
     def test_current_product_docs_define_passenger_captain_and_two_crew_families(self) -> None:
         readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
         agents = (REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")
-        for text in ("TP-Voyager", "Passenger", "Captain", "CodeBuddy CLI", "Qoder CLI"):
+        for text in ("TP-Voyager", "Captain", "CodeBuddy CLI", "Qoder CLI"):
             self.assertIn(text, readme)
+        self.assertTrue("Passenger" in readme or "乘客" in readme)
         self.assertIn("TP_VOYAGER_CHARTER.md", agents)
         self.assertIn("TP_VOYAGER_DIRECTORY_BASELINE.md", agents)
         self.assertIn("CodeBuddy", agents)
@@ -30,8 +31,10 @@ class TPVoyagerArchitectureBaselineTests(unittest.TestCase):
             current,
             {"ARCHITECTURE.md", "BACKEND_CODEBUDDY.md", "BACKEND_QODER.md", "TESTING.md", "OPERATIONS.md"},
         )
-        for name in ("BACKEND_CODEBUDDY.md", "BACKEND_QODER.md"):
-            self.assertIn("Official sources", (REPO_ROOT / "docs" / name).read_text(encoding="utf-8"))
+        codebuddy_doc = (REPO_ROOT / "docs" / "BACKEND_CODEBUDDY.md").read_text(encoding="utf-8")
+        qoder_doc = (REPO_ROOT / "docs" / "BACKEND_QODER.md").read_text(encoding="utf-8")
+        self.assertIn("https://www.workbuddy.ai/docs/cli/", codebuddy_doc)
+        self.assertIn("https://docs.qoder.com/en/cli/acp", qoder_doc)
 
     def test_retired_workbuddy_execution_files_are_physically_absent(self) -> None:
         for rel in (

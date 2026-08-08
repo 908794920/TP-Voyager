@@ -1,6 +1,6 @@
 # Qoder CLI Backend
 
-## Official sources
+## 官方资料
 
 - https://docs.qoder.com/en/cli/model
 - https://docs.qoder.com/en/cli/acp
@@ -8,16 +8,43 @@
 - https://docs.qoder.com/en/cli/sdk/python/tools
 - https://docs.qoder.com/en/cli/sdk/permissions
 
-## TP-Voyager routes
+## TP-Voyager 当前受控路线
 
 ```text
 acp_read_only
 acp_patch
 ```
 
-Both controlled routes use official ACP without `--yolo`. Read-only advertises no write/terminal capability and rejects permission escalation. Patch mode runs in a Runtime-owned Git worktree; host callbacks enforce allowed paths and exact Captain-approved command argv/cwd. `qodercli --list-models` is the current dynamic model catalog source.
+两条当前生产路线都使用官方 ACP，且不使用：
 
-Legacy `acp` / `print` routes may remain only as non-Captain compatibility/diagnostic paths and are never an automatic fallback.
+```text
+--yolo
+```
 
+## `acp_read_only`
 
-Legacy `acp` / `print` execution routes are not part of the current production surface. TP-Voyager exposes only `acp_read_only` and `acp_patch`; neither launches Qoder with `--yolo`.
+- 不向 Worker 开放写文件能力；
+- 不开放 Terminal 写操作；
+- 权限升级请求 fail-closed；
+- 只用于受控分析与检索。
+
+## `acp_patch`
+
+- 在 Runtime-owned Git worktree 内执行；
+- Host callback 强制 allowed/forbidden path；
+- Terminal 命令必须精确匹配 Captain-approved argv/cwd；
+- Runtime 负责捕获 Patch、Verification 与 Evidence。
+
+## Model Catalog
+
+当前动态模型目录来源：
+
+```text
+qodercli --list-models
+```
+
+## Legacy Route
+
+旧 `acp` / `print` 路线不属于当前生产表面，也不是自动 Fallback。
+
+TP-Voyager 当前只对 Captain 暴露经过受控验收的 `acp_read_only` 与 `acp_patch`。
