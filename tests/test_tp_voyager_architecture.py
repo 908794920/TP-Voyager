@@ -1,0 +1,99 @@
+from __future__ import annotations
+
+from pathlib import Path
+import unittest
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+PKG = REPO_ROOT / "agent_runtime"
+
+
+class TPVoyagerArchitectureBaselineTests(unittest.TestCase):
+    def test_root_governance_documents_are_present(self) -> None:
+        self.assertTrue((REPO_ROOT / "TP_VOYAGER_CHARTER.md").is_file())
+        self.assertTrue((REPO_ROOT / "TP_VOYAGER_DIRECTORY_BASELINE.md").is_file())
+
+    def test_current_product_docs_define_passenger_captain_and_two_crew_families(self) -> None:
+        readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+        agents = (REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")
+        for text in ("TP-Voyager", "Passenger", "Captain", "CodeBuddy CLI", "Qoder CLI"):
+            self.assertIn(text, readme)
+        self.assertIn("TP_VOYAGER_CHARTER.md", agents)
+        self.assertIn("TP_VOYAGER_DIRECTORY_BASELINE.md", agents)
+        self.assertIn("CodeBuddy", agents)
+        self.assertIn("Qoder", agents)
+        self.assertIn("WorkBuddy", agents)  # only as an explicit do-not-reintroduce boundary
+
+    def test_current_backend_docs_are_official_codebuddy_and_qoder_only(self) -> None:
+        current = {path.name for path in (REPO_ROOT / "docs").glob("*.md")}
+        self.assertEqual(
+            current,
+            {"ARCHITECTURE.md", "BACKEND_CODEBUDDY.md", "BACKEND_QODER.md", "TESTING.md", "OPERATIONS.md"},
+        )
+        for name in ("BACKEND_CODEBUDDY.md", "BACKEND_QODER.md"):
+            self.assertIn("Official sources", (REPO_ROOT / "docs" / name).read_text(encoding="utf-8"))
+
+    def test_retired_workbuddy_execution_files_are_physically_absent(self) -> None:
+        for rel in (
+            "agent_runtime/backends/workbuddy",
+            "agent_runtime/acp.py",
+            "agent_runtime/multiplexer.py",
+            "agent_runtime/history.py",
+            "agent_runtime/review_sessions.py",
+            "agent_runtime/identities.py",
+            "skills/workbuddy-agent-routing",
+            "start_bridge.cmd",
+        ):
+            self.assertFalse((REPO_ROOT / rel).exists(), rel)
+
+    def test_public_server_has_no_workbuddy_execution_tools_or_registration(self) -> None:
+        source = (PKG / "api" / "mcp_server.py").read_text(encoding="utf-8")
+        for name in (
+            "workbuddy_start", "workbuddy_status", "workbuddy_wait", "workbuddy_result",
+            "workbuddy_cancel", "workbuddy_list", "workbuddy_models",
+        ):
+            self.assertNotIn(f"def {name}(", source)
+        self.assertNotIn('_BACKENDS.register("workbuddy"', source)
+        self.assertIn('_BACKENDS.register("codebuddy"', source)
+        self.assertIn('_BACKENDS.register("qoder"', source)
+
+    def test_agent_runtime_top_level_boundary_remains_stable(self) -> None:
+        for name in ("api", "application", "domain", "persistence", "verification", "backends", "runtime", "testing"):
+            self.assertTrue((PKG / name).is_dir(), name)
+        for name in ("core", "platform", "services", "managers", "engine"):
+            self.assertFalse((PKG / name).exists(), name)
+
+    def test_product_rename_does_not_rename_python_package(self) -> None:
+        self.assertTrue(PKG.is_dir())
+        for name in ("tp_voyager", "voyager", "workbuddy_bridge"):
+            self.assertFalse((REPO_ROOT / name).exists())
+
+    def test_server_remains_thin_compatibility_entry(self) -> None:
+        source = (PKG / "server.py").read_text(encoding="utf-8")
+        self.assertLessEqual(len(source.splitlines()), 40)
+        self.assertIn("agent_runtime.api", source)
+        self.assertNotIn("FastMCP(", source)
+        self.assertNotIn("@mcp.tool", source)
+
+    def test_captain_normal_api_stays_compact_and_vendor_neutral(self) -> None:
+        source = (PKG / "api" / "mcp_server.py").read_text(encoding="utf-8")
+        for name in (
+            "crew_catalog", "crew_health", "crew_recommend",
+            "voyager_overview", "task_dispatch", "task_result",
+        ):
+            self.assertIn(f"def {name}(", source)
+        dispatch = (PKG / "application" / "dispatch" / "service.py").read_text(encoding="utf-8")
+        self.assertIn('crew == "workbuddy"', dispatch)  # explicit fail-closed rejection only
+        self.assertIn("CREW_NOT_SUPPORTED", dispatch)
+        self.assertNotIn("--yolo", dispatch)
+
+    def test_historical_workbuddy_is_confined_to_data_compatibility_record(self) -> None:
+        record = REPO_ROOT / "docs" / "records" / "legacy-workbuddy" / "DATA_COMPATIBILITY.md"
+        self.assertTrue(record.is_file())
+        text = record.read_text(encoding="utf-8")
+        self.assertIn("historical", text.lower())
+        self.assertIn("LOST", text)
+
+
+if __name__ == "__main__":
+    unittest.main()

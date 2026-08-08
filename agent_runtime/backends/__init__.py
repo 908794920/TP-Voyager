@@ -1,0 +1,1 @@
+"""Backend contract and shared models."""

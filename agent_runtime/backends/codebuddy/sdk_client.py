@@ -1,0 +1,494 @@
+"""Official CodeBuddy Python SDK transport for bounded context-only analysis.
+
+TP-Voyager deliberately does not expose CodeBuddy's native filesystem or
+command tools on this route.  The caller must supply bounded context in the
+prompt.  This gives us a real host-controlled read-only route without relying
+on blanket permission bypass or CodeBuddy's intentionally broad native read
+scope.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import importlib
+import os
+import subprocess
+import threading
+import time
+import uuid
+from dataclasses import dataclass
+from pathlib import Path
+from types import ModuleType
+from typing import Any, Callable
+
+from agent_runtime.backends.base import BackendActivity
+from agent_runtime.domain.dispatch import CommandSpec
+from agent_runtime.backends.errors import (
+    BackendCancelledError,
+    BackendProtocolError,
+    BackendTimeoutError,
+    BackendUnavailableError,
+)
+
+# Official built-in tool names from CodeBuddy settings documentation.  The
+# context-only route denies all native tools; later patch work will use a
+# separate, explicitly bounded tool gateway rather than widening this route.
+_CODEBUDDY_BUILTIN_TOOLS = (
+    "AskUserQuestion",
+    "Bash",
+    "TaskOutput",
+    "Edit",
+    "MultiEdit",
+    "ExitPlanMode",
+    "Glob",
+    "Grep",
+    "TaskStop",
+    "LSP",
+    "NotebookEdit",
+    "Read",
+    "Skill",
+    "SlashCommand",
+    "Task",
+    "TaskCreate",
+    "TaskUpdate",
+    "TaskList",
+    "TaskGet",
+    "WebFetch",
+    "WebSearch",
+    "Write",
+)
+
+
+@dataclass(frozen=True)
+class CodeBuddySdkRunResult:
+    session_id: str
+    stop_reason: str
+    answer: str
+    observability: dict[str, Any]
+    usage: dict[str, Any]
+    total_cost_usd: float | None = None
+
+
+def load_codebuddy_sdk() -> ModuleType:
+    try:
+        return importlib.import_module("codebuddy_agent_sdk")
+    except ImportError as exc:
+        raise BackendUnavailableError("CodeBuddy Agent SDK is not installed") from exc
+
+
+class CodeBuddySdkClient:
+    """Synchronous Runtime wrapper over the official async CodeBuddy SDK."""
+
+    def __init__(
+        self,
+        *,
+        cwd: str,
+        on_activity: Callable[[BackendActivity], None],
+        cli_path: str | None = None,
+        sdk_module: ModuleType | None = None,
+        region: str = "cn",
+        access_mode: str = "read_only",
+        allowed_paths: tuple[str, ...] = (),
+        forbidden_paths: tuple[str, ...] = (),
+        command_specs: tuple[CommandSpec, ...] = (),
+    ) -> None:
+        self.cwd = Path(cwd).resolve()
+        self.on_activity = on_activity
+        self.cli_path = cli_path
+        self.sdk_module = sdk_module
+        self.region = str(region or "cn").strip().lower()
+        self.access_mode = str(access_mode or "read_only").strip().lower()
+        self.allowed_paths = tuple(str(item).replace("\\", "/").strip("/") for item in allowed_paths if str(item).strip())
+        self.forbidden_paths = tuple(str(item).replace("\\", "/").strip("/") for item in forbidden_paths if str(item).strip())
+        self.command_specs = tuple(command_specs)
+        self._lock = threading.Lock()
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._client: Any | None = None
+        self._cancel_requested = threading.Event()
+        self._running = threading.Event()
+
+    @property
+    def running(self) -> bool:
+        return self._running.is_set()
+
+    def run(
+        self,
+        *,
+        prompt: str,
+        resume_session_id: str = "",
+        model: str = "",
+        idle_timeout_seconds: float,
+        max_task_duration_seconds: float,
+        on_dispatch_accepted: Callable[[str], None],
+    ) -> CodeBuddySdkRunResult:
+        if not str(prompt or "").strip():
+            raise BackendProtocolError("CodeBuddy prompt must not be empty")
+        if idle_timeout_seconds <= 0 or max_task_duration_seconds <= 0:
+            raise BackendProtocolError("CodeBuddy SDK timeouts must be positive")
+        if idle_timeout_seconds >= max_task_duration_seconds:
+            raise BackendProtocolError(
+                "CodeBuddy SDK idle timeout must be less than max duration"
+            )
+        try:
+            return asyncio.run(
+                self._run_async(
+                    prompt=prompt,
+                    resume_session_id=resume_session_id,
+                    model=model,
+                    idle_timeout_seconds=float(idle_timeout_seconds),
+                    max_task_duration_seconds=float(max_task_duration_seconds),
+                    on_dispatch_accepted=on_dispatch_accepted,
+                )
+            )
+        except BackendProtocolError:
+            raise
+        except BackendTimeoutError:
+            raise
+        except BackendCancelledError:
+            raise
+        except Exception as exc:
+            if self._cancel_requested.is_set():
+                raise BackendCancelledError("CodeBuddy SDK execution cancelled") from exc
+            raise BackendProtocolError(
+                f"CodeBuddy SDK failed: {type(exc).__name__}"
+            ) from exc
+
+    def cancel(self) -> None:
+        self._cancel_requested.set()
+        with self._lock:
+            loop = self._loop
+            client = self._client
+        if loop is None or client is None or loop.is_closed():
+            return
+        try:
+            future = asyncio.run_coroutine_threadsafe(self._cancel_async(client), loop)
+            future.result(timeout=5.0)
+        except Exception:
+            # Cancellation remains best-effort at the transport layer.  The
+            # Runtime's durable cancel state remains authoritative.
+            return
+
+    def close(self) -> None:
+        self.cancel()
+
+    async def _run_async(
+        self,
+        *,
+        prompt: str,
+        resume_session_id: str,
+        model: str,
+        idle_timeout_seconds: float,
+        max_task_duration_seconds: float,
+        on_dispatch_accepted: Callable[[str], None],
+    ) -> CodeBuddySdkRunResult:
+        sdk = self.sdk_module or load_codebuddy_sdk()
+        # Session identity must be fixed *before* dispatch so the Runtime can
+        # durably persist the same resumable id at the dispatch gate.  The
+        # official SDK exposes ``CodeBuddyAgentOptions.session_id`` for this;
+        # the ``query(session_id=...)`` parameter is ignored for string prompts.
+        dispatch_id = resume_session_id.strip() or str(uuid.uuid4())
+        options = self._build_options(
+            sdk,
+            resume_session_id=resume_session_id,
+            model=model,
+            session_id=dispatch_id,
+        )
+        client = sdk.CodeBuddySDKClient(options=options)
+        loop = asyncio.get_running_loop()
+        with self._lock:
+            self._loop = loop
+            self._client = client
+        self._running.set()
+        started = time.monotonic()
+        text_parts: list[str] = []
+        event_count = 0
+        result_message: Any | None = None
+        try:
+            await client.connect()
+            if self._cancel_requested.is_set():
+                await self._cancel_async(client)
+                raise BackendCancelledError("CodeBuddy SDK cancelled before dispatch")
+
+            on_dispatch_accepted(dispatch_id)
+            await client.query(prompt, session_id=dispatch_id)
+
+            iterator = client.receive_response().__aiter__()
+            deadline = started + max_task_duration_seconds
+            last_activity = time.monotonic()
+            while True:
+                if self._cancel_requested.is_set():
+                    await self._cancel_async(client)
+                    raise BackendCancelledError("CodeBuddy SDK execution cancelled")
+                now = time.monotonic()
+                remaining_total = deadline - now
+                if remaining_total <= 0:
+                    await self._cancel_async(client)
+                    raise BackendTimeoutError(
+                        "CodeBuddy SDK exceeded max duration",
+                        timeout_reason="max_task_duration",
+                    )
+                remaining_idle = idle_timeout_seconds - (now - last_activity)
+                if remaining_idle <= 0:
+                    await self._cancel_async(client)
+                    raise BackendTimeoutError(
+                        "CodeBuddy SDK became semantically idle",
+                        timeout_reason="idle_timeout",
+                    )
+                try:
+                    message = await asyncio.wait_for(
+                        iterator.__anext__(),
+                        timeout=min(remaining_total, remaining_idle),
+                    )
+                except StopAsyncIteration:
+                    break
+                except asyncio.TimeoutError as exc:
+                    now = time.monotonic()
+                    reason = (
+                        "max_task_duration"
+                        if now >= deadline
+                        else "idle_timeout"
+                    )
+                    await self._cancel_async(client)
+                    raise BackendTimeoutError(
+                        "CodeBuddy SDK response timed out",
+                        timeout_reason=reason,
+                    ) from exc
+
+                last_activity = time.monotonic()
+                event_count += 1
+                type_name = type(message).__name__
+                if type_name == "AssistantMessage":
+                    for block in list(getattr(message, "content", None) or []):
+                        if type(block).__name__ == "TextBlock":
+                            text = getattr(block, "text", None)
+                            if isinstance(text, str):
+                                text_parts.append(text)
+                if type_name == "ResultMessage":
+                    result_message = message
+                self.on_activity(
+                    BackendActivity(
+                        kind="stream_activity",
+                        timestamp=time.time(),
+                        detail={
+                            "route": "sdk_patch" if self.access_mode == "patch" else "sdk_context_read_only",
+                            "sdk_message": type_name[:80],
+                        },
+                    )
+                )
+                if result_message is not None:
+                    break
+
+            if self._cancel_requested.is_set():
+                raise BackendCancelledError("CodeBuddy SDK execution cancelled")
+            if result_message is None:
+                raise BackendProtocolError("CodeBuddy SDK returned no ResultMessage")
+            if bool(getattr(result_message, "is_error", False)):
+                raise BackendProtocolError("CodeBuddy SDK returned an error result")
+
+            session_id = str(getattr(result_message, "session_id", "") or dispatch_id)
+            if session_id != dispatch_id:
+                # Session identity is durable resume truth.  A vendor response
+                # that unexpectedly switches it cannot be safely reconciled
+                # against the already persisted dispatch gate, so fail closed.
+                raise BackendProtocolError("CodeBuddy SDK changed session identity")
+            result_text = getattr(result_message, "result", None)
+            answer = (
+                str(result_text).strip()
+                if isinstance(result_text, str) and result_text.strip()
+                else "".join(text_parts).strip()
+            )
+            usage = getattr(result_message, "usage", None)
+            usage_dict = dict(usage) if isinstance(usage, dict) else {}
+            total_cost = getattr(result_message, "total_cost_usd", None)
+            duration_ms = getattr(result_message, "duration_ms", None)
+            turns = getattr(result_message, "num_turns", None)
+            return CodeBuddySdkRunResult(
+                session_id=session_id,
+                stop_reason=str(getattr(result_message, "subtype", "") or "end_turn"),
+                answer=answer,
+                usage=usage_dict,
+                total_cost_usd=(
+                    float(total_cost)
+                    if isinstance(total_cost, (int, float))
+                    else None
+                ),
+                observability={
+                    "route": "sdk_patch" if self.access_mode == "patch" else "sdk_context_read_only",
+                    "access_mode": self.access_mode,
+                    "native_tools_enabled": self.access_mode == "patch",
+                    "command_whitelist_size": len(self.command_specs),
+                    "event_count": event_count,
+                    "duration_seconds": round(time.monotonic() - started, 3),
+                    "sdk_duration_ms": duration_ms if isinstance(duration_ms, int) else None,
+                    "num_turns": turns if isinstance(turns, int) else None,
+                },
+            )
+        finally:
+            try:
+                await client.disconnect()
+            except Exception:
+                pass
+            self._running.clear()
+            with self._lock:
+                self._client = None
+                self._loop = None
+
+    def _relative_path(self, raw: object) -> str | None:
+        value = str(raw or "").strip()
+        if not value:
+            return None
+        path = Path(value)
+        candidate = path.resolve() if path.is_absolute() else (self.cwd / path).resolve()
+        try:
+            rel = candidate.relative_to(self.cwd)
+        except ValueError:
+            return None
+        return rel.as_posix()
+
+    @staticmethod
+    def _matches(path: str, prefixes: tuple[str, ...]) -> bool:
+        normalized = path.replace("\\", "/").lstrip("./")
+        for prefix in prefixes:
+            root = prefix.replace("\\", "/").strip().lstrip("./").rstrip("/")
+            if not root or normalized == root or normalized.startswith(root + "/"):
+                return True
+        return False
+
+    def _path_allowed(self, raw: object, *, write: bool) -> bool:
+        rel = self._relative_path(raw)
+        if rel is None:
+            return False
+        if self._matches(rel, self.forbidden_paths):
+            return False
+        if self.allowed_paths and not self._matches(rel, self.allowed_paths):
+            return False
+        return not write or self.access_mode == "patch"
+
+    def _allowed_command_texts(self) -> set[str]:
+        values: set[str] = set()
+        for spec in self.command_specs:
+            values.add(subprocess.list2cmdline(list(spec.argv)).strip())
+        return values
+
+    def _build_options(
+        self,
+        sdk: ModuleType,
+        *,
+        resume_session_id: str,
+        model: str,
+        session_id: str = "",
+    ) -> Any:
+        env: dict[str, str] = {}
+        # The target product uses the China CodeBuddy account environment.
+        # Preserve an explicit caller override for enterprise/iOA testing, but
+        # never silently switch a configured CN environment to public.
+        current_env = str(
+            os.environ.get("CODEBUDDY_INTERNET_ENVIRONMENT")
+            or ("internal" if self.region == "cn" else "public")
+        ).strip()
+        if current_env:
+            env["CODEBUDDY_INTERNET_ENVIRONMENT"] = current_env
+
+        async def authorize_tool(
+            tool_name: str,
+            tool_input: dict[str, Any],
+            options: Any,
+        ) -> Any:
+            del options
+            name = str(tool_name or "")
+            data = dict(tool_input or {})
+            if self.access_mode == "read_only":
+                return sdk.PermissionResultDeny(
+                    message=(
+                        "TP-Voyager context-only route denies native tools; "
+                        f"requested={name[:80]}"
+                    ),
+                    interrupt=False,
+                )
+
+            # T4 patch route: only bounded filesystem tools and exact
+            # Captain-authorized commands are eligible.  Unknown tools fail
+            # closed even if a future CodeBuddy version adds them.
+            if name in {"Read"}:
+                raw = data.get("file_path", data.get("path"))
+                allowed = self._path_allowed(raw, write=False)
+            elif name in {"Glob", "Grep"}:
+                # Require an explicit bounded search root.  A missing path
+                # would allow a whole-worktree scan and defeat the Captain's
+                # declared context boundary.
+                raw = data.get("path")
+                allowed = self._path_allowed(raw, write=False)
+            elif name in {"Edit", "MultiEdit", "Write"}:
+                raw = data.get("file_path", data.get("path"))
+                allowed = self._path_allowed(raw, write=True)
+            elif name == "Bash":
+                command = str(data.get("command") or "").strip()
+                raw_cwd = data.get("cwd", data.get("working_directory"))
+                requested_cwd = "."
+                if raw_cwd not in {None, "", "."}:
+                    requested_cwd = self._relative_path(raw_cwd) or "__outside__"
+                has_env_override = bool(data.get("env") or data.get("environment"))
+                background = bool(data.get("run_in_background") or data.get("background"))
+                allowed = (
+                    not has_env_override
+                    and not background
+                    and any(
+                        subprocess.list2cmdline(list(spec.argv)).strip() == command
+                        and spec.cwd == requested_cwd
+                        for spec in self.command_specs
+                    )
+                )
+            else:
+                allowed = False
+
+            if not allowed:
+                return sdk.PermissionResultDeny(
+                    message=f"TP-Voyager patch policy denied tool: {name[:80]}",
+                    interrupt=False,
+                )
+            return sdk.PermissionResultAllow(updated_input=data)
+
+        if self.access_mode == "patch":
+            allowed_native = {"Read", "Glob", "Grep", "Edit", "MultiEdit", "Write"}
+            if self.command_specs:
+                allowed_native.add("Bash")
+            permission_mode = "default"
+            disallowed = [tool for tool in _CODEBUDDY_BUILTIN_TOOLS if tool not in allowed_native]
+        else:
+            allowed_native = set()
+            permission_mode = "plan"
+            disallowed = list(_CODEBUDDY_BUILTIN_TOOLS)
+
+        kwargs: dict[str, Any] = {
+            "cwd": str(self.cwd),
+            "model": model.strip() or None,
+            "resume": resume_session_id.strip() or None,
+            "session_id": session_id.strip() or None,
+            "max_turns": 30,
+            "permission_mode": permission_mode,
+            "allowed_tools": [],
+            "disallowed_tools": disallowed,
+            "mcp_servers": {},
+            "setting_sources": [],
+            "can_use_tool": authorize_tool,
+            "include_partial_messages": True,
+            "env": env,
+        }
+        if self.cli_path:
+            kwargs["codebuddy_code_path"] = self.cli_path
+        return sdk.CodeBuddyAgentOptions(**kwargs)
+
+    async def _cancel_async(self, client: Any) -> None:
+        interrupt = getattr(client, "interrupt", None)
+        if callable(interrupt):
+            try:
+                await interrupt()
+                return
+            except Exception:
+                pass
+        disconnect = getattr(client, "disconnect", None)
+        if callable(disconnect):
+            try:
+                await disconnect()
+            except Exception:
+                pass
