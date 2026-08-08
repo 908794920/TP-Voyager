@@ -3,13 +3,19 @@ from __future__ import annotations
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from agent_runtime.backends.base import BackendActivity, BackendResult
 
-from agent_runtime.application.dispatch.workspace import PatchWorkspaceError, PatchWorkspaceService
+from agent_runtime.application.dispatch.workspace import (
+    PatchWorkspaceCleanupError,
+    PatchWorkspaceError,
+    PatchWorkspaceService,
+)
 from agent_runtime.domain.dispatch import CommandSpec, PatchPolicy
 from agent_runtime.verification.artifacts.capture import ArtifactCaptureBatch, WorkspaceBaseline
 from agent_runtime.verification.service import VerificationPlan, VerificationService
@@ -277,12 +283,147 @@ class PatchDurableIntegrationTests(unittest.TestCase):
                 result = server.task_result(started["task_id"])
                 self.assertTrue(result["ok"], result)
                 self.assertEqual(result["verification"]["status"], "PASSED")
+                self.assertEqual(result["execution_budget"]["max_task_duration_seconds"], 30.0)
+                self.assertIsNotNone(result["execution_budget"]["elapsed_seconds"])
                 self.assertIn("src/a.py", result["changed_files"])
                 self.assertTrue(any(item.get("kind") == "patch" for item in result["artifacts"]))
                 self.assertEqual(source.read_text(encoding="utf-8"), "VALUE = 1\n")
                 self.assertEqual(list((db_path.parent / "workspaces").glob("patch-*")), [])
                 self.assertEqual(len(backend.starts), 1)
                 self.assertEqual(backend.starts[0].metadata["route"], "acp_patch")
+            finally:
+                server.TASKS.clear()
+                server.IDEMPOTENCY_TASKS.clear()
+                server.configure_runtime_database(None)
+    def test_completed_is_not_visible_until_patch_workspace_cleanup_finishes(self) -> None:
+        from agent_runtime import server
+
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            repo.mkdir()
+            PatchWorkspaceTests._git(repo, "init")
+            PatchWorkspaceTests._git(repo, "config", "user.email", "tests@example.invalid")
+            PatchWorkspaceTests._git(repo, "config", "user.name", "TP Voyager Tests")
+            (repo / "src").mkdir()
+            (repo / "src" / "a.py").write_text("VALUE = 1\n", encoding="utf-8")
+            PatchWorkspaceTests._git(repo, "add", ".")
+            PatchWorkspaceTests._git(repo, "commit", "-m", "base")
+
+            db_path = root / "runtime" / "runtime.db"
+            db_path.parent.mkdir()
+            server.configure_runtime_database(db_path)
+            server.TASKS.clear()
+            server.IDEMPOTENCY_TASKS.clear()
+            backend = self._PatchBackend()
+            cleanup_entered = threading.Event()
+            allow_cleanup = threading.Event()
+            original_cleanup = PatchWorkspaceService.cleanup
+
+            def gated_cleanup(service, workspace, *, source_root=None):
+                cleanup_entered.set()
+                if not allow_cleanup.wait(timeout=5):
+                    raise AssertionError("cleanup gate timed out")
+                return original_cleanup(service, workspace, source_root=source_root)
+
+            try:
+                with patch("agent_runtime.server._create_qoder_backend", return_value=backend), patch.object(
+                    PatchWorkspaceService, "cleanup", gated_cleanup
+                ):
+                    started = server.task_dispatch(
+                        objective="change VALUE to 2",
+                        crew="qoder",
+                        task_kind="small_patch",
+                        cwd=str(repo),
+                        access_mode="patch",
+                        timeout_seconds=30,
+                        patch_policy={
+                            "allowed_paths": ["src"],
+                            "commands": [{"id": "verify", "argv": [sys.executable, "-c", "from pathlib import Path; assert 'VALUE = 2' in Path('src/a.py').read_text()"]}],
+                            "verification_command_ids": ["verify"],
+                        },
+                    )
+                    self.assertTrue(started["ok"], started)
+                    self.assertTrue(cleanup_entered.wait(timeout=5), "terminal cleanup was not reached")
+                    during_cleanup = server.subagent_status(started["task_id"])
+                    self.assertNotEqual(during_cleanup.get("state"), "completed", during_cleanup)
+                    allow_cleanup.set()
+                    deadline = time.monotonic() + 10
+                    while time.monotonic() < deadline:
+                        state = server.subagent_status(started["task_id"])
+                        if state.get("state") in {"completed", "failed", "cancelled"}:
+                            break
+                        time.sleep(0.05)
+                    else:
+                        self.fail("patch task did not reach terminal state")
+                self.assertEqual(state["state"], "completed", state)
+                self.assertEqual(list((db_path.parent / "workspaces").glob("patch-*")), [])
+            finally:
+                allow_cleanup.set()
+                server.TASKS.clear()
+                server.IDEMPOTENCY_TASKS.clear()
+                server.configure_runtime_database(None)
+
+    def test_patch_cleanup_failure_is_terminal_failure_not_success(self) -> None:
+        from agent_runtime import server
+
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            repo.mkdir()
+            PatchWorkspaceTests._git(repo, "init")
+            PatchWorkspaceTests._git(repo, "config", "user.email", "tests@example.invalid")
+            PatchWorkspaceTests._git(repo, "config", "user.name", "TP Voyager Tests")
+            (repo / "src").mkdir()
+            (repo / "src" / "a.py").write_text("VALUE = 1\n", encoding="utf-8")
+            PatchWorkspaceTests._git(repo, "add", ".")
+            PatchWorkspaceTests._git(repo, "commit", "-m", "base")
+
+            db_path = root / "runtime" / "runtime.db"
+            db_path.parent.mkdir()
+            server.configure_runtime_database(db_path)
+            server.TASKS.clear()
+            server.IDEMPOTENCY_TASKS.clear()
+            backend = self._PatchBackend()
+            original_cleanup = PatchWorkspaceService.cleanup
+            calls = {"count": 0}
+
+            def fail_once(service, workspace, *, source_root=None):
+                calls["count"] += 1
+                if calls["count"] == 1:
+                    raise PatchWorkspaceCleanupError("injected cleanup failure")
+                return original_cleanup(service, workspace, source_root=source_root)
+
+            try:
+                with patch("agent_runtime.server._create_qoder_backend", return_value=backend), patch.object(
+                    PatchWorkspaceService, "cleanup", fail_once
+                ):
+                    started = server.task_dispatch(
+                        objective="change VALUE to 2",
+                        crew="qoder",
+                        task_kind="small_patch",
+                        cwd=str(repo),
+                        access_mode="patch",
+                        timeout_seconds=30,
+                        patch_policy={
+                            "allowed_paths": ["src"],
+                            "commands": [{"id": "verify", "argv": [sys.executable, "-V"]}],
+                            "verification_command_ids": ["verify"],
+                        },
+                    )
+                    self.assertTrue(started["ok"], started)
+                    deadline = time.monotonic() + 10
+                    while time.monotonic() < deadline:
+                        state = server.subagent_status(started["task_id"])
+                        if state.get("state") in {"completed", "failed", "cancelled"}:
+                            break
+                        time.sleep(0.05)
+                    else:
+                        self.fail("patch task did not reach terminal state")
+                self.assertEqual(state["state"], "failed", state)
+                self.assertEqual(state["terminal_reason"], "PatchWorkspaceCleanupError")
+                self.assertFalse(server.task_result(started["task_id"])["ok"])
+                self.assertEqual(list((db_path.parent / "workspaces").glob("patch-*")), [])
             finally:
                 server.TASKS.clear()
                 server.IDEMPOTENCY_TASKS.clear()

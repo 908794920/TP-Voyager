@@ -104,7 +104,10 @@ from agent_runtime.backends.qoder.capability import descriptor as qoder_crew_des
 from agent_runtime.backends.qoder.model_catalog import list_qoder_models
 from agent_runtime.backends.qoder.process import probe_qoder_cli
 from agent_runtime.backends.qoder.captain_dispatch import QoderReadOnlyDispatcher
-from agent_runtime.application.dispatch.workspace import PatchWorkspaceService
+from agent_runtime.application.dispatch.workspace import (
+    PatchWorkspaceCleanupError,
+    PatchWorkspaceService,
+)
 from agent_runtime.application.tool_service import (
     ToolRuntimeError,
     ToolRuntimeService,
@@ -137,6 +140,35 @@ mcp = FastMCP(
     ),
     log_level="WARNING",
 )
+
+
+_CAPTAIN_TOOL_NAMES = frozenset({
+    "crew_catalog",
+    "crew_health",
+    "crew_recommend",
+    "voyager_overview",
+    "task_dispatch",
+    "task_result",
+})
+
+
+def _mcp_surface() -> str:
+    value = str(os.environ.get("TP_VOYAGER_MCP_SURFACE") or "captain").strip().lower()
+    return "diagnostic" if value == "diagnostic" else "captain"
+
+
+def _mcp_tool():
+    """Register only Captain tools by default; keep legacy tools callable internally.
+
+    ``TP_VOYAGER_MCP_SURFACE=diagnostic`` restores the complete compatibility
+    surface for maintenance.  This is one Runtime with two visibility profiles,
+    not a second control plane or state machine.
+    """
+    def decorator(func):
+        if _mcp_surface() == "diagnostic" or func.__name__ in _CAPTAIN_TOOL_NAMES:
+            return mcp.tool()(func)
+        return func
+    return decorator
 
 
 from agent_runtime.runtime.handles import (
@@ -729,6 +761,20 @@ def _durable_cancel_snapshot(task_id: str) -> Task | None:
         return None
 
 
+def _retire_patch_workspace_before_completion(task: TaskState) -> None:
+    """Retire an isolated patch worktree before terminal success is durable.
+
+    ``completed`` is a public contract.  For patch tasks it means both the
+    work product *and* the Runtime-owned isolation workspace are finished.
+    Cleanup failure therefore fails the task rather than being hidden behind a
+    successful terminal state.
+    """
+    if task.workspace_mode != "patch_worktree" or not task.source_cwd or not task.cwd:
+        return
+    root = _get_runtime_database().path.parent / "workspaces"
+    PatchWorkspaceService(root).cleanup(task.cwd, source_root=task.source_cwd)
+
+
 def _persist_completed(
     task: TaskState,
     result: dict[str, Any],
@@ -843,6 +889,15 @@ def _persist_completed(
         verification=verification.to_dict(),
         usage=usage,
     )
+    # Patch completion is not externally visible until the isolated worktree
+    # has been retired.  This closes the race where status/result became
+    # durable before ``finally`` removed ``runtime/workspaces/patch-*``.
+    try:
+        _retire_patch_workspace_before_completion(task)
+    except PatchWorkspaceCleanupError:
+        capture.cleanup_orphans()
+        raise
+
     try:
         _runtime_service().save_result(
             task.task_id,
@@ -1018,6 +1073,8 @@ def _persist_failed_with_partial_artifacts(task: TaskState) -> bool:
         "NEEDS_REVIEW": "needs_review",
     }.get(verification_status, "unverified")
     outcome_risks: list[str] = ["execution_failed"]
+    if task.terminal_reason == "PatchWorkspaceCleanupError":
+        outcome_risks.append("patch_workspace_cleanup_failed")
     if timeout_can_verify:
         outcome_risks.append("backend_terminal_not_observed")
         if verification_status == "PASSED":
@@ -1404,23 +1461,22 @@ def _run_official_cli_task(
 
 
 def _cleanup_terminal_patch_workspace(task: TaskState) -> None:
-    """Remove a completed/failed runtime-owned worktree after evidence capture.
+    """Best-effort retirement for failed patch tasks only.
 
-    Cancelled/lost/orphaned worktrees are intentionally retained for operator
-    inspection because no deterministic terminal artifact capture is guaranteed
-    for those paths.
+    Successful patch tasks are retired synchronously *before* ``completed`` is
+    persisted by ``_persist_completed``.  This finally-path exists only to
+    clean failed tasks after their evidence has been persisted.
+    Cancelled/lost/orphaned worktrees stay available for operator inspection.
     """
     if task.workspace_mode != "patch_worktree" or not task.source_cwd or not task.cwd:
         return
-    if task.state not in {"completed", "failed"} or task.persist_error:
+    if task.state != "failed" or task.persist_error:
         return
     try:
         root = _get_runtime_database().path.parent / "workspaces"
         PatchWorkspaceService(root).cleanup(task.cwd, source_root=task.source_cwd)
-    except Exception:
-        # Cleanup is operational hygiene, never a reason to rewrite an already
-        # durable terminal task.  A later maintenance pass may prune leftovers.
-        return
+    except PatchWorkspaceCleanupError as exc:
+        task.persist_error = f"patch workspace cleanup requires attention: {type(exc).__name__}"
 
 
 def _run_qoder(task: TaskState, timeout_seconds: float) -> None:
@@ -2054,12 +2110,20 @@ def _task_result_response(task_id: str) -> dict[str, Any]:
             parsed = parse_structured_result(json.dumps(task.result, ensure_ascii=False))
         except StructuredResultParseError:
             parsed = None
+    elapsed_seconds = None
+    if task.started_at is not None and task.finished_at is not None:
+        elapsed_seconds = round(max(0.0, float(task.finished_at - task.started_at)), 3)
     return {
         "ok": True,
         "task_id": task.task_id,
         "state": task.state,
         "runtime": task.runtime,
         "model": task.model or None,
+        "execution_budget": {
+            "max_task_duration_seconds": task.max_task_duration_seconds,
+            "elapsed_seconds": elapsed_seconds,
+            "timeout_reason": task.timeout_reason,
+        },
         "agent_profile": task.agent_profile,
         "parent_task_id": task.parent_task_id,
         "root_task_id": task.root_task_id or task.task_id,
@@ -2381,7 +2445,7 @@ def _plan_execution_service() -> PlanExecutionService:
     return _PLAN_EXECUTION_SERVICE
 
 
-@mcp.tool()
+@_mcp_tool()
 def subagent_start(
     prompt: str,
     runtime: str = "",
@@ -2435,13 +2499,13 @@ def subagent_start(
     )
 
 
-@mcp.tool()
+@_mcp_tool()
 def crew_catalog(probe: bool = False, include_models: bool = False) -> dict[str, Any]:
     """Return normalized CodeBuddy/Qoder Crew capabilities for the Captain."""
     return {"ok": True, **_crew_registry_service().catalog(probe=probe, include_models=include_models)}
 
 
-@mcp.tool()
+@_mcp_tool()
 def crew_health(backend: str, probe: bool = True) -> dict[str, Any]:
     """Return one Crew health projection; raw probe errors/paths stay private."""
     try:
@@ -2450,7 +2514,7 @@ def crew_health(backend: str, probe: bool = True) -> dict[str, Any]:
         return {"ok": False, "error": str(exc)}
 
 
-@mcp.tool()
+@_mcp_tool()
 def crew_recommend(
     task_kind: str,
     required_capabilities: list[str] | None = None,
@@ -2470,7 +2534,7 @@ def crew_recommend(
         return {"ok": False, "error": str(exc)}
 
 
-@mcp.tool()
+@_mcp_tool()
 def voyager_overview(limit: int = 5) -> dict[str, Any]:
     """Return a compact, content-free progress view for the Captain."""
     try:
@@ -2479,7 +2543,7 @@ def voyager_overview(limit: int = 5) -> dict[str, Any]:
         return {"ok": False, "error": type(exc).__name__}
 
 
-@mcp.tool()
+@_mcp_tool()
 def task_dispatch(
     objective: str,
     crew: str,
@@ -2489,11 +2553,17 @@ def task_dispatch(
     access_mode: str = "read_only",
     idempotency_key: str = "",
     context_id: str = "",
+    context_files: list[str] | None = None,
     timeout_seconds: int = 300,
     required_capabilities: list[str] | None = None,
     patch_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Dispatch one explicit Captain-selected Crew task under bounded policy."""
+    """Dispatch one explicit Captain-selected Crew task under bounded policy.
+
+    For CodeBuddy read-only work, ``context_files`` is the high-level Captain
+    convenience path: TP-Voyager creates the existing bounded Context Manifest
+    internally so normal users do not need to call low-level context tools.
+    """
     parsed_policy: PatchPolicy | None = None
     if patch_policy is not None:
         try:
@@ -2509,7 +2579,62 @@ def task_dispatch(
                 "selection_performed": False,
                 "dispatch_performed": False,
             }
-    return _captain_dispatch_service().dispatch(
+    normalized_crew = str(crew or "").strip().lower()
+    normalized_mode = str(access_mode or "read_only").strip().lower()
+    supplied_files = list(context_files or [])
+    effective_context_id = str(context_id or "").strip()
+    context_auto_created = False
+    if supplied_files:
+        if effective_context_id:
+            return {
+                "ok": False,
+                "schema": "tp-voyager.dispatch/v1",
+                "reason_code": "INVALID_CONTEXT_REQUEST",
+                "detail": "pass context_id or context_files, not both",
+                "crew": normalized_crew or None,
+                "task_kind": str(task_kind or "").strip().lower() or None,
+                "selection_performed": False,
+                "dispatch_performed": False,
+            }
+        if normalized_crew != "codebuddy" or normalized_mode != "read_only":
+            return {
+                "ok": False,
+                "schema": "tp-voyager.dispatch/v1",
+                "reason_code": "CONTEXT_FILES_NOT_APPLICABLE",
+                "detail": "context_files is only used by the CodeBuddy controlled read-only route",
+                "crew": normalized_crew or None,
+                "task_kind": str(task_kind or "").strip().lower() or None,
+                "selection_performed": False,
+                "dispatch_performed": False,
+            }
+        try:
+            registered = _context_service().register(cwd, supplied_files)
+            effective_context_id = str(registered.manifest.get("context_id") or "")
+            context_auto_created = True
+        except (ValueError, TypeError, ContextError) as exc:
+            return {
+                "ok": False,
+                "schema": "tp-voyager.dispatch/v1",
+                "reason_code": "CONTEXT_INVALID",
+                "detail": str(exc),
+                "crew": normalized_crew or None,
+                "task_kind": str(task_kind or "").strip().lower() or None,
+                "selection_performed": False,
+                "dispatch_performed": False,
+            }
+        except RuntimePersistenceError:
+            return {
+                "ok": False,
+                "schema": "tp-voyager.dispatch/v1",
+                "reason_code": "RUNTIME_UNAVAILABLE",
+                "detail": "runtime database unavailable",
+                "crew": normalized_crew or None,
+                "task_kind": str(task_kind or "").strip().lower() or None,
+                "selection_performed": False,
+                "dispatch_performed": False,
+            }
+
+    result = _captain_dispatch_service().dispatch(
         CaptainDispatchRequest(
             objective=objective,
             crew=crew,
@@ -2518,21 +2643,28 @@ def task_dispatch(
             model=model,
             access_mode=access_mode,
             idempotency_key=idempotency_key,
-            context_id=context_id,
+            context_id=effective_context_id,
             timeout_seconds=timeout_seconds,
             required_capabilities=tuple(required_capabilities or ()),
             patch_policy=parsed_policy,
         )
     )
+    if context_auto_created:
+        result = {
+            **result,
+            "context_id": effective_context_id,
+            "context_auto_created": True,
+        }
+    return result
 
 
-@mcp.tool()
+@_mcp_tool()
 def task_result(task_id: str) -> dict[str, Any]:
     """Return explicit terminal material; status/overview remain content-free."""
     return _task_result_response(task_id)
 
 
-@mcp.tool()
+@_mcp_tool()
 def subagent_status(task_id: str = "", runtime: str = "") -> dict[str, Any]:
     """Inspect one task, one backend, or all registered backend capabilities."""
     if task_id:
@@ -2559,32 +2691,32 @@ def subagent_status(task_id: str = "", runtime: str = "") -> dict[str, Any]:
     return {"ok": all(item.get("ok") for item in backends), "backends": backends}
 
 
-@mcp.tool()
+@_mcp_tool()
 def subagent_wait(task_id: str, timeout_seconds: int = 55) -> dict[str, Any]:
     return _task_wait(task_id, timeout_seconds)
 
 
-@mcp.tool()
+@_mcp_tool()
 def subagent_result(task_id: str) -> dict[str, Any]:
     return _task_result_response(task_id)
 
 
-@mcp.tool()
+@_mcp_tool()
 def subagent_assessment(task_id: str) -> dict[str, Any]:
     return _task_assessment(task_id)
 
 
-@mcp.tool()
+@_mcp_tool()
 def subagent_evidence(task_id: str, attempt_id: str = "") -> dict[str, Any]:
     return _task_evidence(task_id, attempt_id)
 
 
-@mcp.tool()
+@_mcp_tool()
 def subagent_artifacts(task_id: str, attempt_id: str = "") -> dict[str, Any]:
     return _task_artifacts(task_id, attempt_id)
 
 
-@mcp.tool()
+@_mcp_tool()
 def subagent_cancel(task_id: str, propagate_to_children: bool = False) -> dict[str, Any]:
     """Cancel one task; optionally propagate explicitly to its descendants."""
     if not propagate_to_children:
@@ -2619,7 +2751,7 @@ def subagent_cancel(task_id: str, propagate_to_children: bool = False) -> dict[s
     }
 
 
-@mcp.tool()
+@_mcp_tool()
 def subagent_list(runtime: str = "", parent_task_id: str = "") -> dict[str, Any]:
     result = _task_list()
     if not result.get("ok"):
@@ -2634,7 +2766,7 @@ def subagent_list(runtime: str = "", parent_task_id: str = "") -> dict[str, Any]
     return {"ok": True, "tasks": tasks}
 
 
-@mcp.tool()
+@_mcp_tool()
 def subagent_children(task_id: str) -> dict[str, Any]:
     try:
         service = _runtime_service()
@@ -2661,7 +2793,7 @@ def subagent_children(task_id: str) -> dict[str, Any]:
         return {"ok": False, "error": f"runtime database unavailable: {exc}"}
 
 
-@mcp.tool()
+@_mcp_tool()
 def subagent_tree(task_id: str) -> dict[str, Any]:
     try:
         service = _runtime_service()
@@ -2718,7 +2850,7 @@ def _workflow_specs_from_input(stages: list[dict[str, Any]] | None) -> list[Work
     return result
 
 
-@mcp.tool()
+@_mcp_tool()
 def workflow_create(
     name: str,
     stages: list[dict[str, Any]],
@@ -2738,7 +2870,7 @@ def workflow_create(
         return {"ok": False, "error": f"runtime database unavailable: {exc}"}
 
 
-@mcp.tool()
+@_mcp_tool()
 def workflow_bind_task(
     workflow_id: str,
     stage_key: str,
@@ -2754,7 +2886,7 @@ def workflow_bind_task(
         return {"ok": False, "error": f"runtime database unavailable: {exc}"}
 
 
-@mcp.tool()
+@_mcp_tool()
 def workflow_status(
     workflow_id: str,
     refresh: bool = True,
@@ -2771,7 +2903,7 @@ def workflow_status(
         return {"ok": False, "error": f"runtime database unavailable: {exc}"}
 
 
-@mcp.tool()
+@_mcp_tool()
 def workflow_list(status: str = "") -> dict[str, Any]:
     """List workflow control-plane records without dispatching or refreshing tasks."""
     try:
@@ -2785,7 +2917,7 @@ def workflow_list(status: str = "") -> dict[str, Any]:
         return {"ok": False, "error": f"runtime database unavailable: {exc}"}
 
 
-@mcp.tool()
+@_mcp_tool()
 def workflow_approve(
     workflow_id: str,
     stage_key: str,
@@ -2809,7 +2941,7 @@ def workflow_approve(
         return {"ok": False, "error": f"runtime database unavailable: {exc}"}
 
 
-@mcp.tool()
+@_mcp_tool()
 def subagent_replay(task_id: str) -> dict[str, Any]:
     """Reduce one task's append-only event stream without mutating durable state."""
     try:
@@ -2820,7 +2952,7 @@ def subagent_replay(task_id: str) -> dict[str, Any]:
         return {"ok": False, "error": f"runtime database unavailable: {exc}"}
 
 
-@mcp.tool()
+@_mcp_tool()
 def context_register(
     cwd: str,
     files: list[str],
@@ -2842,7 +2974,7 @@ def context_register(
         return {"ok": False, "error": f"runtime database unavailable: {exc}"}
 
 
-@mcp.tool()
+@_mcp_tool()
 def context_status(context_id: str) -> dict[str, Any]:
     """Read context manifest metadata; no file content or cwd is returned."""
     try:
@@ -2853,7 +2985,7 @@ def context_status(context_id: str) -> dict[str, Any]:
         return {"ok": False, "error": f"runtime database unavailable: {exc}"}
 
 
-@mcp.tool()
+@_mcp_tool()
 def context_verify(
     context_id: str,
     cwd: str,
@@ -2875,7 +3007,7 @@ def context_verify(
         return {"ok": False, "error": f"runtime database unavailable: {exc}"}
 
 
-@mcp.tool()
+@_mcp_tool()
 def context_render(
     context_id: str,
     cwd: str,
@@ -2899,7 +3031,7 @@ def context_render(
         return {"ok": False, "error": f"runtime database unavailable: {exc}"}
 
 
-@mcp.tool()
+@_mcp_tool()
 def knowledge_register(
     cwd: str,
     files: list[str],
@@ -2925,7 +3057,7 @@ def knowledge_register(
         return {"ok": False, "error": f"runtime database unavailable: {exc}"}
 
 
-@mcp.tool()
+@_mcp_tool()
 def knowledge_status(knowledge_id: str) -> dict[str, Any]:
     """Read content-free knowledge collection metadata and source identities."""
     try:
@@ -2936,7 +3068,7 @@ def knowledge_status(knowledge_id: str) -> dict[str, Any]:
         return {"ok": False, "error": f"runtime database unavailable: {exc}"}
 
 
-@mcp.tool()
+@_mcp_tool()
 def knowledge_list(limit: int = 100) -> dict[str, Any]:
     """List registered knowledge collections without returning source content."""
     try:
@@ -2947,7 +3079,7 @@ def knowledge_list(limit: int = 100) -> dict[str, Any]:
         return {"ok": False, "error": f"runtime database unavailable: {exc}"}
 
 
-@mcp.tool()
+@_mcp_tool()
 def knowledge_verify(
     knowledge_id: str,
     cwd: str,
@@ -2966,7 +3098,7 @@ def knowledge_verify(
         return {"ok": False, "error": f"runtime database unavailable: {exc}"}
 
 
-@mcp.tool()
+@_mcp_tool()
 def knowledge_search(
     knowledge_id: str,
     cwd: str,
@@ -2993,7 +3125,7 @@ def knowledge_search(
         return {"ok": False, "error": f"runtime database unavailable: {exc}"}
 
 
-@mcp.tool()
+@_mcp_tool()
 def knowledge_bundle(
     knowledge_id: str,
     cwd: str,
@@ -3022,7 +3154,7 @@ def knowledge_bundle(
         return {"ok": False, "error": f"runtime database unavailable: {exc}"}
 
 
-@mcp.tool()
+@_mcp_tool()
 def knowledge_history(
     knowledge_id: str = "",
     operation: str = "",
@@ -3045,7 +3177,7 @@ def knowledge_history(
         return {"ok": False, "error": f"runtime database unavailable: {exc}"}
 
 
-@mcp.tool()
+@_mcp_tool()
 def knowledge_resolution(resolution_id: str) -> dict[str, Any]:
     """Read one content-free knowledge resolution audit record."""
     try:
@@ -3056,7 +3188,7 @@ def knowledge_resolution(resolution_id: str) -> dict[str, Any]:
         return {"ok": False, "error": f"runtime database unavailable: {exc}"}
 
 
-@mcp.tool()
+@_mcp_tool()
 def planner_create(
     name: str,
     requirement: str,
@@ -3093,7 +3225,7 @@ def planner_create(
         return {"ok": False, "error": f"runtime database unavailable: {exc}"}
 
 
-@mcp.tool()
+@_mcp_tool()
 def planner_validate(plan_id: str) -> dict[str, Any]:
     """Validate a draft plan's linear structure and explicit references."""
     try:
@@ -3104,7 +3236,7 @@ def planner_validate(plan_id: str) -> dict[str, Any]:
         return {"ok": False, "error": f"runtime database unavailable: {exc}"}
 
 
-@mcp.tool()
+@_mcp_tool()
 def planner_prepare(plan_id: str) -> dict[str, Any]:
     """Prepare a Workflow-compatible spec without creating or dispatching it."""
     try:
@@ -3115,7 +3247,7 @@ def planner_prepare(plan_id: str) -> dict[str, Any]:
         return {"ok": False, "error": f"runtime database unavailable: {exc}"}
 
 
-@mcp.tool()
+@_mcp_tool()
 def planner_status(plan_id: str) -> dict[str, Any]:
     """Read one content-free deterministic plan projection."""
     try:
@@ -3126,7 +3258,7 @@ def planner_status(plan_id: str) -> dict[str, Any]:
         return {"ok": False, "error": f"runtime database unavailable: {exc}"}
 
 
-@mcp.tool()
+@_mcp_tool()
 def planner_list(status: str = "", limit: int = 100) -> dict[str, Any]:
     """List content-free plans without creating tasks or selecting backends."""
     try:
@@ -3137,7 +3269,7 @@ def planner_list(status: str = "", limit: int = 100) -> dict[str, Any]:
         return {"ok": False, "error": f"runtime database unavailable: {exc}"}
 
 
-@mcp.tool()
+@_mcp_tool()
 def planner_history(plan_id: str = "", limit: int = 100) -> dict[str, Any]:
     """Read append-only, content-free planner lifecycle events."""
     try:
@@ -3209,7 +3341,7 @@ def _plan_step_material_from_api(value: dict[str, Any]) -> PlanStepMaterial:
     )
 
 
-@mcp.tool()
+@_mcp_tool()
 def plan_execution_start(
     plan_id: str,
     cwd: str,
@@ -3234,7 +3366,7 @@ def plan_execution_start(
         return {"ok": False, "error": f"runtime database unavailable: {exc}"}
 
 
-@mcp.tool()
+@_mcp_tool()
 def plan_execution_status(
     execution_id: str, refresh: bool = True
 ) -> dict[str, Any]:
@@ -3248,7 +3380,7 @@ def plan_execution_status(
         return {"ok": False, "error": f"runtime database unavailable: {exc}"}
 
 
-@mcp.tool()
+@_mcp_tool()
 def plan_execution_resume(
     execution_id: str,
     cwd: str,
@@ -3271,7 +3403,7 @@ def plan_execution_resume(
         return {"ok": False, "error": f"runtime database unavailable: {exc}"}
 
 
-@mcp.tool()
+@_mcp_tool()
 def plan_execution_cancel(
     execution_id: str, cancel_current_task: bool = False
 ) -> dict[str, Any]:
@@ -3286,7 +3418,7 @@ def plan_execution_cancel(
         return {"ok": False, "error": f"runtime database unavailable: {exc}"}
 
 
-@mcp.tool()
+@_mcp_tool()
 def plan_execution_result(execution_id: str) -> dict[str, Any]:
     """Read the Plan-level result; non-terminal executions return final=false."""
     try:
@@ -3297,7 +3429,7 @@ def plan_execution_result(execution_id: str) -> dict[str, Any]:
         return {"ok": False, "error": f"runtime database unavailable: {exc}"}
 
 
-@mcp.tool()
+@_mcp_tool()
 def plan_execution_history(
     execution_id: str, limit: int = 100
 ) -> dict[str, Any]:
@@ -3310,7 +3442,7 @@ def plan_execution_history(
         return {"ok": False, "error": f"runtime database unavailable: {exc}"}
 
 
-@mcp.tool()
+@_mcp_tool()
 def subagent_capabilities(
     runtime: str = "",
     route: str = "",
@@ -3336,7 +3468,7 @@ def subagent_capabilities(
         return {"ok": False, "error": str(exc)}
 
 
-@mcp.tool()
+@_mcp_tool()
 def runtime_tool_catalog(
     category: str = "",
     name: str = "",
@@ -3350,7 +3482,7 @@ def runtime_tool_catalog(
         return {"ok": False, "error": f"runtime database unavailable: {exc}"}
 
 
-@mcp.tool()
+@_mcp_tool()
 def runtime_tool_invoke(
     tool_name: str,
     cwd: str,
@@ -3371,7 +3503,7 @@ def runtime_tool_invoke(
         return {"ok": False, "error": f"runtime database unavailable: {exc}"}
 
 
-@mcp.tool()
+@_mcp_tool()
 def runtime_tool_history(
     tool_name: str = "",
     status: str = "",
@@ -3394,7 +3526,7 @@ def runtime_tool_history(
         return {"ok": False, "error": f"runtime database unavailable: {exc}"}
 
 
-@mcp.tool()
+@_mcp_tool()
 def runtime_tool_invocation(invocation_id: str) -> dict[str, Any]:
     """Read one content-free Tool Runtime invocation audit record."""
     try:
@@ -3405,7 +3537,7 @@ def runtime_tool_invocation(invocation_id: str) -> dict[str, Any]:
         return {"ok": False, "error": f"runtime database unavailable: {exc}"}
 
 
-@mcp.tool()
+@_mcp_tool()
 def workflow_replay(workflow_id: str) -> dict[str, Any]:
     """Reduce one workflow event stream and compare it with durable rows."""
     try:
@@ -3417,7 +3549,7 @@ def workflow_replay(workflow_id: str) -> dict[str, Any]:
 
 
 # Qoder-specific names are compatibility aliases only.  They own no state.
-@mcp.tool()
+@_mcp_tool()
 def qoder_start(
     prompt: str,
     cwd: str = "",
@@ -3447,32 +3579,32 @@ def qoder_start(
     )
 
 
-@mcp.tool()
+@_mcp_tool()
 def qoder_status(task_id: str = "") -> dict[str, Any]:
     return subagent_status(task_id=task_id, runtime="qoder")
 
 
-@mcp.tool()
+@_mcp_tool()
 def qoder_wait(task_id: str, timeout_seconds: int = 55) -> dict[str, Any]:
     return subagent_wait(task_id, timeout_seconds)
 
 
-@mcp.tool()
+@_mcp_tool()
 def qoder_result(task_id: str) -> dict[str, Any]:
     return subagent_result(task_id)
 
 
-@mcp.tool()
+@_mcp_tool()
 def qoder_assessment(task_id: str) -> dict[str, Any]:
     return subagent_assessment(task_id)
 
 
-@mcp.tool()
+@_mcp_tool()
 def qoder_cancel(task_id: str) -> dict[str, Any]:
     return subagent_cancel(task_id)
 
 
-@mcp.tool()
+@_mcp_tool()
 def qoder_list() -> dict[str, Any]:
     return subagent_list(runtime="qoder")
 

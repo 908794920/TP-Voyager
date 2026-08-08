@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import unittest
+from types import SimpleNamespace
 
 from agent_runtime.application.crew import CrewProvider, CrewRegistryService
 from agent_runtime.domain.crew import CrewDescriptor, ModelDescriptor
@@ -11,11 +13,15 @@ from agent_runtime.backends.codebuddy.capability import descriptor as codebuddy_
 
 
 class _Tasks:
-    def __init__(self, tasks):
+    def __init__(self, tasks, sessions=None):
         self._tasks = tasks
+        self._sessions = dict(sessions or {})
 
     def list_tasks(self):
         return list(self._tasks)
+
+    def get_session(self, task_id):
+        return self._sessions.get(task_id)
 
 
 def _descriptor(name: str, *, ready: bool = True, caps=()) -> CrewDescriptor:
@@ -88,6 +94,40 @@ class CrewRegistryTests(unittest.TestCase):
         self.assertEqual(health.availability, "unavailable")
         self.assertEqual(health.probe_error, "RuntimeError")
         self.assertNotIn("secret", str(health.to_dict()))
+
+
+    def test_health_surfaces_auth_probe_state_and_last_successful_explicit_model(self) -> None:
+        tasks = [
+            Task("old", "codebuddy", "completed", "sdk_context_read_only", 1, 5, started_at=2, finished_at=5),
+            Task("new", "codebuddy", "completed", "sdk_context_read_only", 6, 12, started_at=7, finished_at=12),
+        ]
+        sessions = {
+            "old": SimpleNamespace(metadata_json=json.dumps({"model": "older-model"})),
+            "new": SimpleNamespace(metadata_json=json.dumps({"model": "hy3"})),
+        }
+        service = CrewRegistryService(
+            {
+                "codebuddy": CrewProvider(
+                    codebuddy_crew_descriptor(),
+                    probe=lambda: {
+                        "installed": True,
+                        "version": "1.0",
+                        "cli_installed": True,
+                        "sdk_installed": True,
+                        "auth_probe_performed": False,
+                    },
+                )
+            },
+            task_service=_Tasks(tasks, sessions),
+        )
+        health = service.health("codebuddy", probe=True)
+        self.assertEqual(health.auth_status, "not_probed")
+        self.assertEqual(health.last_successful_model, "hy3")
+        self.assertEqual(health.last_successful_model_at, 12)
+        self.assertEqual(health.last_successful_model_source, "runtime_observation")
+        self.assertEqual(health.model_catalog_status, "official_machine_readable_catalog_not_confirmed")
+        self.assertTrue(health.detail["cli_installed"])
+        self.assertTrue(health.detail["sdk_installed"])
 
     def test_models_are_optional_and_unknown_is_not_guessed(self) -> None:
         service = CrewRegistryService({"codebuddy": CrewProvider(_descriptor("codebuddy", ready=False))})

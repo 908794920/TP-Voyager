@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from agent_runtime.application.crew import CrewProvider, CrewRegistryService
 from agent_runtime.application.dispatch import CaptainDispatchService
@@ -116,6 +118,59 @@ class CaptainBoundaryTests(unittest.TestCase):
         self.assertTrue(accepted["ok"])
         self.assertEqual(len(calls), 1)
         self.assertIs(calls[0].patch_policy, policy)
+
+
+    def test_high_level_dispatch_can_auto_create_codebuddy_context_manifest(self) -> None:
+        from agent_runtime import server
+
+        captured = []
+
+        class _Contexts:
+            def register(self, cwd, files):
+                self.cwd = cwd
+                self.files = list(files)
+                return SimpleNamespace(manifest={"context_id": "ctx-auto"})
+
+        class _Dispatch:
+            def dispatch(self, request):
+                captured.append(request)
+                return {"ok": True, "task_id": "task-auto"}
+
+        contexts = _Contexts()
+        with patch("agent_runtime.server._context_service", return_value=contexts), patch(
+            "agent_runtime.server._captain_dispatch_service", return_value=_Dispatch()
+        ):
+            result = server.task_dispatch(
+                objective="inspect bounded files",
+                crew="codebuddy",
+                task_kind="research",
+                cwd="C:/repo",
+                context_files=["README.md", "src/a.py"],
+                timeout_seconds=600,
+            )
+        self.assertTrue(result["ok"], result)
+        self.assertTrue(result["context_auto_created"])
+        self.assertEqual(result["context_id"], "ctx-auto")
+        self.assertEqual(contexts.files, ["README.md", "src/a.py"])
+        self.assertEqual(captured[0].context_id, "ctx-auto")
+        self.assertEqual(captured[0].timeout_seconds, 600)
+
+    def test_high_level_dispatch_rejects_ambiguous_or_irrelevant_context_files(self) -> None:
+        from agent_runtime import server
+
+        ambiguous = server.task_dispatch(
+            objective="inspect", crew="codebuddy", task_kind="research", cwd=".",
+            context_id="existing", context_files=["README.md"],
+        )
+        self.assertFalse(ambiguous["ok"])
+        self.assertEqual(ambiguous["reason_code"], "INVALID_CONTEXT_REQUEST")
+
+        qoder = server.task_dispatch(
+            objective="inspect", crew="qoder", task_kind="research", cwd=".",
+            context_files=["README.md"],
+        )
+        self.assertFalse(qoder["ok"])
+        self.assertEqual(qoder["reason_code"], "CONTEXT_FILES_NOT_APPLICABLE")
 
     def test_controlled_ready_synthetic_dispatch_does_not_auto_select_or_fallback(self) -> None:
         caps = ("analyze_context", "read_files", "search_code")

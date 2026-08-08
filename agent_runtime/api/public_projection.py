@@ -52,6 +52,18 @@ def result_summary(task: TaskState) -> dict[str, Any] | None:
     return {key: value for key, value in summary.items() if value is not None}
 
 
+
+
+def execution_budget(task: TaskState) -> dict[str, Any]:
+    elapsed_seconds = None
+    if task.started_at is not None and task.finished_at is not None:
+        elapsed_seconds = round(max(0.0, float(task.finished_at - task.started_at)), 3)
+    return {
+        "max_task_duration_seconds": task.max_task_duration_seconds,
+        "elapsed_seconds": elapsed_seconds,
+        "timeout_reason": task.timeout_reason,
+    }
+
 def safe_public_error(error: str | None, terminal_reason: str | None) -> str | None:
     """Return a diagnostic category without exposing backend exception content."""
     if not error:
@@ -97,6 +109,7 @@ def public_task(task: TaskState) -> dict[str, Any]:
         "event_count": task.event_count,
         "idle_timeout_seconds": task.idle_timeout_seconds,
         "max_task_duration_seconds": task.max_task_duration_seconds,
+        "execution_budget": execution_budget(task),
         "timeout_reason": task.timeout_reason,
         "lost_at": task.lost_at,
         "orphaned_at": task.orphaned_at,

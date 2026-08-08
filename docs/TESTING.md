@@ -59,6 +59,22 @@ run_tests.cmd
 
 不要把真实模型调用伪装成纯单元测试 PASS。
 
+
+## v1.0.1 Patch 稳定化 Gate
+
+真实使用暴露过一次 Patch 终态/cleanup 竞态，因此当前 Patch Release Gate 必须额外满足：
+
+```text
+Task 对外为 completed
+AND Verification = PASSED
+AND runtime/workspaces/patch-* 无残留
+AND Git worktree registration 无残留
+```
+
+自动测试中使用同步 Gate 确认：cleanup 尚未完成时，`completed` 不得可见；注入 cleanup failure 时任务必须终止为 failure。
+
+正式恢复 Patch production-ready 声明前，只需要做最小 Live Matrix：CodeBuddy/Qoder 各一个 bounded patch，并检查原始工作树与 Runtime worktree。不要重跑历史多小时套件。
+
 ## 防止测试膨胀
 
 删除一个正式功能时，应同时删除：

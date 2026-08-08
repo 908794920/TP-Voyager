@@ -36,6 +36,8 @@ SQLite Durable Row = Source of Truth
 
 ## Captain 主路径
 
+默认 MCP Surface 只注册 6 个 Captain 工具：
+
 ```text
 crew_catalog / crew_health / crew_recommend
                  ↓
@@ -51,6 +53,8 @@ crew_catalog / crew_health / crew_recommend
                  ↓
  task_result / voyager_overview
 ```
+
+低层 Task / Context / Planner / Artifact API 没有被删除，但只属于显式 `diagnostic` Surface。这样仍然只有一个 Runtime、一个 Durable Task 状态机，只是对 Captain 的工具可见面更小。
 
 Crew 推荐只提供决策依据。
 
@@ -86,6 +90,18 @@ Runtime-owned Git worktree
 ```
 
 Runtime 不自动把 Patch 合并回乘客工作树。
+
+Patch 的终态顺序固定为：
+
+```text
+Crew terminal material
+→ Artifact capture
+→ Verification
+→ isolated worktree cleanup + Git registration check
+→ durable completed
+```
+
+因此 Captain 一旦观察到 `completed`，Runtime-owned `patch-*` worktree 必须已经退休。Cleanup 失败会把 Task 收敛为明确 failure，而不是先宣布成功再后台清理。
 
 ## WorkBuddy
 

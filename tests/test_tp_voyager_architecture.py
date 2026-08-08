@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import json
+import os
 from pathlib import Path
+import subprocess
+import sys
+import tempfile
 import unittest
 
 
@@ -89,6 +94,64 @@ class TPVoyagerArchitectureBaselineTests(unittest.TestCase):
         self.assertIn('crew == "workbuddy"', dispatch)  # explicit fail-closed rejection only
         self.assertIn("CREW_NOT_SUPPORTED", dispatch)
         self.assertNotIn("--yolo", dispatch)
+
+
+    def test_default_mcp_surface_registers_only_six_captain_tools(self) -> None:
+        expected = {
+            "crew_catalog", "crew_health", "crew_recommend",
+            "voyager_overview", "task_dispatch", "task_result",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            stub = Path(tmp)
+            (stub / "mcp" / "server").mkdir(parents=True)
+            (stub / "mcp" / "__init__.py").write_text("", encoding="utf-8")
+            (stub / "mcp" / "server" / "__init__.py").write_text("", encoding="utf-8")
+            (stub / "mcp" / "server" / "fastmcp.py").write_text(
+                "class FastMCP:\n"
+                "    def __init__(self, *args, **kwargs): self.registered_tools=[]\n"
+                "    def tool(self, *args, **kwargs):\n"
+                "        def deco(fn): self.registered_tools.append(fn.__name__); return fn\n"
+                "        return deco\n"
+                "    def run(self, *args, **kwargs): pass\n",
+                encoding="utf-8",
+            )
+            env = dict(os.environ)
+            env.pop("TP_VOYAGER_MCP_SURFACE", None)
+            env["PYTHONPATH"] = os.pathsep.join([str(stub), str(REPO_ROOT)])
+            completed = subprocess.run(
+                [sys.executable, "-c", "import json; import agent_runtime.api.mcp_server as m; print(json.dumps(m.mcp.registered_tools))"],
+                cwd=str(REPO_ROOT), env=env, text=True, capture_output=True, timeout=30, check=False,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertEqual(set(json.loads(completed.stdout.strip().splitlines()[-1])), expected)
+
+    def test_diagnostic_mcp_surface_keeps_compatibility_tools_without_becoming_default(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            stub = Path(tmp)
+            (stub / "mcp" / "server").mkdir(parents=True)
+            (stub / "mcp" / "__init__.py").write_text("", encoding="utf-8")
+            (stub / "mcp" / "server" / "__init__.py").write_text("", encoding="utf-8")
+            (stub / "mcp" / "server" / "fastmcp.py").write_text(
+                "class FastMCP:\n"
+                "    def __init__(self, *args, **kwargs): self.registered_tools=[]\n"
+                "    def tool(self, *args, **kwargs):\n"
+                "        def deco(fn): self.registered_tools.append(fn.__name__); return fn\n"
+                "        return deco\n"
+                "    def run(self, *args, **kwargs): pass\n",
+                encoding="utf-8",
+            )
+            env = dict(os.environ)
+            env["TP_VOYAGER_MCP_SURFACE"] = "diagnostic"
+            env["PYTHONPATH"] = os.pathsep.join([str(stub), str(REPO_ROOT)])
+            completed = subprocess.run(
+                [sys.executable, "-c", "import json; import agent_runtime.api.mcp_server as m; print(json.dumps(m.mcp.registered_tools))"],
+                cwd=str(REPO_ROOT), env=env, text=True, capture_output=True, timeout=30, check=False,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            tools = set(json.loads(completed.stdout.strip().splitlines()[-1]))
+            self.assertGreater(len(tools), 6)
+            self.assertIn("subagent_status", tools)
+            self.assertIn("context_register", tools)
 
     def test_historical_workbuddy_is_confined_to_data_compatibility_record(self) -> None:
         record = REPO_ROOT / "docs" / "records" / "legacy-workbuddy" / "DATA_COMPATIBILITY.md"

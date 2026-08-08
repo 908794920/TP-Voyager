@@ -35,26 +35,33 @@ WorkBuddy 已从当前生产执行路径移除，仅保留必要的历史数据�
 
 ## 当前状态
 
-**TP-Voyager Initial Real-Use Baseline v1.0.0 — FINAL ACCEPTED**
+**TP-Voyager v1.0.1 — stable**
 
-已完成并通过真实环境验收：
+`v1.0.0` 已完成首轮真实环境验收，进入真实使用后发现的 Patch 生命周期竞态（任务可能先对 Captain 暴露 `completed`，随后才清理隔离 worktree）已在 `v1.0.1` 中修复：只有 worktree 已确认清理后才能对外可见 `completed`。`v1.0.1` 已通过真实环境 Live 验收（CodeBuddy/Qoder 只读 + bounded patch + completed 时刻无 `patch-*` worktree 残留 + 无隐藏 fallback）。
+
+当前状态：
 
 ```text
 T0 目标架构收口           ACCEPTED
 T1 Crew Registry          ACCEPTED
 T2 Captain Boundary       ACCEPTED
 T3 受控只读 Worker        ACCEPTED
-T4 受控 Patch Worker      ACCEPTED
-Final MCP Discovery       ACCEPTED
+T4 Patch Worker           ACCEPTED (v1.0.1)
+默认 Captain MCP Surface  6 tools
 ```
 
-当前阶段已经从“造船”进入**真实航行（Real Voyage）**。后续功能只应由真实使用问题驱动。
+`v1.0.1` 已满足稳定化 Gate：**Smoke 全绿 + CodeBuddy/Qoder 最小 Live Patch 矩阵通过 + 无 `patch-*` worktree 残留**。
+
+因此：
+
+- 只读路线与受控 Patch 路线均可作为当前稳定能力使用；
+- `v1.0.0` 的 Patch 竞态已由 `v1.0.1` 修复并正式发布。
 
 ## 核心能力
 
 ### Captain 控制面
 
-Captain 日常主要使用：
+Captain 默认 MCP Surface **只暴露 6 个高层工具**：
 
 ```text
 crew_catalog
@@ -65,7 +72,13 @@ task_dispatch
 task_result
 ```
 
-Runtime 仍提供通用 Task / Sub-Agent 生命周期工具，用于状态、等待、结果、取消和恢复。
+旧 Task / Sub-Agent / Context / Planner / Artifact 工具仍保留为诊断/兼容面，但只有显式设置：
+
+```text
+TP_VOYAGER_MCP_SURFACE=diagnostic
+```
+
+才会注册到 MCP。正常 Captain 不需要理解这些低层工具。
 
 ### 受控只读任务
 
@@ -98,6 +111,32 @@ Verification / Evidence
     ↓
 不自动合并回乘客工作树
 ```
+
+### 真实使用默认策略
+
+Captain Skill 提供以下默认预算，不自动重试：
+
+```text
+quick          180s
+investigation  600s
+review         600s
+patch          900s
+verify         300s
+```
+
+`task_result` 会返回：
+
+```text
+execution_budget.max_task_duration_seconds
+execution_budget.elapsed_seconds
+execution_budget.timeout_reason
+```
+
+因此 Qoder 长调查超时应被解释为“预算不足或任务未在预算内结束”，而不是直接解释为 Backend 不可用。
+
+CodeBuddy 只读任务可直接通过 `task_dispatch(context_files=[...])` 传入最小文件范围；TP-Voyager 会在内部复用现有 Context Manifest 机制，普通使用者不需要手工操作 `context_*` 工具。
+
+CodeBuddy Health 将“CLI/SDK 可用”“认证是否实际探测”“最近成功的显式模型”分开表达。没有官方机器可读模型目录时仍保持 unknown，不伪造模型清单。
 
 ### Durable Runtime
 
@@ -288,7 +327,7 @@ MIT 是非常宽松、友好的开源协议，允许个人和商业场景自由�
 
 ## 当前开发策略
 
-TP-Voyager v1.0.0 已具备真实使用基线。
+TP-Voyager 已进入真实航行阶段；当前 `v1.0.1` 已收口首轮真实使用反馈，不扩展架构。
 
 当前不主动扩展：
 

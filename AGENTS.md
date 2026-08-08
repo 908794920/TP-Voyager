@@ -12,9 +12,17 @@
 
 ## 当前基线
 
-TP-Voyager T0–T4 已完成验收：
+**TP-Voyager v1.0.1 — stable**
+
+T0–T4 已完成真实环境验收，当前进入 **Real Voyage（真实使用）** 阶段：
 
 ```text
+T0 目标架构收口      ACCEPTED
+T1 Crew Registry     ACCEPTED
+T2 Captain Boundary  ACCEPTED
+T3 受控只读 Worker   ACCEPTED
+T4 Patch Worker      ACCEPTED (v1.0.1)
+
 Passenger → Captain AI → TP-Voyager → Crew
                               ├─ CodeBuddy CLI
                               └─ Qoder CLI
@@ -84,7 +92,7 @@ backends/qoder/
 
 ## Captain 边界
 
-Captain 正常使用应优先：
+Captain 默认 MCP Surface 只能暴露：
 
 ```text
 voyager_overview
@@ -94,6 +102,8 @@ crew_recommend
 task_dispatch
 task_result
 ```
+
+低层兼容工具只能在显式 `TP_VOYAGER_MCP_SURFACE=diagnostic` 诊断模式注册；不得为了普通使用重新扩大默认 Tool Surface。
 
 不要让 Captain 默认读取：
 

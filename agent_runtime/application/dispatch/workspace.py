@@ -20,6 +20,11 @@ class PatchWorkspaceError(RuntimeError):
     pass
 
 
+class PatchWorkspaceCleanupError(PatchWorkspaceError):
+    """Runtime-owned patch workspace could not be fully retired."""
+
+
+
 @dataclass(frozen=True)
 class PatchWorkspace:
     source_root: str
@@ -105,6 +110,12 @@ class PatchWorkspaceService:
         )
 
     def cleanup(self, workspace: PatchWorkspace | str, *, source_root: str | None = None) -> None:
+        """Remove a Runtime-owned patch worktree and verify retirement.
+
+        Cleanup is part of the patch completion contract, not best-effort
+        housekeeping.  A task must never become externally ``completed`` while
+        its isolated worktree is still live or still registered with Git.
+        """
         if isinstance(workspace, PatchWorkspace):
             worktree = Path(workspace.worktree_root).resolve()
             source = Path(workspace.source_root).resolve()
@@ -113,11 +124,46 @@ class PatchWorkspaceService:
             source = Path(source_root or "").resolve() if source_root else None
         try:
             worktree.relative_to(self.root)
-        except ValueError:
-            return
+        except ValueError as exc:
+            raise PatchWorkspaceCleanupError(
+                "refusing to clean a patch workspace outside the Runtime workspace root"
+            ) from exc
+
+        removal_error: str | None = None
         if source is not None and source.is_dir():
-            result = self._git(source, "worktree", "remove", "--force", str(worktree), timeout=60.0)
-            if result.returncode == 0:
-                return
-        # Only runtime-owned paths under self.root are eligible for fallback deletion.
-        shutil.rmtree(worktree, ignore_errors=True)
+            result = self._git(
+                source, "worktree", "remove", "--force", str(worktree), timeout=60.0
+            )
+            if result.returncode != 0:
+                removal_error = "git worktree remove failed"
+
+        if worktree.exists():
+            try:
+                # Only paths already proven to be under self.root may reach this
+                # fallback.  Do not ignore errors: silent leftovers are exactly
+                # what the completion contract must prevent.
+                shutil.rmtree(worktree)
+            except OSError as exc:
+                raise PatchWorkspaceCleanupError(
+                    f"patch workspace directory removal failed: {type(exc).__name__}"
+                ) from exc
+
+        if source is not None and source.is_dir():
+            prune = self._git(source, "worktree", "prune", timeout=30.0)
+            if prune.returncode != 0:
+                raise PatchWorkspaceCleanupError("git worktree prune failed")
+            listed = self._git(source, "worktree", "list", "--porcelain", timeout=30.0)
+            if listed.returncode != 0:
+                raise PatchWorkspaceCleanupError("git worktree list failed after cleanup")
+            registrations = [
+                Path(line.split(" ", 1)[1].strip()).resolve()
+                for line in listed.stdout.splitlines()
+                if line.startswith("worktree ")
+            ]
+            if any(item == worktree for item in registrations):
+                raise PatchWorkspaceCleanupError("patch workspace is still registered after cleanup")
+
+        if worktree.exists():
+            raise PatchWorkspaceCleanupError("patch workspace still exists after cleanup")
+        if removal_error and source is None:
+            raise PatchWorkspaceCleanupError(removal_error)

@@ -1,6 +1,6 @@
 # TP-Voyager Captain Skill
 
-> Version: 1.0.0
+> Version: 1.0.1
 >
 > Role: Captain-side orchestration skill for TP-Voyager.
 >
@@ -51,23 +51,60 @@ task_dispatch
 task_result
 ```
 
-Lifecycle helpers may also be available:
-
-```text
-subagent_start
-subagent_status
-subagent_wait
-subagent_result
-subagent_cancel
-```
-
-Artifact tools may also be available.
+The default MCP surface intentionally exposes only those six Captain tools.
+Legacy lifecycle/context/artifact tools may still exist on the explicit
+``diagnostic`` MCP surface for maintenance, but the Captain must not depend on
+them during normal operation.
 
 If the required TP-Voyager tools are unavailable:
 
 - do not pretend that Crew dispatch succeeded;
 - do not silently call vendor CLIs as a substitute;
 - report that TP-Voyager is not currently connected or available.
+
+---
+
+
+### 2.1 Preflight
+
+Before the first task in a session:
+
+```text
+1. voyager_overview
+2. crew_catalog(probe=false)
+3. crew_health(selected Crew, probe=true) when live readiness matters
+4. crew_recommend when Crew choice is non-obvious
+```
+
+Interpret CodeBuddy health carefully:
+
+- `cli_installed` / `sdk_installed` describe local components.
+- `auth_status=not_probed` is **not** the same as "not logged in".
+- `last_successful_model` is local Runtime evidence from a completed explicit-model task.
+- an absent machine-readable model catalog must remain unknown; never invent one.
+
+For Qoder, use the Runtime's official dynamic model catalog when model
+availability must be checked.  The current real-use baseline has successfully
+used explicit model `Lite`; if that model is no longer reported as available,
+do not silently substitute another model.
+
+### 2.2 Timeout presets
+
+Use these Captain defaults unless the Passenger supplies a different budget:
+
+| Preset | Typical task | `timeout_seconds` |
+|---|---|---:|
+| `quick` | small lookup / narrow check | 180 |
+| `investigation` | research / code understanding | 600 |
+| `review` | code review / failure triage | 600 |
+| `patch` | bounded `small_patch` | 900 |
+| `verify` | bounded verification-only analysis | 300 |
+
+These are dispatch budgets, not retry policy.
+
+**Never automatically retry a timeout.** Return the timeout and consumed budget
+to the Captain, who decides whether to re-dispatch with a larger explicit
+budget.
 
 ---
 
@@ -395,10 +432,25 @@ objective
 chosen Crew
 task kind
 working directory when required
-context reference when required
-timeout when material
+context scope when required
+timeout budget
 patch policy for patch work
 ```
+
+For **CodeBuddy read-only** work, prefer the high-level `context_files` argument
+to `task_dispatch`.  Pass the smallest relevant list of relative UTF-8 text
+files.  TP-Voyager creates and verifies the existing Context Manifest
+internally; the Captain does not need to call low-level `context_*` tools.
+
+Do not supply both `context_id` and `context_files`.
+
+For **Qoder read-only** work, do not manufacture a Context Manifest merely for
+symmetry; use its accepted controlled ACP read-only route.
+
+Before patch dispatch, the Passenger must already have provided or explicitly
+confirmed the effective write scope and verification boundary.  If allowed
+paths, verification command(s), or change budget are materially ambiguous, ask
+for clarification instead of guessing.
 
 For patch work, provide the narrowest practical policy:
 
@@ -456,6 +508,8 @@ For a code change, review at least:
 ```text
 terminal status
 verification status
+execution_budget.max_task_duration_seconds
+execution_budget.elapsed_seconds
 changed paths
 patch/evidence references
 risk or warning fields
@@ -523,7 +577,9 @@ crew_recommend(task_kind="test_failure_triage")
     ↓
 choose Crew
     ↓
-task_dispatch(... read-only ...)
+if Qoder and model choice is needed: confirm `Lite` is currently available
+    ↓
+task_dispatch(... read-only, timeout=600 for investigation ...)
     ↓
 voyager_overview
     ↓

@@ -35,6 +35,19 @@ acp_patch
 - Terminal 命令必须精确匹配 Captain-approved argv/cwd；
 - Runtime 负责捕获 Patch、Verification 与 Evidence。
 
+
+## 实测预算与模型基线
+
+真实使用中，同一类长调查任务在 180 秒预算下可能触发 `max_task_duration`，而 600 秒预算可以正常完成。因此 Captain Skill 对 `investigation/review` 默认使用 600 秒，但**不自动重试**。
+
+本轮真实环境已经成功使用过显式模型 `Lite`。该事实属于本地运行证据；模型是否仍可用必须以当前：
+
+```text
+qodercli --list-models
+```
+
+结果为准。若 `Lite` 不再可用，Captain 不得静默替换模型。
+
 ## Model Catalog
 
 当前动态模型目录来源：

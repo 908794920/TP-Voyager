@@ -77,6 +77,11 @@ class CrewHealthSnapshot:
     failure_streak: int = 0
     last_success_at: float | None = None
     last_failure_at: float | None = None
+    auth_status: str = "not_probed"
+    model_catalog_status: str = "unknown"
+    last_successful_model: str | None = None
+    last_successful_model_at: float | None = None
+    last_successful_model_source: str | None = None
     probe_error: str | None = None
     detail: dict[str, Any] = field(default_factory=dict)
 
@@ -93,6 +98,11 @@ class CrewHealthSnapshot:
             "failure_streak": self.failure_streak,
             "last_success_at": self.last_success_at,
             "last_failure_at": self.last_failure_at,
+            "auth_status": self.auth_status,
+            "model_catalog_status": self.model_catalog_status,
+            "last_successful_model": self.last_successful_model,
+            "last_successful_model_at": self.last_successful_model_at,
+            "last_successful_model_source": self.last_successful_model_source,
             "probe_error": self.probe_error,
             "detail": dict(self.detail),
         }

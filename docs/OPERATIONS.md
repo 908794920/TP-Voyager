@@ -57,7 +57,7 @@ CODEBUDDY_INTERNET_ENVIRONMENT=internal
 
 ## Captain 日常操作
 
-优先使用：
+默认启动时 MCP 只暴露：
 
 ```text
 voyager_overview
@@ -68,7 +68,37 @@ task_dispatch
 task_result
 ```
 
-Vendor-specific 兼容/诊断工具不是 Captain 的常规控制面。
+Vendor-specific、`subagent_*`、`context_*`、Planner/Artifact 等历史兼容工具不会注册到默认 MCP Surface。
+
+维护者确实需要低层诊断时，启动前显式设置：
+
+```bat
+set TP_VOYAGER_MCP_SURFACE=diagnostic
+start_runtime.cmd
+```
+
+PowerShell：
+
+```powershell
+$env:TP_VOYAGER_MCP_SURFACE = "diagnostic"
+.\start_runtime.cmd
+```
+
+诊断 Surface 只改变工具可见性，不创建第二套 Runtime 或状态机。
+
+### 推荐超时预算
+
+Captain Skill 当前预设：
+
+```text
+quick          180s
+investigation  600s
+review         600s
+patch          900s
+verify         300s
+```
+
+超时后不自动重试。`task_result` 成功结果会返回 `execution_budget`；超时失败可通过状态中的 timeout 信息判断。
 
 ## 本地诊断
 

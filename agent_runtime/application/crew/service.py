@@ -8,6 +8,7 @@ never dispatches a worker.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 import time
 from typing import Any, Callable, Mapping
 
@@ -115,12 +116,18 @@ class CrewRegistryService:
             availability = "not_probed"
         else:
             availability = "not_dispatch_ready"
+        auth_status = "not_probed"
+        if bool(detail.get("auth_probe_performed")):
+            auth_status = str(detail.get("auth_status") or "probed_unknown")
+        model_catalog_status = provider.descriptor.model_discovery or "unknown"
         return CrewHealthSnapshot(
             backend=name,
             installed=installed,
             dispatch_ready=provider.descriptor.dispatch_ready,
             availability=availability,
             version=version,
+            auth_status=auth_status,
+            model_catalog_status=model_catalog_status,
             probe_error=probe_error,
             detail=detail,
             **history,
@@ -216,6 +223,21 @@ class CrewRegistryService:
             failure_streak += 1
         success_times = [task.finished_at or task.updated_at for task in considered if task.status == "completed"]
         failure_times = [task.finished_at or task.updated_at for task in considered if task.status != "completed"]
+        last_successful_model = None
+        last_successful_model_at = None
+        for task in considered:
+            if task.status != "completed":
+                continue
+            try:
+                session = self._task_service.get_session(task.task_id)
+                metadata = json.loads(session.metadata_json or "{}") if session is not None else {}
+            except Exception:
+                metadata = {}
+            model = str(metadata.get("model") or "").strip() if isinstance(metadata, dict) else ""
+            if model:
+                last_successful_model = model
+                last_successful_model_at = task.finished_at or task.updated_at
+                break
         return {
             "sample_count": len(considered),
             "success_rate": success_rate,
@@ -223,6 +245,9 @@ class CrewRegistryService:
             "failure_streak": failure_streak,
             "last_success_at": max(success_times) if success_times else None,
             "last_failure_at": max(failure_times) if failure_times else None,
+            "last_successful_model": last_successful_model,
+            "last_successful_model_at": last_successful_model_at,
+            "last_successful_model_source": "runtime_observation" if last_successful_model else None,
         }
 
     @staticmethod
@@ -234,4 +259,7 @@ class CrewRegistryService:
             "failure_streak": 0,
             "last_success_at": None,
             "last_failure_at": None,
+            "last_successful_model": None,
+            "last_successful_model_at": None,
+            "last_successful_model_source": None,
         }
