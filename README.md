@@ -35,7 +35,7 @@ WorkBuddy 已从当前生产执行路径移除，仅保留必要的历史数据�
 
 ## 当前状态
 
-**TP-Voyager v1.0.4 — Captain Contract Closure + Dispatch Governance（in verification）**
+**TP-Voyager v1.0.4 — Captain Contract Closure + Dispatch Governance（stable）**
 
 v1.0.4 keeps the exact six-tool Captain surface (`voyager_overview`,
 `crew_catalog`, `crew_health`, `crew_recommend`, `task_dispatch`,
