@@ -39,9 +39,11 @@ SQLite Durable Row = Source of Truth
 默认 MCP Surface 只注册 6 个 Captain 工具：
 
 ```text
-crew_catalog / crew_health / crew_recommend
+crew_catalog(include_models=true) / crew_health(..., model=...) / crew_recommend
                  ↓
-          Captain 选择 Crew
+        Captain 查看 Crew / Model 事实
+                 ↓
+          Captain 选择 Crew / Model
                  ↓
             task_dispatch
                  ↓
@@ -56,7 +58,7 @@ crew_catalog / crew_health / crew_recommend
 
 低层 Task / Context / Planner / Artifact API 没有被删除，但只属于显式 `diagnostic` Surface。这样仍然只有一个 Runtime、一个 Durable Task 状态机，只是对 Captain 的工具可见面更小。
 
-Crew 推荐只提供决策依据。
+Crew 推荐、模型目录、能力/计费参考、历史表现与 Usage 汇总都只提供决策依据。TP-Voyager 不把这些事实转化为自动模型评分或自动路由。
 
 禁止：
 
@@ -103,13 +105,45 @@ Crew terminal material
 
 因此 Captain 一旦观察到 `completed`，Runtime-owned `patch-*` worktree 必须已经退休。Cleanup 失败会把 Task 收敛为明确 failure，而不是先宣布成功再后台清理。
 
+## Model Awareness
+
+v1.0.3 不增加新的 Captain MCP tool，而是在既有六工具中形成只读投影：
+
+```text
+Provider model catalog
++ Durable Task/Session model history
++ Attempt-bound Usage Evidence
++ sourced capability/billing reference metadata
+        ↓
+crew_catalog(include_models=true)
+crew_health(backend, model=...)
+```
+
+CodeBuddy 的 `cli_declared` 目录不等于账号 entitlement；Qoder 疑似不完整捕获会显式标记 incomplete。任何静态 Credit rate/能力标签都不能用于自动选模或费用推算。
+
+## Controlled Repository Research
+
+`repository_research` 是独立只读 Contract：
+
+```text
+Captain exact public GitHub URL + size limit + new target + Crew/model + read_scope
+        ↓
+Runtime fixed GitHub metadata precheck
+        ↓
+shallow clone -> target/source -> remove origin
+        ↓
+existing CodeBuddy/Qoder read-only route
+        ↓
+Runtime-owned target/reports/... Artifact
+```
+
+它复用现有 Task/Session/Attempt/Evidence/Artifact，不增加 Planner/Workflow 状态机。禁止执行、安装依赖、build/start、修改下载源码、覆盖已有目录、任意网络爬取、自动 fallback 或递归派工。Provider transport 仍可联网，因此该 Contract 是“源码侧受控静态研究”，不是物理断网沙箱。
+
 ## WorkBuddy
 
 WorkBuddy 已从当前生产 Backend 移除。
 
-只允许保留读取/迁移历史数据所必需的 schema/path 兼容。详见：
-
-`docs/records/legacy-workbuddy/DATA_COMPATIBILITY.md`
+只允许保留读取/迁移历史数据所必需的 schema/path 兼容。历史 WorkBuddy 记录不属于当前文档 Contract，也不应重新进入生产执行路径。
 
 ## 架构约束
 

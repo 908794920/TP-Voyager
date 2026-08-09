@@ -47,6 +47,8 @@ SMOKE_TARGETS = (
     TestTarget("tests.test_v2_plan_execution_controller.PlanExecutionControllerTests.test_pump_advances_one_task_at_a_time_to_completion", 120, "durable plan execution spine"),
     TestTarget("tests.test_runtime_migrations.MigrationTests.test_empty_database_initializes_to_current_schema", 120, "schema initialization"),
     TestTarget("tests.test_captain_policy_evidence.CaptainPolicyEvidenceTests.test_usage_evidence_records_only_provider_reported_values", 90, "Usage Evidence contract"),
+    TestTarget("tests.test_captain_policy_evidence.CaptainPolicyEvidenceTests.test_read_only_artifact_capture_does_not_project_preexisting_dirty_diff", 90, "v1.0.3 read-only artifact attribution"),
+    TestTarget("tests.test_captain_policy_evidence.CaptainPolicyEvidenceTests.test_repository_research_prechecks_shallow_clone_and_removes_origin", 90, "v1.0.3 controlled repository acquisition"),
     TestTarget("tests.test_tp_voyager_architecture", 90, "TP-Voyager architecture gate"),
     TestTarget("tests.test_test_profiles", 90, "test-profile policy"),
 )

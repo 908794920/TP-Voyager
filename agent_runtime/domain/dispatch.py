@@ -190,6 +190,8 @@ class ReadScope:
     files: tuple[str, ...] = ()
     directories: tuple[str, ...] = ()
     globs: tuple[str, ...] = ()
+    max_files: int = 256
+    max_bytes: int = 8 * 1024 * 1024
 
     @classmethod
     def from_dict(cls, value: object) -> "ReadScope":
@@ -228,7 +230,16 @@ class ReadScope:
                 globs.append(pattern)
         if len(globs) > 128:
             raise ValueError("read_scope.globs exceeds 128 entries")
-        result = cls(files=paths("files"), directories=paths("directories"), globs=tuple(globs))
+        max_files = int(value.get("max_files") or 256)
+        max_bytes = int(value.get("max_bytes") or (8 * 1024 * 1024))
+        if max_files <= 0 or max_files > 256:
+            raise ValueError("read_scope.max_files must be between 1 and 256")
+        if max_bytes <= 0 or max_bytes > 8 * 1024 * 1024:
+            raise ValueError("read_scope.max_bytes must be between 1 and 8388608")
+        result = cls(
+            files=paths("files"), directories=paths("directories"), globs=tuple(globs),
+            max_files=max_files, max_bytes=max_bytes,
+        )
         if not (result.files or result.directories or result.globs):
             raise ValueError("read_scope must contain files, directories, or globs")
         return result
@@ -238,6 +249,49 @@ class ReadScope:
             "files": list(self.files),
             "directories": list(self.directories),
             "globs": list(self.globs),
+            "max_files": self.max_files,
+            "max_bytes": self.max_bytes,
+        }
+
+
+@dataclass(frozen=True)
+class RepositoryResearchSpec:
+    """Captain-supplied contract for one bounded external GitHub research task."""
+
+    url: str
+    target_directory: str
+    max_size_bytes: int
+    report_path: str = "reports/repository-research.md"
+
+    @classmethod
+    def from_dict(cls, value: object) -> "RepositoryResearchSpec":
+        if not isinstance(value, dict):
+            raise ValueError("repository_research must be an object")
+        url = str(value.get("url") or "").strip()
+        target = str(value.get("target_directory") or "").strip()
+        report = _safe_relpath(
+            value.get("report_path") or "reports/repository-research.md",
+            field_name="repository_research.report_path",
+        )
+        if not url or len(url) > 2048 or "\x00" in url:
+            raise ValueError("repository_research.url is invalid")
+        if not target or len(target) > 2048 or "\x00" in target:
+            raise ValueError("repository_research.target_directory is invalid")
+        max_size = int(value.get("max_size_bytes") or 0)
+        if max_size <= 0 or max_size > 250 * 1024 * 1024:
+            raise ValueError("repository_research.max_size_bytes must be between 1 and 262144000")
+        if not (report == "reports" or report.startswith("reports/")):
+            raise ValueError("repository_research.report_path must stay under reports/")
+        if not report.lower().endswith((".md", ".txt")):
+            raise ValueError("repository_research.report_path must be a Markdown or text report")
+        return cls(url=url, target_directory=target, max_size_bytes=max_size, report_path=report)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "url": self.url,
+            "target_directory": self.target_directory,
+            "max_size_bytes": self.max_size_bytes,
+            "report_path": self.report_path,
         }
 
 
@@ -247,11 +301,12 @@ _SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 
 @dataclass(frozen=True)
 class WorkerProfileRef:
-    """Immutable reference to trusted Worker role text."""
+    """Immutable reference to trusted Worker role text plus optional model constraint."""
 
     name: str
     version: str
     sha256: str
+    allowed_models: tuple[str, ...] = ()
 
     @classmethod
     def from_dict(cls, value: object) -> "WorkerProfileRef":
@@ -266,10 +321,23 @@ class WorkerProfileRef:
             raise ValueError("worker_profile_ref.version is invalid")
         if not _SHA256_RE.fullmatch(sha256):
             raise ValueError("worker_profile_ref.sha256 must be a 64-character hex digest")
-        return cls(name=name, version=version, sha256=sha256)
+        raw_models = value.get("allowed_models") or []
+        if not isinstance(raw_models, list) or len(raw_models) > 64:
+            raise ValueError("worker_profile_ref.allowed_models must be a bounded list")
+        allowed: list[str] = []
+        for item in raw_models:
+            model = str(item or "").strip()
+            if not model or len(model) > 160 or "\x00" in model:
+                raise ValueError("worker_profile_ref.allowed_models contains an invalid model id")
+            if model not in allowed:
+                allowed.append(model)
+        return cls(name=name, version=version, sha256=sha256, allowed_models=tuple(allowed))
 
-    def to_dict(self) -> dict[str, str]:
-        return {"name": self.name, "version": self.version, "sha256": self.sha256}
+    def to_dict(self) -> dict[str, Any]:
+        data: dict[str, Any] = {"name": self.name, "version": self.version, "sha256": self.sha256}
+        if self.allowed_models:
+            data["allowed_models"] = list(self.allowed_models)
+        return data
 
     @property
     def profile_id(self) -> str:
@@ -293,6 +361,7 @@ class CaptainDispatchRequest:
     read_scope: ReadScope | None = None
     resolved_read_files: tuple[str, ...] = ()
     worker_profile_ref: WorkerProfileRef | None = None
+    repository_research: dict[str, Any] | None = None
     worker_profile_content: str = ""
     correlation_id: str = ""
 
@@ -307,6 +376,8 @@ class CaptainDispatchRequest:
             data["read_scope"] = scope
         if self.worker_profile_ref is not None:
             data["worker_profile_ref"] = self.worker_profile_ref.to_dict()
+        if self.repository_research is not None:
+            data["repository_research"] = dict(self.repository_research)
         if self.correlation_id:
             data["correlation_id"] = self.correlation_id
         return data

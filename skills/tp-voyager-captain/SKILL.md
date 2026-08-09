@@ -2,13 +2,13 @@
 name: tp-voyager-captain
 description: Route bounded work through TP-Voyager MCP.
 metadata:
-  version: "1.0.2"
+  version: "1.0.3"
   protocol: "tp-voyager-captain/v1"
 ---
 
 # TP-Voyager Captain Skill
 
-> Version: 1.0.2
+> Version: 1.0.3
 >
 > Role: Captain-side orchestration skill for TP-Voyager.
 >
@@ -79,8 +79,8 @@ Before the first task in a session:
 
 ```text
 1. voyager_overview
-2. crew_catalog(probe=false)
-3. crew_health(selected Crew, probe=true) when live readiness matters
+2. crew_catalog(probe=false, include_models=true) when model facts matter
+3. crew_health(selected Crew, probe=true, model=<explicit model>) when live/model readiness matters
 4. crew_recommend when Crew choice is non-obvious
 ```
 
@@ -89,12 +89,17 @@ Interpret CodeBuddy health carefully:
 - `cli_installed` / `sdk_installed` describe local components.
 - `auth_status=not_probed` is **not** the same as "not logged in".
 - `last_successful_model` is local Runtime evidence from a completed explicit-model task.
-- an absent machine-readable model catalog must remain unknown; never invent one.
+- CodeBuddy's `cli_declared` model catalog comes from `codebuddy --help`; it proves only that the installed CLI declares the model, not that the current account is entitled to use it. Treat `available=null` / `entitlement_status=unknown` literally.
 
-For Qoder, use the Runtime's official dynamic model catalog when model
-availability must be checked.  The current real-use baseline has successfully
-used explicit model `Lite`; if that model is no longer reported as available,
-do not silently substitute another model.
+For Qoder, prefer the Runtime's official SDK-backed current-account model catalog; the CLI list is only a compatibility fallback. Use the official dynamic model catalog when model
+availability must be checked. If `model_catalog.catalog_status` is `incomplete`
+or a model carries `catalog_status=incomplete_suspected`, do not treat the
+observed rows as the complete account catalog. Never silently substitute a
+different model.
+
+Model `billing` and `capabilities` metadata are descriptive/reference facts
+with explicit sources. They are not scores, bills, or routing instructions.
+Usage Evidence remains the only task-level resource-consumption truth source.
 
 ### 2.2 Timeout presets
 
@@ -415,6 +420,7 @@ Typical current task kinds may include:
 
 ```text
 research
+repository_research
 code_review
 small_patch
 test_failure_triage
@@ -454,7 +460,9 @@ For new **read-only** work, prefer the vendor-neutral `read_scope` contract:
 {
   "files": ["README.md"],
   "directories": ["src/parser"],
-  "globs": ["tests/parser/**/*.py"]
+  "globs": ["tests/parser/**/*.py"],
+  "max_files": 128,
+  "max_bytes": 4194304
 }
 ```
 
@@ -473,9 +481,11 @@ existing Crew default-model semantics remain available for compatibility, but
 TP-Voyager itself must never replace an omitted model with a catalog guess.
 
 `worker_profile_ref` is a trusted profile reference (`name`, `version`,
-`sha256`). TP-Voyager resolves and hashes the operator-owned profile before
-injecting it into the transient Crew prompt; profile content is not persisted
-as routing metadata.
+`sha256`, optional `allowed_models`). TP-Voyager resolves and hashes the
+operator-owned profile before injecting it into the transient Crew prompt;
+profile content is not persisted as routing metadata. `allowed_models` is a
+validation constraint only: if present, the Captain must still provide an
+explicit model and TP-Voyager never chooses one from the list.
 
 Use `correlation_id` only to link an external work item to the Voyager Task. It
 does not transfer external task lifecycle ownership into TP-Voyager.
@@ -630,7 +640,80 @@ Do not automatically combine investigation and implementation when separation im
 
 ---
 
-## 7. Patch Delegation Pattern
+## 7. Controlled Repository Research Pattern
+
+Use `task_kind="repository_research"` only when the Captain must acquire one
+explicit **public GitHub repository** that is not already present locally and
+produce a static research report. This is a separate Contract; do not emulate
+it with `research`, `read_only`, or `small_patch`.
+
+The Captain must provide all of the following explicitly:
+
+```text
+exact https://github.com/<owner>/<repo> URL
+new absolute target directory whose parent already exists
+maximum repository size
+Crew
+model (when required by policy/profile)
+read_scope relative to repository root
+report path under reports/
+```
+
+Example shape:
+
+```json
+{
+  "task_kind": "repository_research",
+  "crew": "qoder",
+  "model": "Lite",
+  "access_mode": "read_only",
+  "cwd": "",
+  "read_scope": {
+    "files": ["README.md"],
+    "directories": ["src"],
+    "globs": ["docs/**/*.md"],
+    "max_files": 200,
+    "max_bytes": 8388608
+  },
+  "repository_research": {
+    "url": "https://github.com/example/project",
+    "target_directory": "D:/research/project-study",
+    "max_size_bytes": 52428800,
+    "report_path": "reports/repository-research.md"
+  }
+}
+```
+
+Expected Runtime behavior:
+
+```text
+fixed GitHub metadata precheck
+    ↓
+size ceiling validation
+    ↓
+shallow clone into new target/source
+    ↓
+remove origin from static copy
+    ↓
+Crew receives only bounded local read scope
+    ↓
+no source writes / terminal / build / install / source-network tools
+    ↓
+Runtime writes final Crew answer into target/reports/...
+    ↓
+Artifact + Evidence + Task Result
+```
+
+Important boundaries:
+
+- The Runtime acquisition step is limited to the explicit GitHub metadata endpoint and shallow clone.
+- Provider transport for CodeBuddy/Qoder still requires the provider's network connection; do not claim that the whole task is physically offline.
+- Crew must not execute downloaded source, install dependencies, build/start it, modify source, overwrite an existing directory, crawl arbitrary URLs, choose another Crew/model, or recursively dispatch tasks.
+- A failed acquisition/validation is returned to the Captain. Never fallback to another repository or network research route.
+
+---
+
+## 8. Patch Delegation Pattern
 
 Use only for bounded code changes.
 
@@ -685,7 +768,7 @@ The Passenger's original working tree should not be modified by the Crew route.
 
 ---
 
-## 8. Review / Verification Pattern
+## 9. Review / Verification Pattern
 
 When implementation confidence is insufficient, prefer a separate task:
 
@@ -708,7 +791,7 @@ Do not ask the reviewer to redesign the whole project unless that is the explici
 
 ---
 
-## 9. Failure Handling
+## 10. Failure Handling
 
 Treat TP-Voyager failure codes as control signals.
 

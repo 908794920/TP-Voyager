@@ -17,7 +17,9 @@ from typing import Any
 
 from agent_runtime.api.schemas import CAPTAIN_TOOL_NAMES
 from agent_runtime.backends.codebuddy.process import probe_codebuddy_cli
+from agent_runtime.backends.codebuddy.model_catalog import list_codebuddy_models
 from agent_runtime.backends.qoder.process import probe_qoder_cli
+from agent_runtime.backends.qoder.model_catalog import list_qoder_models
 from agent_runtime.persistence.runtime_paths import resolve_runtime_database, runtime_database_path
 
 from agent_runtime.runtime.diagnostics import (
@@ -49,12 +51,31 @@ def _safe_probe(probe: Any) -> dict[str, Any]:
         return {"ok": False, "error": type(exc).__name__}
 
 
+
+def _safe_model_catalog(loader: Any) -> dict[str, Any]:
+    """Read a non-model CLI catalog and expose only bounded model facts."""
+    try:
+        models = list(loader() or [])[:256]
+    except Exception as exc:
+        return {"ok": False, "status": "unknown", "model_count": 0, "error": type(exc).__name__}
+    statuses = {str(item.metadata.get("catalog_status") or "unknown") for item in models}
+    status = "incomplete" if any(value.startswith("incomplete") for value in statuses) else ("complete" if models else "unknown")
+    return {
+        "ok": bool(models),
+        "status": status,
+        "model_count": len(models),
+        "models": [str(item.model_id) for item in models],
+        "model_invocation_performed": False,
+    }
+
 def _doctor_projection(overview: dict[str, Any]) -> dict[str, Any]:
     required = sorted(CAPTAIN_TOOL_NAMES)
     runtime_ok = bool(overview.get("schema_supported") and overview.get("integrity_ok"))
     mcp_available = importlib.util.find_spec("mcp") is not None
     codebuddy = _safe_probe(probe_codebuddy_cli)
     qoder = _safe_probe(probe_qoder_cli)
+    codebuddy_models = _safe_model_catalog(list_codebuddy_models)
+    qoder_models = _safe_model_catalog(list_qoder_models)
     installation_ready = bool(
         runtime_ok
         and mcp_available
@@ -64,7 +85,7 @@ def _doctor_projection(overview: dict[str, Any]) -> dict[str, Any]:
     projection = dict(overview)
     projection.update({
         "schema": "tp-voyager.doctor/v1",
-        "version": "1.0.2",
+        "version": "1.0.3",
         "ok": installation_ready,
         "runtime": {
             "ok": runtime_ok,
@@ -86,6 +107,12 @@ def _doctor_projection(overview: dict[str, Any]) -> dict[str, Any]:
         "crew": {
             "codebuddy": codebuddy,
             "qoder": qoder,
+        },
+        "model_catalog": {
+            "codebuddy": codebuddy_models,
+            "qoder": qoder_models,
+            "selection_performed": False,
+            "pricing_estimated": False,
         },
         # Installation readiness is informational so doctor remains useful on
         # development hosts where one optional Crew CLI is intentionally absent.

@@ -12,9 +12,9 @@
 
 ## 当前基线
 
-**TP-Voyager v1.0.2 — stable（v1.0.1 stable 基线）**
+**TP-Voyager v1.0.3 — stable（v1.0.2 stable 基线）**
 
-T0–T4 已完成真实环境验收；v1.0.2 已通过真实 Live Gate，当前进入 **Real Voyage（真实使用）** 阶段：
+T0–T4 与 v1.0.2 已完成真实环境验收；**v1.0.3 Model Awareness + repository_research** 已通过真实 Windows + 正式 MCP + CodeBuddy/Qoder CLI/账号环境 Live Gate（2026-08-09），标记 stable：
 
 ```text
 T0 目标架构收口      ACCEPTED
@@ -23,6 +23,7 @@ T2 Captain Boundary  ACCEPTED
 T3 受控只读 Worker   ACCEPTED
 T4 Patch Worker      ACCEPTED (v1.0.1)
 v1.0.2 cognition      LIVE-GATE PASSED / stable
+v1.0.3 awareness/research  CODE-GATE PASSED / LIVE-GATE PASSED / stable
 
 Passenger → Captain AI → TP-Voyager → Crew
                               ├─ CodeBuddy CLI
@@ -35,7 +36,9 @@ Passenger → Captain AI → TP-Voyager → Crew
 
 **TP-Voyager 不得演化成第二个 Captain。**
 
-v1.0.2 新增的 Model Policy、Usage Evidence、Worker Profile、read_scope、correlation_id 都只能增强 Captain 认知与受控执行；不得据此引入自动选模、自动 fallback、第二任务系统或 Planner。
+v1.0.2 的 Model Policy、Usage Evidence、Worker Profile、read_scope、correlation_id 与 v1.0.3 的 Model Registry/Usage Statistics/repository_research 都只能增强 Captain 认知与受控执行；不得据此引入自动选模、模型评分/路由、自动 fallback、第二任务系统或 Planner。
+
+`repository_research` 只允许 Runtime 对 Captain 指定的公开 GitHub URL 做大小预检与浅克隆，Crew 仍走既有 read-only 路线；不得执行/构建下载源码、安装依赖、修改 source、覆盖已有目录或递归研究其他仓库。
 
 ## Backend 边界
 

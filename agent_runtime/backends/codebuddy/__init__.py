@@ -12,3 +12,5 @@ __all__ = [
     "probe_codebuddy_cli",
     "resolve_codebuddy_cli",
 ]
+
+from .model_catalog import list_codebuddy_models, parse_codebuddy_help_models

@@ -35,38 +35,43 @@ WorkBuddy 已从当前生产执行路径移除，仅保留必要的历史数据�
 
 ## 当前状态
 
-**TP-Voyager v1.0.2 — stable**
+**TP-Voyager v1.0.3 — Model Awareness Completion + Controlled Repository Research（stable）**
 
-`v1.0.1` 是已完成真实环境 Live 验收的稳定基线；`v1.0.2` 不改变 Captain / Voyager / Crew 三层、Runtime 核心状态机、Task/Result/Artifact 边界或 MCP 执行模型，只增强 Captain 可见的互操作契约与真实 Usage 事实记录。`v1.0.2` 已在真实 Windows + 正式 `mcp` + CodeBuddy/Qoder CLI 主机通过 Live Gate（docs/TESTING.md Captain Cognition Live Matrix 5 项全 PASS）。
+`v1.0.2` 是已经通过真实 Windows + 正式 MCP + CodeBuddy/Qoder CLI Live Gate 的 stable 基线。`v1.0.3` 继续保持 Captain / Voyager / Crew 三层、Runtime 核心状态机、Task/Result/Artifact/Evidence 真相源和默认 6-tool Captain MCP Surface 不变，集中补齐模型事实查询、只读归属边界和受控外部源码研究 Contract。
 
-`v1.0.2` 新增：
+`v1.0.3` 新增/修复：
 
-- 标准 Captain Skill YAML frontmatter 与 `tp-voyager.manifest/v1`；
-- `doctor --json` 安装/Runtime/MCP/Crew 只读诊断；
-- `tp-voyager.usage/v1` Usage Evidence（只记录 provider/CLI 实际返回）；
-- Passenger/Captain `model_policy.allowed_models`，不自动选模、不 fallback；
-- 受 SHA-256 约束的 `worker_profile_ref`；
-- CodeBuddy/Qoder 共用的 Captain-facing `read_scope`；
-- 外部任务只关联、不接管生命周期的 `correlation_id`。
+- **read_only artifact attribution 修复**：只读任务不扫描/投影工作区既有 Git diff，不生成 `workspace.patch`，`changed_files=[]`；
+- **Model Registry projection**：`crew_catalog(include_models=true)` 返回 CodeBuddy/Qoder 模型目录快照、来源、完整性、能力/计费参考元数据、历史表现与 Usage 汇总；
+- **CodeBuddy CLI model catalog**：只解析 `codebuddy --help` 的 CLI 声明模型，来源标记 `cli_declared`，账号授权状态保持 unknown；
+- **Qoder account model catalog**：优先通过官方 `qoder-agent-sdk` 的 `get_available_models()` 获取当前账号实时目录与 provider-live entitlement/`priceFactor`/promotion 元数据；SDK 控制面不可用时回退 `qodercli --list-models`，Windows PIPE 疑似单行截断时标记 `incomplete_suspected`；
+- **Model facts query**：`crew_health(backend, model=...)` 在原有工具上提供该模型的目录状态、历史成功率/耗时和 Usage 汇总，不新增自动路由工具；
+- **Profile ↔ Model constraint**：`worker_profile_ref.allowed_models` 只做显式模型约束，不替 Captain 选模；
+- **read_scope budget**：新增 `max_files` / `max_bytes`，并拒绝任何层级的 `.git/.codebuddy/.qoder` 状态目录；
+- **repository_research**：Captain 显式给定公开 GitHub URL、大小上限、全新目标目录、Crew/model/read_scope；Runtime 做固定 GitHub 元数据预检和浅克隆，Crew 仅静态只读，最终报告由 Runtime 写入指定 `reports/` Artifact。
+
+明确仍不做：
+
+```text
+自动模型选择 / 自动 fallback / 模型评分 / 费用估算
+Planner / DAG / Scheduler / 第二任务系统
+任意网络研究 / 私有仓库获取 / 运行下载源码 / 安装依赖 / build/start
+```
 
 当前状态：
 
 ```text
-T0 目标架构收口           ACCEPTED
-T1 Crew Registry          ACCEPTED
-T2 Captain Boundary       ACCEPTED
-T3 受控只读 Worker        ACCEPTED
-T4 Patch Worker           ACCEPTED (v1.0.1)
-v1.0.2 Captain cognition  LIVE-GATE PASSED / stable
-默认 Captain MCP Surface  6 tools
+T0 目标架构收口             ACCEPTED
+T1 Crew Registry            ACCEPTED
+T2 Captain Boundary         ACCEPTED
+T3 受控只读 Worker          ACCEPTED
+T4 Patch Worker             ACCEPTED (v1.0.2 stable baseline)
+v1.0.3 P0/P1/P2 code gate   PASS (Smoke/Current/Regression/Stress)
+v1.0.3 real CLI Live Gate   PASSED (2026-08-09)
+默认 Captain MCP Surface    6 tools
 ```
 
-`v1.0.1` 已满足稳定化 Gate：**Smoke 全绿 + CodeBuddy/Qoder 最小 Live Patch 矩阵通过 + 无 `patch-*` worktree 残留**。`v1.0.2` 保持这条稳定执行基线不变，新增能力已通过真实 CLI Live Gate。
-
-因此：
-
-- 只读路线与受控 Patch 路线均可作为当前稳定能力使用；
-- `v1.0.0` 的 Patch 竞态已由 `v1.0.1` 修复并正式发布。
+`v1.0.3` 已在真实 Windows + 正式 MCP + CodeBuddy/Qoder CLI/账号环境完成 `docs/TESTING.md` 定义的 v1.0.3 Live Matrix（L1–L8 + 人工体验 UX-1~4），全部 PASS。
 
 ## 核心能力
 
@@ -147,7 +152,7 @@ execution_budget.timeout_reason
 
 CodeBuddy 只读任务可直接通过 `task_dispatch(context_files=[...])` 传入最小文件范围；TP-Voyager 会在内部复用现有 Context Manifest 机制，普通使用者不需要手工操作 `context_*` 工具。
 
-CodeBuddy Health 将“CLI/SDK 可用”“认证是否实际探测”“最近成功的显式模型”分开表达。没有官方机器可读模型目录时仍保持 unknown，不伪造模型清单。
+CodeBuddy Health 将“CLI/SDK 可用”“认证是否实际探测”“最近成功的显式模型”分开表达。v1.0.3 可从 `codebuddy --help` 提取 CLI 声明模型，但该清单只代表当前 CLI 声明支持，账号实际授权仍保持 unknown；不会把 CLI 声明伪装成 entitlement。
 
 ### Durable Runtime
 
@@ -338,7 +343,7 @@ MIT 是非常宽松、友好的开源协议，允许个人和商业场景自由�
 
 ## 当前开发策略
 
-TP-Voyager 已进入真实航行阶段；`v1.0.2` 只在 v1.0.1 stable 基线上增强 Captain 认知与互操作契约，不扩展为 Planner、计费系统或自动模型路由。
+TP-Voyager 已进入真实航行阶段；`v1.0.3` 在 v1.0.2 stable 基线上补齐 Model Awareness 与受控 repository_research，仍不扩展为 Planner、计费系统或自动模型路由。
 
 当前不主动扩展：
 

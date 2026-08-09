@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import subprocess
 import tempfile
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from agent_runtime import server
@@ -12,6 +14,7 @@ from agent_runtime.backends.errors import BackendProtocolError
 from agent_runtime.backends.fake import FakeBackend
 from agent_runtime.backends.qoder.acp_client import AcpRunResult
 from agent_runtime.backends.qoder.backend import QoderBackend
+from agent_runtime.application.dispatch.repository_research import RepositoryResearchService
 
 
 class Callbacks:
@@ -161,6 +164,130 @@ class QoderServerIntegrationTests(unittest.TestCase):
 
         self.assertEqual(fake.starts[0].metadata["route"], "acp_read_only")
         self.assertEqual(server.task_result(started["task_id"])["answer"], "captain read-only")
+
+
+    def test_captain_read_only_does_not_capture_preexisting_dirty_workspace_diff(self) -> None:
+        subprocess.run(["git", "init"], cwd=self.cwd, check=True, stdout=subprocess.DEVNULL)
+        subprocess.run(["git", "config", "user.email", "tests@example.invalid"], cwd=self.cwd, check=True)
+        subprocess.run(["git", "config", "user.name", "TP Voyager Tests"], cwd=self.cwd, check=True)
+        (self.cwd / "README.md").write_text("base\n", encoding="utf-8")
+        subprocess.run(["git", "add", "README.md"], cwd=self.cwd, check=True)
+        subprocess.run(["git", "commit", "-m", "base"], cwd=self.cwd, check=True, stdout=subprocess.DEVNULL)
+        (self.cwd / "unrelated.txt").write_text("dirty before dispatch\n", encoding="utf-8")
+        fake = FakeBackend(
+            result=BackendResult(
+                backend="qoder", stop_reason="end_turn", answer="read only",
+                result={
+                    "backend": "qoder", "stopReason": "end_turn",
+                    "changed_files": ["unrelated.txt"],
+                    "artifacts": [{"path": "unrelated.txt", "kind": "file"}],
+                },
+                backend_session_id="qoder-readonly-dirty",
+            )
+        )
+        with patch("agent_runtime.server._create_qoder_backend", return_value=fake):
+            started = server.task_dispatch(
+                objective="read README only", crew="qoder", task_kind="research",
+                cwd=str(self.cwd), timeout_seconds=10,
+                read_scope={"files": ["README.md"]},
+            )
+            self.assertTrue(started["ok"], started)
+            self.assertEqual(self.wait(started["task_id"])["state"], "completed")
+        result = server.task_result(started["task_id"])
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["changed_files"], [])
+        self.assertFalse(any(item.get("kind") == "patch" for item in result["artifacts"]))
+        self.assertFalse(any(item.get("path") == "unrelated.txt" for item in result["artifacts"]))
+
+
+    def test_repository_research_dispatch_produces_runtime_report_without_source_writes(self) -> None:
+        target = Path(self.tmp.name) / "repo-research"
+        calls: list[list[str]] = []
+
+        def runner(argv, **kwargs):
+            calls.append(list(argv))
+            if argv[:2] == ["git", "clone"]:
+                source = Path(argv[-1])
+                source.mkdir(parents=True)
+                (source / ".git").mkdir()
+                (source / "README.md").write_text("upstream source\n", encoding="utf-8")
+                return SimpleNamespace(returncode=0, stdout="", stderr="")
+            if argv[:3] == ["git", "rev-parse", "HEAD"]:
+                return SimpleNamespace(returncode=0, stdout="deadbeef\n", stderr="")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        research_service = RepositoryResearchService(
+            metadata_loader=lambda owner, repo: {"size": 1, "private": False},
+            runner=runner,
+        )
+        fake = FakeBackend(
+            result=BackendResult(
+                backend="qoder", stop_reason="end_turn", answer="Static findings only.",
+                result={"backend": "qoder", "stopReason": "end_turn"},
+                backend_session_id="qoder-repository-research",
+            )
+        )
+        with patch("agent_runtime.server.RepositoryResearchService", return_value=research_service), patch(
+            "agent_runtime.server._create_qoder_backend", return_value=fake
+        ):
+            started = server.task_dispatch(
+                objective="Study the repository and summarize architecture",
+                crew="qoder", task_kind="repository_research", model="Lite",
+                read_scope={"files": ["README.md"], "max_files": 10, "max_bytes": 1024},
+                repository_research={
+                    "url": "https://github.com/example/project",
+                    "target_directory": str(target),
+                    "max_size_bytes": 1024 * 1024,
+                    "report_path": "reports/research.md",
+                },
+                idempotency_key="repo-research-idem",
+                timeout_seconds=10,
+            )
+            self.assertTrue(started["ok"], started)
+            self.assertEqual(self.wait(started["task_id"])["state"], "completed")
+            replay = server.task_dispatch(
+                objective="Study the repository and summarize architecture",
+                crew="qoder", task_kind="repository_research", model="Lite",
+                read_scope={"files": ["README.md"], "max_files": 10, "max_bytes": 1024},
+                repository_research={
+                    "url": "https://github.com/example/project",
+                    "target_directory": str(target),
+                    "max_size_bytes": 1024 * 1024,
+                    "report_path": "reports/research.md",
+                },
+                idempotency_key="repo-research-idem", timeout_seconds=10,
+            )
+            self.assertTrue(replay["ok"], replay)
+            self.assertTrue(replay["replayed"])
+            self.assertFalse(replay["dispatch_performed"])
+            self.assertEqual(replay["task_id"], started["task_id"])
+            conflict = server.task_dispatch(
+                objective="Different research objective",
+                crew="qoder", task_kind="repository_research", model="Lite",
+                read_scope={"files": ["README.md"], "max_files": 10, "max_bytes": 1024},
+                repository_research={
+                    "url": "https://github.com/example/project",
+                    "target_directory": str(target),
+                    "max_size_bytes": 1024 * 1024,
+                    "report_path": "reports/research.md",
+                },
+                idempotency_key="repo-research-idem", timeout_seconds=10,
+            )
+            self.assertFalse(conflict["ok"])
+            self.assertEqual(conflict["reason_code"], "IDEMPOTENCY_CONFLICT")
+        self.assertEqual(sum(1 for argv in calls if argv[:2] == ["git", "clone"]), 1)
+        result = server.task_result(started["task_id"])
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["changed_files"], [])
+        report = next(item for item in result["artifacts"] if item.get("kind") == "report")
+        self.assertEqual(report["name"], "research.md")
+        report_text = (target / "reports" / "research.md").read_text(encoding="utf-8")
+        self.assertIn("Static findings only.", report_text)
+        self.assertIn("https://github.com/example/project", report_text)
+        self.assertEqual((target / "source" / "README.md").read_text(encoding="utf-8"), "upstream source\n")
+        self.assertIn(["git", "remote", "remove", "origin"], calls)
+        self.assertEqual(fake.starts[0].metadata["route"], "acp_read_only")
+        self.assertEqual(fake.starts[0].metadata["routing_metadata"]["repository_research"]["commit"], "deadbeef")
 
     def test_generic_subagent_resume_uses_controlled_route(self) -> None:
         fake = FakeBackend(

@@ -66,10 +66,8 @@ class ProjectContextService:
         mandatory_forbidden = (".git", ".codebuddy", ".qoder")
 
         def forbidden(relpath: str) -> bool:
-            return any(
-                relpath == prefix or relpath.startswith(prefix + "/")
-                for prefix in mandatory_forbidden
-            )
+            parts = PurePosixPath(relpath).parts
+            return any(part in mandatory_forbidden for part in parts)
 
         resolved: set[str] = set()
 
@@ -102,8 +100,8 @@ class ProjectContextService:
                     raise ContextError("read_scope directory contains an external symlink") from exc
                 if not forbidden(rel):
                     resolved.add(rel)
-                if len(resolved) > MAX_CONTEXT_FILES:
-                    raise ContextError(f"read_scope file limit is {MAX_CONTEXT_FILES}")
+                if len(resolved) > scope.max_files:
+                    raise ContextError(f"read_scope file limit is {scope.max_files}")
 
         for pattern in scope.globs:
             matched = False
@@ -122,8 +120,8 @@ class ProjectContextService:
                     continue
                 matched = True
                 resolved.add(rel)
-                if len(resolved) > MAX_CONTEXT_FILES:
-                    raise ContextError(f"read_scope file limit is {MAX_CONTEXT_FILES}")
+                if len(resolved) > scope.max_files:
+                    raise ContextError(f"read_scope file limit is {scope.max_files}")
             if not matched:
                 raise ContextError(f"read_scope glob matched no files: {pattern}")
 
@@ -131,8 +129,12 @@ class ProjectContextService:
             raise ContextError("read_scope resolved to no readable files")
         ordered = sorted(resolved)
         # Use the existing capture boundary to enforce existence, symlink and
-        # aggregate byte limits for both Crew families.
-        self._capture(root, ordered, allow_external_symlinks=False)
+        # aggregate byte limits for both Crew families, then apply the explicit
+        # per-dispatch read budget without widening the hard Runtime cap.
+        entries = self._capture(root, ordered, allow_external_symlinks=False)
+        total_bytes = sum(item.size_bytes for item in entries)
+        if total_bytes > scope.max_bytes:
+            raise ContextError(f"read_scope byte limit is {scope.max_bytes}")
         return ordered
 
     def register(
