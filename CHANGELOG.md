@@ -2,6 +2,50 @@
 
 本项目从 TP-Voyager 正式基线开始记录对外版本。
 
+## 1.0.3 — 2026-08-09
+
+基于 `v1.0.2 stable` 的 Model Awareness Completion + Controlled Repository Research 版本。默认 Captain MCP Surface 仍严格保持 6 tools；不新增 Planner、模型自动路由、自动 fallback、计费系统或第二套状态机。
+
+P0：
+
+- 修复 Captain `read_only` 任务将下发前既有脏工作树误归属为本次 `changed_files` / `workspace.patch` / Artifact 的问题；只读路线不再观察 Git diff，也拒绝 Worker 声称拥有工作区修改。
+- CodeBuddy 新增 CLI 声明模型目录 Adapter：解析 `codebuddy --help` 的 `Currently supported` 列表，来源标记 `cli_declared`，账号 entitlement 保持 unknown。
+- Qoder 模型目录对 Windows PIPE 单行疑似截断返回显式标记 `incomplete`，不再把一行伪装成完整目录。
+- `crew_catalog(include_models=true)` 统一投影 Model Registry：当前目录 + durable 历史 + Usage Evidence；无新增模型表。
+- `read_scope` 增加 `max_files` / `max_bytes`，并阻止任意层级 `.git/.codebuddy/.qoder` 进入上下文。
+
+P1：
+
+- Model Registry 为每个模型提供事实型 history/health（sample、success rate、平均耗时、failure streak）与 Usage Statistics；只聚合 `tp-voyager.usage/v1`，`pricing_estimated=false`。
+- `crew_health(backend, model=...)` 在不增加 Captain 工具数量的前提下提供单模型事实查询。
+- Qoder 模型目录优先通过官方 Python SDK `get_available_models()` 获取当前账号实时 `isEnabled/isFree/priceFactor/context/thinking/promotion` 元数据；不发送模型 Prompt。SDK 不可用时回退 `qodercli --list-models`，疑似 Windows PIPE 单行截断显式标记 incomplete。
+- Qoder SDK 的 `priceFactor` 与官方 tier/明确匹配模型 Credit 倍率都只作为 provider/reference metadata 暴露，`calculation_allowed=false`；Runtime 不据此推算任务账单。CodeBuddy 未发现可靠 per-model 固定费率时保持 unknown。
+- `worker_profile_ref.allowed_models` 允许 Profile 声明受控模型集合；只做校验，不自动选模。
+- `doctor --json` 增加 CodeBuddy/Qoder model catalog 状态，同时继续声明无模型调用、无凭证/任务内容/Usage 返回。
+
+P2：
+
+- Charter 显式加入 `repository_research` 冻结任务类。
+- 新增严格受控的公开 GitHub 静态源码研究 Contract：Captain 明确 URL、最大大小、新目标目录、report path、Crew/model 与 read_scope；Runtime 固定 GitHub API 元数据预检 + `git clone --depth 1 --single-branch --no-tags`，随后移除 origin。
+- Crew 继续使用既有 CodeBuddy context-only / Qoder ACP read-only 路线：不提供 source 写入、terminal、依赖安装、build/run 或任意 source 网络工具。
+- research report 由 Runtime 将 Crew 最终答案写入 `reports/` 后作为普通 Artifact 捕获；下载源码本身不计为 Crew changed_files。
+- `repository_research` 继承 Durable Idempotency：相同 key + 相同 Captain Contract 直接 replay，不重复 clone；同 key 不同 Contract 明确 `IDEMPOTENCY_CONFLICT`。
+- acquisition 设置 `GIT_TERMINAL_PROMPT=0` 与 `GIT_LFS_SKIP_SMUDGE=1`，防止静态 clone 因交互式认证或 LFS smudge 扩大网络获取。
+- 同步收紧 Patch 失败终态：失败证据捕获后、Durable `failed` 对 Captain 可见前先退休 patch worktree；瞬时 cleanup 失败最多两次有界尝试，消除失败终态/cleanup 竞态。
+
+Live Gate（2026-08-09，真实 Windows + 正式 MCP + CodeBuddy CLI 2.133.0 + Qoder CLI 1.1.17 + 真实 GitHub 网络）全部 PASS：
+
+1. A1/A2 安装与 `doctor --json`：version=1.0.3、schema 12、Captain tools 6、safety 全 false（无模型调用/无 Credential/无任务正文/无历史 Usage）、selection_performed=false、pricing_estimated=false；CodeBuddy catalog `cli_declared`、Qoder catalog 经 SDK 获取完整（complete）；
+2. B Model Registry：CodeBuddy `cli_declared` 且 available/entitlement 保持 unknown；Qoder `official_dynamic_sdk` 15 模型带 isEnabled/isFree/context/thinking/promotion，priceFactor 仅 reference metadata（calculation_allowed=false），usage/history 为真实聚合；`selection_performed=false`；
+3. C1/C2 脏工作树 read_only（CodeBuddy/Qoder，Qoder 显式选择 Lite）：changed_files=[]、无 workspace.patch、无脏文件 Artifact、既有 dirty diff 保留；
+4. D Usage Evidence：`tp-voyager.usage/v1`、provider/model 一致、未回传字段保持 null/缺失不估算、reported_cost 原样保存、静态 priceFactor 未补算 usage；
+5. E/F repository_research（CodeBuddy/Qoder，octocat/Hello-World）：shallow clone（`git_clone_depth_1`）、origin 移除、`git status --short` 为空、changed_files=[]、报告写入 reports/ 并作为 Artifact 捕获、无运行/安装/修改源码；Qoder ACP 拒绝写文件/Terminal 授权；
+6. G 幂等/安全负例：同 key 同 Contract `replayed=true`/`dispatch_performed=false` 不重复 clone；同 key 不同目标 `IDEMPOTENCY_CONFLICT`；已存在目标目录拒绝覆盖；非 GitHub/超大小 fail-closed、无自动 fallback；
+7. H bounded patch regression（CodeBuddy/Qoder 最小样本）：verification=PASSED、Passenger 原始 worktree 未被直接修改、Task 进入终态时 patch-* 临时 worktree 已退休无残留；
+8. I 人工体验 UX-1~4：模型认知/只读脏工作区/外部源码研究/Captain 决策权全 PASS，Runtime 未自动选模、未自动 fallback、未换 Crew。
+
+已满足 stable gate 全部条件（A~G 全 PASS、UX 全 PASS、H 无回归、无 Credential/任务正文泄露、无自动选模/fallback）。
+
 ## 1.0.2 — 2026-08-09
 
 基于 `v1.0.1 stable` 的 Captain 认知与互操作增强版本；不改变 Captain/Voyager/Crew 三层、Runtime 核心状态机、Task/Result/Artifact 边界或默认 6-tool MCP Surface。

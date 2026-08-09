@@ -1,6 +1,6 @@
-# TP-Voyager Project Charter v1.0
+# TP-Voyager Project Charter v1.0.3
 
-> **Status:** Frozen baseline.  All future requirements, architecture changes, tests, and documentation must obey this charter unless the charter itself is explicitly revised first.
+> **Status:** Revised baseline for v1.0.3. All future requirements, architecture changes, tests, and documentation must obey this charter unless the charter itself is explicitly revised first.
 
 ## 1. Product model
 
@@ -55,7 +55,7 @@ Result
 
 The Captain should see compact progress, crew capabilities/health, dispatch status, decisions required, and bounded results.  Vendor CLI flags, ACP framing, SDK callbacks, SQLite internals, raw logs, and full patches stay below the Captain boundary unless explicitly requested for diagnostics.
 
-The Captain decides whom to dispatch.  TP-Voyager may recommend compatible crew, but it must not silently switch backend/model, retry indefinitely, or expand mission scope.
+The Captain decides whom to dispatch. TP-Voyager may expose normalized Crew/model catalogs, provider-declared capability/billing reference metadata, durable historical success/usage facts, and compatible-Crew recommendations, but it must not silently switch backend/model, score/select a model, retry indefinitely, estimate provider charges from public rates, or expand mission scope.
 
 ## 5. Worker boundary
 
@@ -65,11 +65,14 @@ Initial task classes stay intentionally small:
 
 ```text
 research
+repository_research
 code_review
 small_patch
 test_failure_triage
 verify_only
 ```
+
+`repository_research` is a narrowly scoped external-source research contract. The Captain must explicitly provide the public GitHub URL, size ceiling, new target directory, read scope, Crew, and model. Runtime may perform only the bounded source precheck and shallow clone needed to create a local static snapshot; Crew remains on an existing read-only route. The downloaded source must not be executed, built, dependency-installed, modified, overwritten, or used as a reason to enable arbitrary network/shell access. The research report is a Runtime-owned Artifact derived from the Crew result. This contract must reuse the existing Task/Attempt/Evidence/Artifact truth sources and must not become a crawler, Planner, recursive researcher, or generic network fetcher.
 
 Initial execution modes:
 

@@ -102,6 +102,32 @@ verify         300s
 
 ## 本地诊断
 
-`agent_runtime.cli` 提供只读诊断能力，可检查 Runtime DB、任务和 Artifact 状态。
+推荐：
+
+```powershell
+python -m agent_runtime.cli doctor --json
+```
+
+`doctor --json` 保持只读：不发送 Prompt、不调用模型、不读取任务正文、不返回 Credential 或 Usage。v1.0.3 还会尝试做**无 Prompt 的控制面**模型目录诊断：CodeBuddy 仅解析 `--help` 声明，Qoder 优先通过官方 Python SDK `get_available_models()` 读取当前账号实时目录，SDK 控制面不可用时回退 `--list-models`；结果会保留 complete/incomplete/unknown 语义，并明确 `selection_performed=false`、`pricing_estimated=false`。
+
+`agent_runtime.cli` 继续提供 Runtime DB、任务和 Artifact 的只读诊断能力。
 
 历史 WorkBuddy Home 变量/路径仅用于旧数据迁移输入，不属于当前配置指南。
+
+
+## v1.0.3 repository_research 运维边界
+
+该 Contract 只接受公开 `https://github.com/<owner>/<repo>` URL。Captain 必须提供全新绝对目标目录且其父目录已存在；Runtime 不覆盖已有目录。获取阶段只执行固定 GitHub metadata 请求和 shallow clone，随后移除 clone 的 `origin`。Crew 只拿到 `source/` 下 read scope 允许的静态内容，报告由 Runtime 写入 `reports/`。
+
+运维验收应确认：
+
+```text
+source commit 与 task_result 一致
+source/.git/config 不再存在 origin
+source 内容 hash 在研究前后不变
+reports/ 中只出现 Runtime 生成的报告
+changed_files=[]
+无 workspace.patch
+```
+
+不要把 repository_research 用作下载器、构建器、依赖安装器或任意网络研究器。

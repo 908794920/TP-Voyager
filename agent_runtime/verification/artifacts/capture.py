@@ -185,13 +185,17 @@ class ArtifactCaptureService:
         cwd: str | Path,
         declarations: Iterable[DeclaredArtifact] = (),
         baseline: WorkspaceBaseline | None = None,
+        observe_git: bool = True,
     ) -> ArtifactCaptureBatch:
         workspace = Path(cwd).resolve()
         baseline = baseline or WorkspaceBaseline()
         batch = ArtifactCaptureBatch(baseline_dirty=baseline.dirty)
         now = time.time()
 
-        observed, patch, current_head = self._git_observation(workspace)
+        if observe_git:
+            observed, patch, current_head = self._git_observation(workspace)
+        else:
+            observed, patch, current_head = [], b"", baseline.head
         batch.changed_files = observed
         batch.head_changed = bool(
             baseline.head and current_head and baseline.head != current_head

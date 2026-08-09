@@ -153,12 +153,16 @@ class TPVoyagerArchitectureBaselineTests(unittest.TestCase):
             self.assertIn("subagent_status", tools)
             self.assertIn("context_register", tools)
 
-    def test_historical_workbuddy_is_confined_to_data_compatibility_record(self) -> None:
-        record = REPO_ROOT / "docs" / "records" / "legacy-workbuddy" / "DATA_COMPATIBILITY.md"
-        self.assertTrue(record.is_file())
-        text = record.read_text(encoding="utf-8")
-        self.assertIn("historical", text.lower())
-        self.assertIn("LOST", text)
+    def test_removed_legacy_workbuddy_docs_do_not_reappear_as_current_product_surface(self) -> None:
+        # HEAD a4a938a intentionally retired the legacy-workbuddy record tree.
+        # Current product docs may mention WorkBuddy only as a historical /
+        # fail-closed boundary, never as an executable Crew or current backend.
+        self.assertFalse((REPO_ROOT / "docs" / "records" / "legacy-workbuddy").exists())
+        current_docs = "\n".join(
+            path.read_text(encoding="utf-8") for path in (REPO_ROOT / "docs").glob("*.md")
+        )
+        self.assertNotIn("workbuddy_start", current_docs)
+        self.assertNotIn("workbuddy_models", current_docs)
 
 
 if __name__ == "__main__":

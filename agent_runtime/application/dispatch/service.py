@@ -18,7 +18,7 @@ from agent_runtime.domain.dispatch import CaptainDispatchRequest
 CrewDispatcher = Callable[[CaptainDispatchRequest], dict[str, Any]]
 
 _ALLOWED_TASK_KINDS = frozenset(
-    {"research", "code_review", "small_patch", "test_failure_triage", "verify_only"}
+    {"research", "repository_research", "code_review", "small_patch", "test_failure_triage", "verify_only"}
 )
 _ALLOWED_ACCESS_MODES = frozenset({"read_only", "patch"})
 
@@ -82,6 +82,32 @@ class CaptainDispatchService:
                     task_kind=kind,
                 )
 
+        if kind == "repository_research":
+            if mode != "read_only":
+                return self._reject(
+                    "REPOSITORY_RESEARCH_READ_ONLY",
+                    "repository_research only supports read_only Crew execution",
+                    crew=crew, task_kind=kind,
+                )
+            if request.repository_research is None:
+                return self._reject(
+                    "REPOSITORY_RESEARCH_REQUIRED",
+                    "repository_research requires a verified acquisition contract",
+                    crew=crew, task_kind=kind,
+                )
+            if request.read_scope is None or not request.resolved_read_files:
+                return self._reject(
+                    "REPOSITORY_RESEARCH_SCOPE_REQUIRED",
+                    "repository_research requires an explicit bounded read_scope",
+                    crew=crew, task_kind=kind,
+                )
+        elif request.repository_research is not None:
+            return self._reject(
+                "REPOSITORY_RESEARCH_NOT_APPLICABLE",
+                "repository_research contract is only valid for repository_research tasks",
+                crew=crew, task_kind=kind,
+            )
+
         if mode != "read_only" and (request.read_scope is not None or request.resolved_read_files):
             return self._reject(
                 "READ_SCOPE_NOT_APPLICABLE",
@@ -91,6 +117,19 @@ class CaptainDispatchService:
             )
 
         if request.worker_profile_ref is not None:
+            if request.worker_profile_ref.allowed_models:
+                if not selected_model:
+                    return self._reject(
+                        "PROFILE_MODEL_REQUIRED",
+                        "worker_profile_ref model constraint requires an explicit Captain-selected model",
+                        crew=crew, task_kind=kind,
+                    )
+                if selected_model not in request.worker_profile_ref.allowed_models:
+                    return self._reject(
+                        "PROFILE_MODEL_NOT_ALLOWED",
+                        "selected model is outside worker_profile_ref.allowed_models",
+                        crew=crew, task_kind=kind,
+                    )
             if not str(request.worker_profile_content or "").strip():
                 return self._reject(
                     "WORKER_PROFILE_UNRESOLVED",

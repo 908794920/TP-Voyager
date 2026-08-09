@@ -45,7 +45,7 @@ class ModelDescriptor:
     backend: str
     model_id: str
     display_name: str = ""
-    available: bool = True
+    available: bool | None = True
     disabled_reason: str | None = None
     source: str = "unknown"
     observed_at: float | None = None

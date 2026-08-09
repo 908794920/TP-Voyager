@@ -2,7 +2,7 @@
   "schema": "tp-voyager.manifest/v1",
   "skill": {
     "name": "tp-voyager-captain",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "protocol": "tp-voyager-captain/v1"
   },
   "mcp": {

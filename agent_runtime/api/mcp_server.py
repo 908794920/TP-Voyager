@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import threading
@@ -106,12 +107,14 @@ from agent_runtime.domain.dispatch import (
     ModelPolicy,
     PatchPolicy,
     ReadScope,
+    RepositoryResearchSpec,
     WorkerProfileRef,
 )
 from agent_runtime.backends.codebuddy import CodeBuddyBackend
 from agent_runtime.backends.codebuddy.captain_dispatch import CodeBuddyContextReadOnlyDispatcher
 from agent_runtime.backends.codebuddy.capability import descriptor as codebuddy_crew_descriptor
 from agent_runtime.backends.codebuddy.process import probe_codebuddy_cli
+from agent_runtime.backends.codebuddy.model_catalog import list_codebuddy_models
 from agent_runtime.backends.qoder.capability import descriptor as qoder_crew_descriptor
 from agent_runtime.backends.qoder.model_catalog import list_qoder_models
 from agent_runtime.backends.qoder.process import probe_qoder_cli
@@ -119,6 +122,10 @@ from agent_runtime.backends.qoder.captain_dispatch import QoderReadOnlyDispatche
 from agent_runtime.application.dispatch.workspace import (
     PatchWorkspaceCleanupError,
     PatchWorkspaceService,
+)
+from agent_runtime.application.dispatch.repository_research import (
+    RepositoryResearchError,
+    RepositoryResearchService,
 )
 from agent_runtime.application.tool_service import (
     ToolRuntimeError,
@@ -352,7 +359,7 @@ def _crew_registry_service() -> CrewRegistryService:
             "codebuddy": CrewProvider(
                 descriptor=codebuddy_crew_descriptor(),
                 probe=probe_codebuddy_cli,
-                models=None,
+                models=list_codebuddy_models,
             ),
             "qoder": CrewProvider(
                 descriptor=qoder_crew_descriptor(),
@@ -792,6 +799,116 @@ def _retire_patch_workspace_before_completion(task: TaskState) -> None:
     PatchWorkspaceService(root).cleanup(task.cwd, source_root=task.source_cwd)
 
 
+def _retire_failed_patch_workspace_before_terminal(task: TaskState) -> str | None:
+    """Best-effort synchronous retirement before a failed patch becomes visible.
+
+    Failure finalization captures/verification work first, then calls this
+    helper before persisting terminal ``failed``.  Two bounded attempts absorb
+    transient cleanup failures while preserving explicit attention when the
+    workspace genuinely cannot be retired.
+    """
+    if task.workspace_mode != "patch_worktree" or not task.source_cwd or not task.cwd:
+        return None
+    root = _get_runtime_database().path.parent / "workspaces"
+    service = PatchWorkspaceService(root)
+    last_error: PatchWorkspaceCleanupError | None = None
+    for _ in range(2):
+        try:
+            service.cleanup(task.cwd, source_root=task.source_cwd)
+            return None
+        except PatchWorkspaceCleanupError as exc:
+            last_error = exc
+    return type(last_error).__name__ if last_error is not None else "PatchWorkspaceCleanupError"
+
+
+def _is_captain_read_only_task(task: TaskState) -> bool:
+    """True only for accepted Captain routes whose Crew cannot own writes."""
+    return task.route in {"sdk_context_read_only", "acp_read_only"} and task.workspace_mode != "patch_worktree"
+
+
+
+
+def _repository_research_captain_fingerprint(
+    *,
+    objective: str,
+    crew: str,
+    task_kind: str,
+    model: str,
+    access_mode: str,
+    timeout_seconds: int,
+    read_scope: ReadScope,
+    model_policy: ModelPolicy | None,
+    worker_profile_ref: WorkerProfileRef | None,
+    correlation_id: str,
+    required_capabilities: list[str] | None,
+    repository_research: RepositoryResearchSpec,
+) -> str:
+    """Hash Captain-owned repository_research inputs for safe outer replay.
+
+    Acquisition creates the target directory before the shared durable launcher
+    reaches its normal idempotency gate.  Persisting this content-free hash in
+    routing metadata lets a repeated identical Captain request replay without
+    cloning again, while still rejecting a reused key with different inputs.
+    """
+    payload = {
+        "objective": str(objective or ""),
+        "crew": str(crew or "").strip().lower(),
+        "task_kind": str(task_kind or "").strip().lower(),
+        "model": str(model or "").strip(),
+        "access_mode": str(access_mode or "read_only").strip().lower(),
+        "timeout_seconds": int(timeout_seconds),
+        "read_scope": read_scope.to_dict(),
+        "model_policy": model_policy.to_dict() if model_policy is not None else None,
+        "worker_profile_ref": worker_profile_ref.to_dict() if worker_profile_ref is not None else None,
+        "correlation_id": str(correlation_id or ""),
+        "required_capabilities": sorted(
+            {str(item).strip() for item in (required_capabilities or []) if str(item).strip()}
+        ),
+        "repository_research": repository_research.to_dict(),
+    }
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _repository_research_report_declaration(
+    task: TaskState, answer: str,
+) -> DeclaredArtifact | None:
+    """Write the Crew answer as the sole Runtime-owned read-only report artifact."""
+    routing = task.routing_metadata if isinstance(task.routing_metadata, dict) else {}
+    research = routing.get("repository_research")
+    if not isinstance(research, dict):
+        return None
+    report_path = str(research.get("report_path") or "").strip().replace("\\", "/")
+    if not report_path.startswith("reports/") or not report_path.lower().endswith((".md", ".txt")):
+        raise BackendError("repository_research report_path became invalid before finalization")
+    root = Path(task.cwd).resolve()
+    target = (root / Path(*report_path.split("/"))).resolve()
+    try:
+        target.relative_to(root / "reports")
+    except ValueError as exc:
+        raise BackendError("repository_research report escaped reports directory") from exc
+    target.parent.mkdir(parents=True, exist_ok=True)
+    source_url = str(research.get("url") or "")
+    commit = str(research.get("commit") or "")
+    body = (
+        "# TP-Voyager Repository Research Report\n\n"
+        f"- Source: `{source_url}`\n"
+        f"- Commit: `{commit}`\n"
+        "- Execution: bounded static read-only Crew research\n\n"
+        "---\n\n"
+        f"{str(answer or '').strip()}\n"
+    )
+    encoded = body.encode("utf-8")
+    if len(encoded) > 2 * 1024 * 1024:
+        encoded = encoded[: 2 * 1024 * 1024].decode("utf-8", "ignore").encode("utf-8")
+        encoded += b"\n\n[TP-Voyager report artifact truncated at 2 MiB]\n"
+    target.write_bytes(encoded)
+    return DeclaredArtifact(
+        path=report_path,
+        kind="report",
+        name=target.name,
+        metadata={"source": "runtime_repository_research_report", "role": "research_report"},
+    )
 def _persist_completed(
     task: TaskState,
     result: dict[str, Any],
@@ -836,7 +953,18 @@ def _persist_completed(
     normalized = normalize_backend_result(output)
     plan = VerificationPlan.from_dict(task.verification_plan)
     baseline = WorkspaceBaseline.from_dict(task.workspace_baseline)
-    declarations = list(normalized.artifacts)
+    captain_read_only = _is_captain_read_only_task(task)
+    # A read-only Crew cannot own workspace changes.  Ignore vendor-declared
+    # file/patch metadata so pre-existing dirty source state is never
+    # attributed to this Attempt.  Runtime-generated research reports are
+    # added explicitly later by the repository-research contract.
+    declarations = [] if captain_read_only else list(normalized.artifacts)
+    research_report = (
+        _repository_research_report_declaration(task, backend_result.answer if backend_result is not None else task.answer or str(result.get("answer") or ""))
+        if captain_read_only else None
+    )
+    if research_report is not None:
+        declarations.append(research_report)
     for expected in plan.expected_artifacts:
         if not any(item.path == expected for item in declarations):
             declarations.append(
@@ -851,7 +979,7 @@ def _persist_completed(
     attempt_id = task.current_attempt_id or ""
     database = _get_runtime_database()
     artifact_store = database.path.parent / "artifacts"
-    effective_workspace = baseline.git_root or task.cwd
+    effective_workspace = task.cwd if captain_read_only else (baseline.git_root or task.cwd)
     capture_risks: list[str] = []
     try:
         capture = ArtifactCaptureService(artifact_store).capture(
@@ -860,6 +988,7 @@ def _persist_completed(
             cwd=effective_workspace,
             declarations=declarations,
             baseline=baseline,
+            observe_git=not captain_read_only,
         )
     except (OSError, RuntimeError, ValueError):
         capture = ArtifactCaptureBatch(baseline_dirty=baseline.dirty)
@@ -898,7 +1027,7 @@ def _persist_completed(
         ),
         observability=observability,
         output=output,
-        changed_files=list(capture.changed_files or normalized.changed_files),
+        changed_files=[] if captain_read_only else list(capture.changed_files or normalized.changed_files),
         tests=[*normalized.tests, *verification.tests],
         artifacts=capture.public_artifacts(),
         risks=risks,
@@ -926,7 +1055,7 @@ def _persist_completed(
             terminal_reason=task.terminal_reason,
             timeout_reason=task.timeout_reason,
             lease=task.lease,
-            metadata_rejected_count=normalized.rejected_count,
+            metadata_rejected_count=(normalized.rejected_count + (len(normalized.changed_files) + len(normalized.artifacts) if captain_read_only else 0)),
         )
         task.version += 2
         task.result_available = True
@@ -991,11 +1120,12 @@ def _persist_failed_with_partial_artifacts(task: TaskState) -> bool:
 
     attempt_id = task.current_attempt_id or ""
     baseline = WorkspaceBaseline.from_dict(task.workspace_baseline)
-    effective_workspace = baseline.git_root or task.cwd
+    captain_read_only = _is_captain_read_only_task(task)
+    effective_workspace = task.cwd if captain_read_only else (baseline.git_root or task.cwd)
     raw_output = task.result if isinstance(task.result, dict) else {}
     normalized = normalize_backend_result(raw_output)
     plan = VerificationPlan.from_dict(task.verification_plan)
-    declarations = list(normalized.artifacts)
+    declarations = [] if captain_read_only else list(normalized.artifacts)
     for expected in plan.expected_artifacts:
         if not any(item.path == expected for item in declarations):
             declarations.append(
@@ -1022,6 +1152,7 @@ def _persist_failed_with_partial_artifacts(task: TaskState) -> bool:
             cwd=effective_workspace,
             declarations=declarations,
             baseline=baseline,
+            observe_git=not captain_read_only,
         )
     except (OSError, RuntimeError, ValueError):
         capture_risks.append("artifact_capture_failed")
@@ -1083,6 +1214,8 @@ def _persist_failed_with_partial_artifacts(task: TaskState) -> bool:
             },
         }
 
+    patch_cleanup_error = _retire_failed_patch_workspace_before_terminal(task)
+
     verification_status = str(verification.get("status") or "").upper()
     work_product_status = {
         "PASSED": "verified",
@@ -1092,6 +1225,8 @@ def _persist_failed_with_partial_artifacts(task: TaskState) -> bool:
     outcome_risks: list[str] = ["execution_failed"]
     if task.terminal_reason == "PatchWorkspaceCleanupError":
         outcome_risks.append("patch_workspace_cleanup_failed")
+    if patch_cleanup_error is not None:
+        outcome_risks.append("patch_workspace_cleanup_requires_attention")
     if timeout_can_verify:
         outcome_risks.append("backend_terminal_not_observed")
         if verification_status == "PASSED":
@@ -1139,7 +1274,7 @@ def _persist_failed_with_partial_artifacts(task: TaskState) -> bool:
             ),
             "runtime_verified_test_count": len(verification_tests),
         },
-        changed_files=list(capture.changed_files or normalized.changed_files),
+        changed_files=[] if captain_read_only else list(capture.changed_files or normalized.changed_files),
         tests=[*normalized.tests, *verification_tests],
         artifacts=capture.public_artifacts(),
         risks=risks,
@@ -1160,7 +1295,7 @@ def _persist_failed_with_partial_artifacts(task: TaskState) -> bool:
             terminal_reason=task.terminal_reason,
             timeout_reason=task.timeout_reason,
             lease=task.lease,
-            metadata_rejected_count=normalized.rejected_count,
+            metadata_rejected_count=(normalized.rejected_count + (len(normalized.changed_files) + len(normalized.artifacts) if captain_read_only else 0)),
         )
         task.version += 2
         task.result_available = True
@@ -1602,7 +1737,7 @@ def _durable_cli_start(
     except ValueError as exc:
         return {"ok": False, "error": str(exc)}
     routing = dict(routing_metadata or {})
-    allowed_routing_keys = {"read_scope", "worker_profile_ref", "correlation_id", "model_policy"}
+    allowed_routing_keys = {"read_scope", "worker_profile_ref", "correlation_id", "model_policy", "repository_research"}
     if set(routing) - allowed_routing_keys:
         return {"ok": False, "error": "routing_metadata contains unsupported keys"}
     try:
@@ -2131,6 +2266,13 @@ def _routing_projection(task: TaskState) -> dict[str, Any]:
     policy = routing.get("model_policy")
     if isinstance(policy, dict):
         output["model_policy"] = dict(policy)
+    research = routing.get("repository_research")
+    if isinstance(research, dict):
+        output["repository_research"] = {
+            key: research.get(key)
+            for key in ("url", "source_subdirectory", "report_path", "repository_size_bytes", "commit", "acquisition")
+            if research.get(key) is not None
+        }
     scope = routing.get("read_scope")
     if isinstance(scope, dict):
         resolved = scope.get("resolved_files")
@@ -2138,6 +2280,8 @@ def _routing_projection(task: TaskState) -> dict[str, Any]:
             "files": list(scope.get("files") or []),
             "directories": list(scope.get("directories") or []),
             "globs": list(scope.get("globs") or []),
+            "max_files": scope.get("max_files"),
+            "max_bytes": scope.get("max_bytes"),
             "resolved_file_count": len(resolved) if isinstance(resolved, list) else 0,
         }
     return output
@@ -2600,10 +2744,27 @@ def crew_catalog(probe: bool = False, include_models: bool = False) -> dict[str,
 
 
 @_mcp_tool()
-def crew_health(backend: str, probe: bool = True) -> dict[str, Any]:
-    """Return one Crew health projection; raw probe errors/paths stay private."""
+def crew_health(backend: str, probe: bool = True, model: str = "") -> dict[str, Any]:
+    """Return Crew health and optional model facts without selecting anything."""
     try:
-        return {"ok": True, **_crew_registry_service().health(backend, probe=probe).to_dict()}
+        registry = _crew_registry_service()
+        output = {"ok": True, **registry.health(backend, probe=probe).to_dict()}
+        model_id = str(model or "").strip()
+        if model_id:
+            snapshot = registry.model_catalog(backend)
+            descriptor = next(
+                (item for item in snapshot["models"] if str(item.get("model_id") or "") == model_id),
+                None,
+            )
+            output["model"] = descriptor or {
+                "backend": str(backend or "").strip().lower(),
+                "model_id": model_id,
+                "available": None,
+                "source": "not_observed_in_catalog",
+                "history": registry.model_history(backend, model_id),
+                "usage": registry.model_usage_summary(backend, model_id),
+            }
+        return output
     except ValueError as exc:
         return {"ok": False, "error": str(exc)}
 
@@ -2655,6 +2816,7 @@ def task_dispatch(
     timeout_seconds: int = 300,
     required_capabilities: list[str] | None = None,
     patch_policy: dict[str, Any] | None = None,
+    repository_research: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Dispatch one explicit Captain-selected Crew task under bounded policy.
 
@@ -2662,6 +2824,8 @@ def task_dispatch(
     ``context_files`` remains accepted for CodeBuddy Context Manifest
     compatibility.  TP-Voyager never chooses a
     model or resolves an unverified Worker profile on the Crew's behalf.
+    ``repository_research`` is a separate bounded GitHub acquisition contract;
+    it never widens normal ``read_only`` or ``small_patch`` semantics.
     """
     normalized_crew = str(crew or "").strip().lower()
     normalized_kind = str(task_kind or "").strip().lower()
@@ -2693,6 +2857,25 @@ def task_dispatch(
         except (TypeError, ValueError) as exc:
             return reject("INVALID_MODEL_POLICY", str(exc))
 
+    parsed_research: RepositoryResearchSpec | None = None
+    if repository_research is not None:
+        try:
+            parsed_research = RepositoryResearchSpec.from_dict(repository_research)
+        except (TypeError, ValueError) as exc:
+            return reject("INVALID_REPOSITORY_RESEARCH", str(exc))
+
+    if normalized_kind == "repository_research":
+        if parsed_research is None:
+            return reject("REPOSITORY_RESEARCH_REQUIRED", "repository_research contract is required")
+        if normalized_mode != "read_only":
+            return reject("REPOSITORY_RESEARCH_READ_ONLY", "repository_research only supports read_only")
+        if str(cwd or "").strip():
+            return reject("REPOSITORY_RESEARCH_CWD_CONFLICT", "cwd must be empty; target_directory owns the research workspace")
+        if context_id or context_files:
+            return reject("REPOSITORY_RESEARCH_CONTEXT_CONFLICT", "repository_research uses read_scope over the acquired source")
+    elif parsed_research is not None:
+        return reject("REPOSITORY_RESEARCH_NOT_APPLICABLE", "repository_research is only valid for repository_research task_kind")
+
     parsed_scope: ReadScope | None = None
     supplied_files = list(context_files or [])
     if supplied_files and read_scope is not None:
@@ -2709,6 +2892,10 @@ def task_dispatch(
                 "legacy context_files is only accepted for CodeBuddy read-only dispatch; use read_scope",
             )
 
+    if normalized_kind == "repository_research" and parsed_scope is None:
+        return reject("REPOSITORY_RESEARCH_SCOPE_REQUIRED", "repository_research requires explicit read_scope")
+
+    effective_cwd = str(cwd or "")
     effective_context_id = str(context_id or "").strip()
     if supplied_files and effective_context_id:
         return reject("INVALID_CONTEXT_REQUEST", "pass context_id or context_files, not both")
@@ -2723,18 +2910,18 @@ def task_dispatch(
     context_auto_created = False
     if supplied_files:
         try:
-            registered = _context_service().register(cwd, supplied_files)
+            registered = _context_service().register(effective_cwd, supplied_files)
             effective_context_id = str(registered.manifest.get("context_id") or "")
             context_auto_created = True
         except (ValueError, TypeError, ContextError) as exc:
             return reject("CONTEXT_INVALID", str(exc))
         except RuntimePersistenceError:
             return reject("RUNTIME_UNAVAILABLE", "runtime database unavailable")
-    elif parsed_scope is not None:
+    elif parsed_scope is not None and normalized_kind != "repository_research":
         try:
-            resolved_files = tuple(_context_service().resolve_read_scope(cwd, parsed_scope))
+            resolved_files = tuple(_context_service().resolve_read_scope(effective_cwd, parsed_scope))
             if normalized_crew == "codebuddy":
-                registered = _context_service().register(cwd, resolved_files)
+                registered = _context_service().register(effective_cwd, resolved_files)
                 effective_context_id = str(registered.manifest.get("context_id") or "")
                 context_auto_created = True
         except (ValueError, TypeError, ContextError) as exc:
@@ -2760,12 +2947,90 @@ def task_dispatch(
         ):
             return reject("INVALID_CORRELATION_ID", "correlation_id must be printable and at most 160 characters")
 
+    research_workspace = None
+    research_routing: dict[str, Any] | None = None
+    research_request_fingerprint: str | None = None
+    if parsed_research is not None:
+        # ``parsed_scope`` is guaranteed above for repository_research.
+        research_request_fingerprint = _repository_research_captain_fingerprint(
+            objective=objective, crew=crew, task_kind=task_kind, model=model,
+            access_mode=access_mode, timeout_seconds=timeout_seconds,
+            read_scope=parsed_scope,  # type: ignore[arg-type]
+            model_policy=parsed_model_policy, worker_profile_ref=parsed_profile,
+            correlation_id=external_correlation_id,
+            required_capabilities=required_capabilities,
+            repository_research=parsed_research,
+        )
+        canonical_key = str(idempotency_key or "").strip()
+        if canonical_key:
+            if len(canonical_key) > 128:
+                return reject("INVALID_REQUEST", "idempotency_key must be at most 128 characters")
+            try:
+                runtime = _runtime_service()
+                pair = runtime.resolve_idempotent(canonical_key)
+            except RuntimePersistenceError:
+                return reject("RUNTIME_UNAVAILABLE", "runtime database unavailable")
+            if pair is not None:
+                _, stored_task_id = pair
+                durable = runtime.get_task(stored_task_id)
+                session = runtime.get_session(stored_task_id) if durable is not None else None
+                metadata = parse_session_metadata(session.metadata_json) if session is not None else {}
+                routing = metadata.get("routing_metadata") if isinstance(metadata.get("routing_metadata"), dict) else {}
+                stored_research = routing.get("repository_research") if isinstance(routing, dict) else None
+                stored_fingerprint = (
+                    str(stored_research.get("captain_request_fingerprint") or "")
+                    if isinstance(stored_research, dict) else ""
+                )
+                if not stored_fingerprint or stored_fingerprint != research_request_fingerprint:
+                    return reject("IDEMPOTENCY_CONFLICT", "idempotency_key is already bound to a different request")
+                replay = {
+                    "ok": True,
+                    "schema": "tp-voyager.dispatch/v1",
+                    "crew": normalized_crew,
+                    "task_kind": normalized_kind,
+                    "selection_performed": False,
+                    "dispatch_performed": False,
+                    "replayed": True,
+                    **_public(_task_state_from_durable(durable, runtime)),
+                    "repository_research": {
+                        "target_directory": str(metadata.get("cwd") or parsed_research.target_directory),
+                        "source_url": str(stored_research.get("url") or parsed_research.url),
+                        "commit": str(stored_research.get("commit") or ""),
+                        "repository_size_bytes": stored_research.get("repository_size_bytes"),
+                        "report_path": str(stored_research.get("report_path") or parsed_research.report_path),
+                    },
+                }
+                if external_correlation_id:
+                    replay["correlation_id"] = external_correlation_id
+                if parsed_profile is not None:
+                    replay["worker_profile_ref"] = parsed_profile.to_dict()
+                return replay
+
+        service = RepositoryResearchService()
+        try:
+            research_workspace = service.prepare(parsed_research)
+            effective_cwd = research_workspace.root
+            parsed_scope = service.prefix_read_scope(parsed_scope)  # type: ignore[arg-type]
+            resolved_files = tuple(_context_service().resolve_read_scope(effective_cwd, parsed_scope))
+            if normalized_crew == "codebuddy":
+                registered = _context_service().register(effective_cwd, resolved_files)
+                effective_context_id = str(registered.manifest.get("context_id") or "")
+                context_auto_created = True
+            research_routing = {
+                **research_workspace.routing_metadata(),
+                "captain_request_fingerprint": research_request_fingerprint,
+            }
+        except (RepositoryResearchError, ContextError, RuntimePersistenceError, OSError, ValueError) as exc:
+            if research_workspace is not None:
+                service.cleanup(research_workspace)
+            return reject("REPOSITORY_RESEARCH_PREPARE_FAILED", str(exc))
+
     result = _captain_dispatch_service().dispatch(
         CaptainDispatchRequest(
             objective=objective,
             crew=crew,
             task_kind=task_kind,
-            cwd=cwd,
+            cwd=effective_cwd,
             model=model,
             access_mode=access_mode,
             idempotency_key=idempotency_key,
@@ -2778,9 +3043,24 @@ def task_dispatch(
             resolved_read_files=resolved_files,
             worker_profile_ref=parsed_profile,
             worker_profile_content=profile_content,
+            repository_research=research_routing,
             correlation_id=external_correlation_id,
         )
     )
+    if research_workspace is not None and not result.get("ok"):
+        RepositoryResearchService.cleanup(research_workspace)
+    if research_workspace is not None and result.get("ok"):
+        result = {
+            **result,
+            "repository_research": {
+                "target_directory": research_workspace.root,
+                "source_url": research_workspace.source_url,
+                "commit": research_workspace.commit,
+                "repository_size_bytes": research_workspace.checkout_size_bytes,
+                "report_path": research_workspace.report_path,
+            },
+        }
+
     if context_auto_created:
         result = {
             **result,

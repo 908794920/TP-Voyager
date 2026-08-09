@@ -15,6 +15,7 @@ from agent_runtime.backends.codebuddy.sdk_client import CodeBuddySdkClient
 from agent_runtime.backends.codebuddy.process import probe_codebuddy_cli
 from agent_runtime.backends.errors import BackendProtocolError
 from agent_runtime.application.context_service import ProjectContextService
+from agent_runtime.application.dispatch.repository_research import RepositoryResearchService
 from agent_runtime.domain.dispatch import CaptainDispatchRequest
 from agent_runtime.persistence.database import Database
 
@@ -484,6 +485,58 @@ class CodeBuddyServerIntegrationTests(unittest.TestCase):
         self.assertTrue(result["ok"], result)
         self.assertEqual(result["runtime"], "codebuddy")
         self.assertEqual(result["answer"], "bounded codebuddy")
+
+
+    def test_repository_research_uses_context_only_codebuddy_route_and_runtime_report(self) -> None:
+        target = Path(self.tmp.name) / "codebuddy-research"
+
+        def runner(argv, **kwargs):
+            if argv[:2] == ["git", "clone"]:
+                source = Path(argv[-1])
+                source.mkdir(parents=True)
+                (source / ".git").mkdir()
+                (source / "README.md").write_text("external source\n", encoding="utf-8")
+                return SimpleNamespace(returncode=0, stdout="", stderr="")
+            if argv[:3] == ["git", "rev-parse", "HEAD"]:
+                return SimpleNamespace(returncode=0, stdout="cafebabe\n", stderr="")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        research_service = RepositoryResearchService(
+            metadata_loader=lambda owner, repo: {"size": 1, "private": False}, runner=runner
+        )
+        from agent_runtime.backends.fake import FakeBackend
+        fake = FakeBackend(result=BackendResult(
+            backend="codebuddy", stop_reason="success", answer="CodeBuddy static findings.",
+            result={"backend": "codebuddy", "stopReason": "success"},
+            backend_session_id="cb-research",
+        ))
+        with patch("agent_runtime.server.RepositoryResearchService", return_value=research_service), patch(
+            "agent_runtime.backends.codebuddy.captain_dispatch.resolve_codebuddy_cli", return_value="codebuddy"
+        ), patch(
+            "agent_runtime.backends.codebuddy.captain_dispatch.load_codebuddy_sdk", return_value=object()
+        ), patch("agent_runtime.server._create_codebuddy_backend", return_value=fake):
+            started = self.server.task_dispatch(
+                objective="Study architecture", crew="codebuddy", task_kind="repository_research",
+                model="deepseek-v4-flash",
+                read_scope={"files": ["README.md"], "max_files": 10, "max_bytes": 2048},
+                repository_research={
+                    "url": "https://github.com/example/codebuddy-project",
+                    "target_directory": str(target), "max_size_bytes": 1024 * 1024,
+                    "report_path": "reports/codebuddy.md",
+                },
+                timeout_seconds=10,
+            )
+            self.assertTrue(started["ok"], started)
+            self.assertTrue(started["context_auto_created"])
+            self.assertEqual(self.wait(started["task_id"])["state"], "completed")
+        result = self.server.task_result(started["task_id"])
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["changed_files"], [])
+        self.assertTrue(any(item.get("kind") == "report" and item.get("name") == "codebuddy.md" for item in result["artifacts"]))
+        self.assertIn("CodeBuddy static findings.", (target / "reports" / "codebuddy.md").read_text(encoding="utf-8"))
+        self.assertEqual((target / "source" / "README.md").read_text(encoding="utf-8"), "external source\n")
+        self.assertEqual(fake.starts[0].metadata["route"], "sdk_context_read_only")
+        self.assertIn("external source", fake.starts[0].prompt)
 
     def test_captain_dispatch_uses_verified_context_and_controlled_codebuddy_route(self) -> None:
         from agent_runtime.backends.fake import FakeBackend

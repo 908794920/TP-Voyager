@@ -8,7 +8,7 @@ from agent_runtime.application.crew import CrewProvider, CrewRegistryService
 from agent_runtime.application.dispatch import CaptainDispatchService
 from agent_runtime.application.voyage import VoyageOverviewService
 from agent_runtime.domain.crew import CrewDescriptor
-from agent_runtime.domain.dispatch import CaptainDispatchRequest, PatchPolicy
+from agent_runtime.domain.dispatch import CaptainDispatchRequest, PatchPolicy, ReadScope, WorkerProfileRef
 from agent_runtime.domain.task import Task
 
 
@@ -171,6 +171,54 @@ class CaptainBoundaryTests(unittest.TestCase):
         )
         self.assertFalse(qoder["ok"])
         self.assertEqual(qoder["reason_code"], "CONTEXT_FILES_NOT_APPLICABLE")
+
+
+    def test_profile_model_constraint_is_validation_only_not_selection(self) -> None:
+        caps = ("analyze_context", "read_files", "search_code")
+        registry = CrewRegistryService({"qoder": CrewProvider(_descriptor("qoder", ready=True, caps=caps))})
+        calls = []
+        service = CaptainDispatchService(registry, {"qoder": lambda request: calls.append(request) or {"ok": True, "task_id": "x"}})
+        ref = WorkerProfileRef("java-review", "1.0", "0" * 64, ("Lite",))
+        missing = service.dispatch(CaptainDispatchRequest(
+            "inspect", "qoder", "research", worker_profile_ref=ref, worker_profile_content="Review Java only.",
+        ))
+        self.assertFalse(missing["ok"])
+        self.assertEqual(missing["reason_code"], "PROFILE_MODEL_REQUIRED")
+        rejected = service.dispatch(CaptainDispatchRequest(
+            "inspect", "qoder", "research", model="Pro", worker_profile_ref=ref, worker_profile_content="Review Java only.",
+        ))
+        self.assertFalse(rejected["ok"])
+        self.assertEqual(rejected["reason_code"], "PROFILE_MODEL_NOT_ALLOWED")
+        accepted = service.dispatch(CaptainDispatchRequest(
+            "inspect", "qoder", "research", model="Lite", worker_profile_ref=ref, worker_profile_content="Review Java only.",
+        ))
+        self.assertTrue(accepted["ok"])
+        self.assertFalse(accepted["selection_performed"])
+        self.assertEqual(len(calls), 1)
+
+    def test_repository_research_contract_is_read_only_and_explicit(self) -> None:
+        caps = ("analyze_context", "read_files", "search_code")
+        registry = CrewRegistryService({"qoder": CrewProvider(_descriptor("qoder", ready=True, caps=caps))})
+        calls = []
+        service = CaptainDispatchService(registry, {"qoder": lambda request: calls.append(request) or {"ok": True, "task_id": "repo"}})
+        routing = {"url": "https://github.com/a/b", "report_path": "reports/r.md"}
+        scope = ReadScope.from_dict({"files": ["source/README.md"]})
+        missing = service.dispatch(CaptainDispatchRequest("research", "qoder", "repository_research"))
+        self.assertFalse(missing["ok"])
+        self.assertEqual(missing["reason_code"], "REPOSITORY_RESEARCH_REQUIRED")
+        patch = service.dispatch(CaptainDispatchRequest(
+            "research", "qoder", "repository_research", access_mode="patch", repository_research=routing,
+            read_scope=scope, resolved_read_files=("source/README.md",),
+        ))
+        self.assertFalse(patch["ok"])
+        self.assertEqual(patch["reason_code"], "REPOSITORY_RESEARCH_READ_ONLY")
+        accepted = service.dispatch(CaptainDispatchRequest(
+            "research", "qoder", "repository_research", repository_research=routing, read_scope=scope,
+            resolved_read_files=("source/README.md",), model="Lite",
+        ))
+        self.assertTrue(accepted["ok"])
+        self.assertEqual(len(calls), 1)
+        self.assertFalse(accepted["selection_performed"])
 
     def test_controlled_ready_synthetic_dispatch_does_not_auto_select_or_fallback(self) -> None:
         caps = ("analyze_context", "read_files", "search_code")

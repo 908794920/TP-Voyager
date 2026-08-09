@@ -7,19 +7,20 @@
 ## 当前版本
 
 ```text
-Captain Skill 1.0.2
+Captain Skill 1.0.3
 ```
 
-本轮 v1.0.2 新增：
+v1.0.3 在 v1.0.2 stable 基础上新增：
 
-- 标准 YAML frontmatter 与宿主无关 Skill 标识；
-- `tp-voyager.manifest.json` 声明 MCP 启动、Captain tools 与 doctor 入口；
-- 新只读任务优先使用统一 `read_scope`，CodeBuddy/Qoder 由 Runtime 各自映射；
-- `model_policy.allowed_models` 只做 Passenger/Captain 模型池约束，不自动选模或 fallback；
-- `worker_profile_ref` 通过 `name/version/sha256` 解析可信 Worker Profile；
-- `correlation_id` 只关联外部任务，不接管外部生命周期；
-- `task_result.usage` 返回真实 provider Usage Evidence；缺失 Token/Credit/Cost 不推算；
-- 保留 `context_files` 作为 CodeBuddy v1.0.1 兼容入口。
+- `crew_catalog(include_models=true)` 的统一 Model Registry projection；
+- CodeBuddy `cli_declared` 模型目录与 Qoder 完整/疑似不完整目录语义；
+- `crew_health(..., model=...)` 的模型历史、Usage 与健康事实查询；
+- Qoder 官方能力/计费**参考元数据**，不做评分、费用估算或自动路由；
+- read-only 归属修复：不扫描既有 Git diff、不生成 patch、不暴露未授权旧改动；
+- `read_scope.max_files/max_bytes` 与嵌套状态目录保护；
+- `worker_profile_ref.allowed_models` 约束，但模型仍必须由 Captain 显式选择；
+- `repository_research`：受控获取一个明确公共 GitHub 仓库，静态只读研究并生成 Runtime-owned 报告 Artifact；
+- 继续保留 v1.0.2 的 Usage Evidence、model policy、profile hash、correlation_id 与宿主无关 Skill/manifest。
 
 ## 默认 Captain 工具
 
@@ -78,7 +79,9 @@ Captain 根据 Verification / Evidence / Budget 做决定
 {
   "files": ["README.md"],
   "directories": ["src/parser"],
-  "globs": ["tests/parser/**/*.py"]
+  "globs": ["tests/parser/**/*.py"],
+  "max_files": 128,
+  "max_bytes": 4194304
 }
 ```
 
@@ -96,12 +99,18 @@ read_scope
 ## Model / Profile / Correlation
 
 - `model_policy.allowed_models`：Passenger/Captain 允许池；选择仍由 Captain 显式完成。
-- `worker_profile_ref`：可信 Profile 的 `name/version/sha256`，内容只进入瞬时 Prompt，不写入 Session metadata。
+- `worker_profile_ref`：可信 Profile 的 `name/version/sha256`，可附带 `allowed_models` 作为校验约束；内容只进入瞬时 Prompt，不写入 Session metadata。
 - `correlation_id`：仅外部关联键，不建立第二任务系统。
 
 ## Usage Evidence
 
 TP-Voyager 只记录 CLI/SDK/ACP 实际返回的使用事实，例如 input/output tokens、credits 或 provider-reported cost。不存在的字段保持未知，不按公开价格、倍率或 Token 公式推算。Qoder 在失败/超时前已经返回的 Usage 也会尽量绑定到当前 Attempt。
+
+## 受控外部源码研究
+
+`task_kind=repository_research` 是独立 Contract，仅接受 Captain 明确提供的公共 `https://github.com/<owner>/<repo>` URL、全新绝对目标目录、大小上限、Crew/model 和 read_scope。Runtime 负责固定 GitHub metadata 预检与 `--depth 1` clone，Crew 只读本地 `source/`，最终报告由 Runtime 写到指定 `reports/` 并作为 Artifact 返回。
+
+它明确禁止运行下载源码、安装依赖、build/start、修改源码、覆盖已有目录、任意网络爬取、自动换 Crew/model 或递归派工。Provider 自身传输仍需要网络，因此不要把它宣传成“物理断网执行”。
 
 ## Patch
 
