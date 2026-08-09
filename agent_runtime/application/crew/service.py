@@ -162,6 +162,12 @@ class CrewRegistryService:
             status = "incomplete"
         else:
             status = "complete"
+        observed_sources = {str(model.source or "unknown") for model in models}
+        catalog_source = (
+            next(iter(observed_sources))
+            if len(observed_sources) == 1
+            else provider.descriptor.model_discovery
+        )
         projected: list[dict[str, Any]] = []
         seen: set[str] = set()
         for model in models:
@@ -198,7 +204,7 @@ class CrewRegistryService:
             "backend": name,
             "catalog": {
                 "status": status,
-                "source": provider.descriptor.model_discovery,
+                "source": catalog_source,
                 "model_count": len(models),
                 "historical_only_count": max(0, len(projected) - len(models)),
                 "selection_performed": False,

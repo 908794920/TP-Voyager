@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
+import os
 import tempfile
 import time
 from types import SimpleNamespace
@@ -15,8 +18,12 @@ from agent_runtime.backends.codebuddy.sdk_client import CodeBuddySdkClient
 from agent_runtime.backends.codebuddy.process import probe_codebuddy_cli
 from agent_runtime.backends.errors import BackendProtocolError
 from agent_runtime.application.context_service import ProjectContextService
+from agent_runtime.application.task_service import TaskService
 from agent_runtime.application.dispatch.repository_research import RepositoryResearchService
 from agent_runtime.domain.dispatch import CaptainDispatchRequest
+from agent_runtime.domain.artifact import Artifact
+from agent_runtime.domain.session import Session
+from agent_runtime.domain.task import Task
 from agent_runtime.persistence.database import Database
 
 
@@ -565,6 +572,7 @@ class CodeBuddyServerIntegrationTests(unittest.TestCase):
                 objective="Explain VALUE",
                 crew="codebuddy",
                 task_kind="research",
+                model="hy3",
                 cwd=str(self.cwd),
                 context_id="ctx-captain-codebuddy",
                 timeout_seconds=10,
@@ -579,6 +587,113 @@ class CodeBuddyServerIntegrationTests(unittest.TestCase):
         result = self.server.task_result(started["task_id"])
         self.assertTrue(result["ok"], result)
         self.assertEqual(result["answer"], "captain bounded result")
+
+    def test_artifact_snapshot_replays_and_changed_hash_conflicts(self) -> None:
+        from agent_runtime.backends.fake import FakeBackend
+
+        data = b"bounded source report\n"
+        digest = hashlib.sha256(data).hexdigest()
+        database = self.server._get_runtime_database()
+        tasks = TaskService(database)
+        created = tasks.create_task(
+            task=Task(
+                "wb-source", "codebuddy", "completed", "sdk_context_read_only", 1, 1,
+                result_available=True,
+                result_json=json.dumps({"verification": {"status": "PASSED"}}),
+            ),
+            session=Session("rs-source", "wb-source", "codebuddy", "sdk_context_read_only", 1, 1),
+            metadata={}, idempotency_key="", request_fingerprint="source", now=1,
+        )
+        blob = database.path.parent / "artifacts" / "sha256" / digest[:2] / digest
+        blob.parent.mkdir(parents=True)
+        blob.write_bytes(data)
+        artifact = Artifact(
+            artifact_id="art-source", task_id="wb-source", attempt_id=str(created.attempt_id),
+            origin="runtime", kind="report", name="source.md", capture_state="captured",
+            declared_at=1, created_at=1, updated_at=1, storage_key=f"sha256/{digest[:2]}/{digest}",
+            sha256=digest, size_bytes=len(data), captured_at=1,
+            metadata_json=json.dumps({"input_kind": "technical_report"}),
+        )
+        with database.transaction() as connection:
+            tasks.artifacts.insert_many(connection, [artifact])
+
+        source = self.cwd / "sample.py"
+        source.write_text("VALUE = 12\n", encoding="utf-8")
+        registered = self.server.context_register(str(self.cwd), ["sample.py"], context_id="ctx-artifact")
+        self.assertTrue(registered["ok"], registered)
+        ref = {"artifact_id": "art-source", "source_task_id": "wb-source", "kind": "technical_report", "sha256": digest, "byte_size": len(data)}
+        fake = FakeBackend(result=BackendResult(
+            backend="codebuddy", stop_reason="success", answer="artifact result",
+            result={"backend": "codebuddy", "stopReason": "success"}, backend_session_id="cb-artifact",
+        ))
+        kwargs = dict(
+            objective="Use the bounded report", crew="codebuddy", task_kind="research", model="hy3",
+            cwd=str(self.cwd), context_id="ctx-artifact", input_artifact_refs=[ref],
+            idempotency_key="artifact-replay", timeout_seconds=10,
+        )
+        with patch("agent_runtime.backends.codebuddy.captain_dispatch.resolve_codebuddy_cli", return_value="codebuddy"), patch(
+            "agent_runtime.backends.codebuddy.captain_dispatch.load_codebuddy_sdk", return_value=object()
+        ), patch("agent_runtime.server._create_codebuddy_backend", return_value=fake):
+            started = self.server.task_dispatch(**kwargs)
+            self.assertTrue(started["ok"], started)
+            self.assertEqual(self.wait(started["task_id"])["state"], "completed")
+        self.assertIn("[Untrusted Input Artifacts]", fake.starts[0].prompt)
+        self.assertIn("bounded source report", fake.starts[0].prompt)
+
+        replay = self.server.task_dispatch(**kwargs)
+        self.assertTrue(replay["ok"], replay)
+        self.assertTrue(replay["replayed"])
+        self.assertFalse(replay["dispatch_performed"])
+
+        changed = {**ref, "sha256": "b" * 64}
+        conflict = self.server.task_dispatch(**{**kwargs, "input_artifact_refs": [changed]})
+        self.assertFalse(conflict["ok"], conflict)
+        self.assertEqual(conflict["reason_code"], "IDEMPOTENCY_CONFLICT")
+
+    def test_policy_reload_affects_new_key_but_replay_uses_recorded_decision(self) -> None:
+        from agent_runtime.backends.fake import FakeBackend
+
+        source = self.cwd / "policy.py"
+        source.write_text("VALUE = 13\n", encoding="utf-8")
+        registered = self.server.context_register(str(self.cwd), ["policy.py"], context_id="ctx-policy")
+        self.assertTrue(registered["ok"], registered)
+        runtime_home = Path(self.tmp.name) / "policy-home"
+        runtime_home.mkdir()
+        policy_path = runtime_home / "dispatch_model_policy.json"
+        policy_path.write_text(json.dumps({
+            "require_explicit_model": True,
+            "allowed_models": ["codebuddy:hy3"],
+            "task_preferences": {"preferred": ["codebuddy:hy3"]},
+        }), encoding="utf-8")
+        fake = FakeBackend(result=BackendResult(
+            backend="codebuddy", stop_reason="success", answer="policy result",
+            result={"backend": "codebuddy", "stopReason": "success"}, backend_session_id="cb-policy",
+        ))
+        kwargs = dict(
+            objective="Inspect policy sample", crew="codebuddy", task_kind="research", model="hy3",
+            cwd=str(self.cwd), context_id="ctx-policy", idempotency_key="policy-replay", timeout_seconds=10,
+        )
+        with patch.dict(os.environ, {"AGENT_RUNTIME_HOME": str(runtime_home)}), patch(
+            "agent_runtime.backends.codebuddy.captain_dispatch.resolve_codebuddy_cli", return_value="codebuddy"
+        ), patch("agent_runtime.backends.codebuddy.captain_dispatch.load_codebuddy_sdk", return_value=object()), patch(
+            "agent_runtime.server._create_codebuddy_backend", return_value=fake
+        ):
+            started = self.server.task_dispatch(**kwargs)
+            self.assertTrue(started["ok"], started)
+            self.assertEqual(self.wait(started["task_id"])["state"], "completed")
+            recorded_hash = started["effective_model_policy"]["policy_sha256"]
+            policy_path.write_text(json.dumps({
+                "require_explicit_model": True,
+                "allowed_models": ["codebuddy:kimi"],
+                "task_preferences": {"preferred": ["codebuddy:kimi"]},
+            }), encoding="utf-8")
+            replay = self.server.task_dispatch(**kwargs)
+            self.assertTrue(replay["ok"], replay)
+            self.assertTrue(replay["replayed"])
+            self.assertEqual(replay["effective_model_policy"]["policy_sha256"], recorded_hash)
+            rejected = self.server.task_dispatch(**{**kwargs, "idempotency_key": "policy-new"})
+            self.assertFalse(rejected["ok"], rejected)
+            self.assertEqual(rejected["reason_code"], "MODEL_POLICY_REJECTED")
 
 
 if __name__ == "__main__":

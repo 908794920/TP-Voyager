@@ -12,7 +12,7 @@ import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 
-from agent_runtime.domain.dispatch import WorkerProfileRef
+from agent_runtime.domain.dispatch import WorkerProfileRef, WorkerSkillRef
 
 MAX_WORKER_PROFILE_BYTES = 64 * 1024
 
@@ -55,3 +55,21 @@ class WorkerProfileResolver:
         except UnicodeDecodeError as exc:
             raise WorkerProfileError("worker profile must be UTF-8 text") from exc
         return ResolvedWorkerProfile(ref=ref, content=content)
+
+
+@dataclass(frozen=True)
+class ResolvedWorkerSkill:
+    ref: WorkerSkillRef
+    content: str
+
+
+class WorkerSkillResolver:
+    """Use the same trusted-store and hash checks as Worker profiles."""
+    def __init__(self, root: str | Path) -> None:
+        self._profiles = WorkerProfileResolver(root)
+
+    def resolve(self, ref: WorkerSkillRef) -> ResolvedWorkerSkill:
+        resolved = self._profiles.resolve(WorkerProfileRef(ref.name, ref.version, ref.sha256, ref.allowed_models))
+        if len(resolved.content.encode("utf-8")) > ref.max_bytes:
+            raise WorkerProfileError("worker skill exceeds manifest max_bytes")
+        return ResolvedWorkerSkill(ref=ref, content=resolved.content)

@@ -156,6 +156,7 @@ class QoderServerIntegrationTests(unittest.TestCase):
                 objective="inspect the module without changing files",
                 crew="qoder",
                 task_kind="research",
+                model="Lite",
                 cwd=str(self.cwd),
                 timeout_seconds=10,
             )
@@ -187,7 +188,7 @@ class QoderServerIntegrationTests(unittest.TestCase):
         )
         with patch("agent_runtime.server._create_qoder_backend", return_value=fake):
             started = server.task_dispatch(
-                objective="read README only", crew="qoder", task_kind="research",
+                objective="read README only", crew="qoder", task_kind="research", model="Lite",
                 cwd=str(self.cwd), timeout_seconds=10,
                 read_scope={"files": ["README.md"]},
             )

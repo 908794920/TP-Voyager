@@ -131,7 +131,7 @@ class CrewRegistryTests(unittest.TestCase):
         self.assertEqual(health.last_successful_model, "hy3")
         self.assertEqual(health.last_successful_model_at, 12)
         self.assertEqual(health.last_successful_model_source, "runtime_observation")
-        self.assertEqual(health.model_catalog_status, "cli_declared")
+        self.assertEqual(health.model_catalog_status, "codebuddy_acp_account_live")
         self.assertTrue(health.detail["cli_installed"])
         self.assertTrue(health.detail["sdk_installed"])
 

@@ -13,4 +13,16 @@ __all__ = [
     "resolve_codebuddy_cli",
 ]
 
-from .model_catalog import list_codebuddy_models, parse_codebuddy_help_models
+from .model_catalog import (
+    CodeBuddyAcpCatalogProbe,
+    CodeBuddyCatalogError,
+    CodeBuddyCatalogProbeResult,
+    list_codebuddy_models,
+    parse_codebuddy_help_models,
+    parse_credits_multiplier,
+)
+
+__all__ += [
+    "CodeBuddyAcpCatalogProbe", "CodeBuddyCatalogError", "CodeBuddyCatalogProbeResult",
+    "list_codebuddy_models", "parse_codebuddy_help_models", "parse_credits_multiplier",
+]

@@ -345,6 +345,116 @@ class WorkerProfileRef:
 
 
 @dataclass(frozen=True)
+class WorkerSkillRef(WorkerProfileRef):
+    """Hash-pinned, operator-owned Worker Skill reference."""
+
+    allowed_crews: tuple[str, ...] = ()
+    allowed_task_kinds: tuple[str, ...] = ()
+    allowed_access_modes: tuple[str, ...] = ()
+    max_bytes: int = 64 * 1024
+    artifact_consumer: bool = False
+
+    @classmethod
+    def from_dict(cls, value: object) -> "WorkerSkillRef":
+        base = WorkerProfileRef.from_dict(value)
+        assert isinstance(value, dict)
+
+        def bounded_tokens(field: str, allowed: frozenset[str]) -> tuple[str, ...]:
+            raw = value.get(field)
+            if not isinstance(raw, list) or not raw or len(raw) > len(allowed):
+                raise ValueError(f"worker_skill_ref.{field} must be a non-empty bounded list")
+            normalized = tuple(dict.fromkeys(str(item or "").strip().lower() for item in raw))
+            if len(normalized) != len(raw) or any(item not in allowed for item in normalized):
+                raise ValueError(f"worker_skill_ref.{field} contains an invalid value")
+            return normalized
+
+        crews = bounded_tokens("allowed_crews", frozenset({"codebuddy", "qoder"}))
+        task_kinds = bounded_tokens(
+            "allowed_task_kinds",
+            frozenset({"research", "repository_research", "code_review", "small_patch", "test_failure_triage", "verify_only"}),
+        )
+        access_modes = bounded_tokens("allowed_access_modes", frozenset({"read_only", "patch"}))
+        try:
+            max_bytes = int(value.get("max_bytes"))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("worker_skill_ref.max_bytes is invalid") from exc
+        if max_bytes <= 0 or max_bytes > 64 * 1024:
+            raise ValueError("worker_skill_ref.max_bytes must be between 1 and 65536")
+        artifact_consumer = value.get("artifact_consumer")
+        if not isinstance(artifact_consumer, bool):
+            raise ValueError("worker_skill_ref.artifact_consumer must be boolean")
+        return cls(
+            base.name, base.version, base.sha256, base.allowed_models,
+            crews, task_kinds, access_modes, max_bytes, artifact_consumer,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            **super().to_dict(),
+            "allowed_crews": list(self.allowed_crews),
+            "allowed_task_kinds": list(self.allowed_task_kinds),
+            "allowed_access_modes": list(self.allowed_access_modes),
+            "max_bytes": self.max_bytes,
+            "artifact_consumer": self.artifact_consumer,
+        }
+
+
+_INPUT_ARTIFACT_KINDS = frozenset({"research_summary", "technical_report", "structured_evidence", "bounded_text"})
+
+
+@dataclass(frozen=True)
+class InputArtifactRef:
+    artifact_id: str
+    source_task_id: str
+    kind: str
+    sha256: str
+    byte_size: int
+
+    @classmethod
+    def from_dict(cls, value: object) -> "InputArtifactRef":
+        if not isinstance(value, dict):
+            raise ValueError("input_artifact_ref must be an object")
+        artifact_id = str(value.get("artifact_id") or "").strip()
+        source_task_id = str(value.get("source_task_id") or "").strip()
+        kind = str(value.get("kind") or "").strip()
+        sha256 = str(value.get("sha256") or "").strip().lower()
+        try:
+            byte_size = int(value.get("byte_size"))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("input_artifact_ref.byte_size is invalid") from exc
+        if not artifact_id or len(artifact_id) > 128 or not source_task_id or len(source_task_id) > 128:
+            raise ValueError("input_artifact_ref IDs are invalid")
+        if kind not in _INPUT_ARTIFACT_KINDS:
+            raise ValueError("ARTIFACT_TYPE_NOT_ALLOWED_AS_INPUT")
+        if not _SHA256_RE.fullmatch(sha256) or byte_size < 0 or byte_size > 512 * 1024:
+            raise ValueError("input_artifact_ref hash or size is invalid")
+        return cls(artifact_id, source_task_id, kind, sha256, byte_size)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"artifact_id": self.artifact_id, "source_task_id": self.source_task_id,
+                "kind": self.kind, "sha256": self.sha256, "byte_size": self.byte_size}
+
+
+def canonical_input_artifact_refs(value: object) -> tuple[InputArtifactRef, ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, list):
+        raise ValueError("INPUT_ARTIFACT_LIMIT_EXCEEDED")
+    refs = [InputArtifactRef.from_dict(item) for item in value]
+    unique: dict[tuple[str, str, str], InputArtifactRef] = {}
+    for item in refs:
+        key = (item.source_task_id, item.artifact_id, item.sha256)
+        if key in unique and unique[key] != item:
+            raise ValueError("INPUT_ARTIFACT_REF_CONFLICT")
+        unique[key] = item
+    if len(unique) > 4:
+        raise ValueError("INPUT_ARTIFACT_LIMIT_EXCEEDED")
+    if sum(item.byte_size for item in unique.values()) > 2 * 1024 * 1024:
+        raise ValueError("INPUT_ARTIFACT_TOO_LARGE")
+    return tuple(unique[key] for key in sorted(unique))
+
+
+@dataclass(frozen=True)
 class CaptainDispatchRequest:
     objective: str
     crew: str
@@ -361,6 +471,12 @@ class CaptainDispatchRequest:
     read_scope: ReadScope | None = None
     resolved_read_files: tuple[str, ...] = ()
     worker_profile_ref: WorkerProfileRef | None = None
+    worker_skill_refs: tuple[WorkerSkillRef, ...] = ()
+    worker_skill_content: tuple[str, ...] = ()
+    input_artifact_refs: tuple[InputArtifactRef, ...] = ()
+    input_artifact_content: tuple[str, ...] = ()
+    captain_request_contract: dict[str, Any] = field(default_factory=dict)
+    effective_model_policy: dict[str, Any] = field(default_factory=dict)
     repository_research: dict[str, Any] | None = None
     worker_profile_content: str = ""
     correlation_id: str = ""
@@ -376,6 +492,14 @@ class CaptainDispatchRequest:
             data["read_scope"] = scope
         if self.worker_profile_ref is not None:
             data["worker_profile_ref"] = self.worker_profile_ref.to_dict()
+        if self.worker_skill_refs:
+            data["worker_skill_refs"] = [item.to_dict() for item in self.worker_skill_refs]
+        if self.input_artifact_refs:
+            data["input_artifact_refs"] = [item.to_dict() for item in self.input_artifact_refs]
+        if self.captain_request_contract:
+            data["captain_request_contract"] = dict(self.captain_request_contract)
+        if self.effective_model_policy:
+            data["effective_model_policy"] = dict(self.effective_model_policy)
         if self.repository_research is not None:
             data["repository_research"] = dict(self.repository_research)
         if self.correlation_id:

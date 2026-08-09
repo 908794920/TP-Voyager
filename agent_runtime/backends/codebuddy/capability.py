@@ -36,11 +36,12 @@ def descriptor() -> CrewDescriptor:
         documented_routes=("sdk", "headless", "public_acp_beta", "http_api_beta"),
         implemented_routes=("sdk_context_read_only", "sdk_patch"),
         dispatch_ready=True,
-        model_discovery="cli_declared",
+        model_discovery="codebuddy_acp_account_live",
         notes=(
             "China accounts use CODEBUDDY_INTERNET_ENVIRONMENT=internal.",
             "Captain read-only dispatch satisfies analyze_context through the official SDK with all native tools denied and a Runtime-rendered Context Manifest snapshot.",
             "Captain patch dispatch uses an isolated Git worktree plus SDK can_use_tool path/command enforcement; bypassPermissions is not used.",
             "Headless permission bypass is not the baseline.",
+            "Account-live model discovery uses catalog-only ACP initialize/session-new/close without a prompt; CLI declaration is fallback-only.",
         ),
     )

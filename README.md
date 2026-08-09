@@ -35,7 +35,14 @@ WorkBuddy 已从当前生产执行路径移除，仅保留必要的历史数据�
 
 ## 当前状态
 
-**TP-Voyager v1.0.3 — Model Awareness Completion + Controlled Repository Research（stable）**
+**TP-Voyager v1.0.4 — Captain Contract Closure + Dispatch Governance（in verification）**
+
+v1.0.4 keeps the exact six-tool Captain surface (`voyager_overview`,
+`crew_catalog`, `crew_health`, `crew_recommend`, `task_dispatch`,
+`task_result`).  Model choice is explicit and policy can only narrow it;
+trusted Worker Skills are hash-pinned, while input Artifacts are bounded,
+hash-rechecked untrusted data.  Account-live ACP catalog evidence remains a
+human-authorized Live Gate and is never inferred from CLI help output.
 
 `v1.0.2` 是已经通过真实 Windows + 正式 MCP + CodeBuddy/Qoder CLI Live Gate 的 stable 基线。`v1.0.3` 继续保持 Captain / Voyager / Crew 三层、Runtime 核心状态机、Task/Result/Artifact/Evidence 真相源和默认 6-tool Captain MCP Surface 不变，集中补齐模型事实查询、只读归属边界和受控外部源码研究 Contract。
 
@@ -152,7 +159,7 @@ execution_budget.timeout_reason
 
 CodeBuddy 只读任务可直接通过 `task_dispatch(context_files=[...])` 传入最小文件范围；TP-Voyager 会在内部复用现有 Context Manifest 机制，普通使用者不需要手工操作 `context_*` 工具。
 
-CodeBuddy Health 将“CLI/SDK 可用”“认证是否实际探测”“最近成功的显式模型”分开表达。v1.0.3 可从 `codebuddy --help` 提取 CLI 声明模型，但该清单只代表当前 CLI 声明支持，账号实际授权仍保持 unknown；不会把 CLI 声明伪装成 entitlement。
+CodeBuddy Health 将“CLI/SDK 可用”“认证是否实际探测”“最近成功的显式模型”分开表达。v1.0.4 优先通过 catalog-only ACP `initialize → session/new → close` 投影账号态模型与 reference-only 倍率；ACP 不可用时才回退到 `codebuddy --help` 的 `cli_declared` 清单，回退结果不携带实时倍率，也不伪装 entitlement。
 
 ### Durable Runtime
 

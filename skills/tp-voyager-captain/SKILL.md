@@ -2,13 +2,13 @@
 name: tp-voyager-captain
 description: Route bounded work through TP-Voyager MCP.
 metadata:
-  version: "1.0.3"
+  version: "1.0.4"
   protocol: "tp-voyager-captain/v1"
 ---
 
 # TP-Voyager Captain Skill
 
-> Version: 1.0.3
+> Version: 1.0.4
 >
 > Role: Captain-side orchestration skill for TP-Voyager.
 >
@@ -47,6 +47,15 @@ TP-Voyager executes reliably.
 ## 2. Preconditions
 
 Use this skill only when TP-Voyager MCP tools are available.
+
+## Quickstart
+
+Start with the six-tool Captain contract only: call `voyager_overview`, inspect
+`crew_catalog`, choose a Crew and an explicit model, then call
+`task_dispatch`; read the bounded result with `task_result`.  The default
+surface is exactly `voyager_overview`, `crew_catalog`, `crew_health`,
+`crew_recommend`, `task_dispatch`, and `task_result`.  Diagnostic tools are
+not part of this contract and require the separate diagnostic surface.
 
 Before delegating, verify that the following Captain-facing capabilities are discoverable:
 

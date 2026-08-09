@@ -99,7 +99,9 @@ from agent_runtime.application.dispatch import CaptainDispatchService
 from agent_runtime.application.dispatch.profiles import (
     WorkerProfileError,
     WorkerProfileResolver,
+    WorkerSkillResolver,
 )
+from agent_runtime.application.dispatch.artifact_inputs import ArtifactInputResolver
 from agent_runtime.application.voyage import VoyageOverviewService
 from agent_runtime.domain.dispatch import (
     CaptainDispatchRequest,
@@ -109,6 +111,8 @@ from agent_runtime.domain.dispatch import (
     ReadScope,
     RepositoryResearchSpec,
     WorkerProfileRef,
+    WorkerSkillRef,
+    canonical_input_artifact_refs,
 )
 from agent_runtime.backends.codebuddy import CodeBuddyBackend
 from agent_runtime.backends.codebuddy.captain_dispatch import CodeBuddyContextReadOnlyDispatcher
@@ -382,6 +386,12 @@ def _captain_dispatch_service() -> CaptainDispatchService:
     patch_workspaces = PatchWorkspaceService(_get_runtime_database().path.parent / "workspaces")
     return CaptainDispatchService(
         _crew_registry_service(),
+        artifact_loader=lambda refs: tuple(
+            item.content
+            for item in ArtifactInputResolver(
+                _runtime_service(), _get_runtime_database().path.parent / "artifacts"
+            ).resolve(refs)
+        ),
         dispatchers={
             "codebuddy": CodeBuddyContextReadOnlyDispatcher(
                 launch,
@@ -483,6 +493,16 @@ def _request_fingerprint(
         ]
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+def _captain_request_contract(**values: Any) -> dict[str, Any]:
+    """Content-free canonical Captain contract used for replay decisions."""
+    objective = str(values.pop("objective", "")).replace("\r\n", "\n").replace("\r", "\n")
+    return {
+        "schema": "tp-voyager.captain_request/v1",
+        "objective_sha256": hashlib.sha256(objective.encode("utf-8")).hexdigest(),
+        **values,
+    }
 
 
 def _note_task_activity(task: TaskState, kind: str) -> None:
@@ -1737,7 +1757,7 @@ def _durable_cli_start(
     except ValueError as exc:
         return {"ok": False, "error": str(exc)}
     routing = dict(routing_metadata or {})
-    allowed_routing_keys = {"read_scope", "worker_profile_ref", "correlation_id", "model_policy", "repository_research"}
+    allowed_routing_keys = {"read_scope", "worker_profile_ref", "worker_skill_refs", "input_artifact_refs", "captain_request_contract", "effective_model_policy", "correlation_id", "model_policy", "repository_research"}
     if set(routing) - allowed_routing_keys:
         return {"ok": False, "error": "routing_metadata contains unsupported keys"}
     try:
@@ -1801,7 +1821,7 @@ def _durable_cli_start(
             "agent_profile": agent_profile.strip(),
             "execution_mode": execution_mode.strip().lower(),
             "verification_plan": plan.to_dict(),
-            "routing_metadata": routing,
+            "routing_metadata": {key: value for key, value in routing.items() if key != "effective_model_policy"},
         },
     )
     if canonical_key:
@@ -2812,6 +2832,8 @@ def task_dispatch(
     read_scope: dict[str, Any] | None = None,
     model_policy: dict[str, Any] | None = None,
     worker_profile_ref: dict[str, Any] | None = None,
+    worker_skill_refs: list[dict[str, Any]] | None = None,
+    input_artifact_refs: list[dict[str, Any]] | None = None,
     correlation_id: str = "",
     timeout_seconds: int = 300,
     required_capabilities: list[str] | None = None,
@@ -2934,9 +2956,23 @@ def task_dispatch(
     if worker_profile_ref is not None:
         try:
             parsed_profile = WorkerProfileRef.from_dict(worker_profile_ref)
-            profile_content = _worker_profile_resolver().resolve(parsed_profile).content
-        except (TypeError, ValueError, WorkerProfileError) as exc:
+        except (TypeError, ValueError) as exc:
             return reject("WORKER_PROFILE_INVALID", str(exc))
+
+    parsed_skills: tuple[WorkerSkillRef, ...] = ()
+    skill_content: tuple[str, ...] = ()
+    if worker_skill_refs is not None:
+        try:
+            if len(worker_skill_refs) > 8:
+                raise ValueError("worker_skill_refs exceeds 8 entries")
+            parsed_skills = tuple(WorkerSkillRef.from_dict(item) for item in worker_skill_refs)
+        except (TypeError, ValueError) as exc:
+            return reject("WORKER_SKILL_INVALID", str(exc))
+    try:
+        parsed_artifacts = canonical_input_artifact_refs(input_artifact_refs)
+    except (TypeError, ValueError) as exc:
+        return reject("INPUT_ARTIFACT_INVALID", str(exc))
+    artifact_content: tuple[str, ...] = ()
 
     external_correlation_id = str(correlation_id or "").strip()
     if external_correlation_id:
@@ -2946,6 +2982,81 @@ def task_dispatch(
             or any(ord(ch) < 32 for ch in external_correlation_id)
         ):
             return reject("INVALID_CORRELATION_ID", "correlation_id must be printable and at most 160 characters")
+
+    context_root_hash = ""
+    if effective_context_id:
+        try:
+            context_root_hash = str(_context_service().get(effective_context_id).get("root_hash") or "")
+        except (ContextError, RuntimePersistenceError) as exc:
+            return reject("CONTEXT_INVALID", str(exc))
+    captain_contract = _captain_request_contract(
+        objective=objective,
+        crew=normalized_crew,
+        task_kind=normalized_kind,
+        cwd=str(cwd or ""),
+        model=str(model or "").strip(),
+        access_mode=normalized_mode,
+        context_id=str(context_id or "").strip(),
+        context_files=sorted(set(supplied_files)),
+        context_root_hash=context_root_hash,
+        resolved_read_files=list(resolved_files),
+        timeout_seconds=int(timeout_seconds),
+        required_capabilities=sorted(set(required_capabilities or ())),
+        patch_policy=parsed_policy.to_dict() if parsed_policy is not None else None,
+        model_policy=parsed_model_policy.to_dict() if parsed_model_policy is not None else None,
+        read_scope=parsed_scope.to_dict() if parsed_scope is not None else None,
+        worker_profile_ref=parsed_profile.to_dict() if parsed_profile is not None else None,
+        worker_skill_refs=[item.to_dict() for item in parsed_skills],
+        input_artifact_refs=[item.to_dict() for item in parsed_artifacts],
+        repository_research=parsed_research.to_dict() if parsed_research is not None else None,
+        correlation_id=external_correlation_id,
+    )
+    canonical_key = str(idempotency_key or "").strip()
+    if canonical_key and parsed_research is None:
+        if len(canonical_key) > 128:
+            return reject("INVALID_REQUEST", "idempotency_key must be at most 128 characters")
+        try:
+            runtime = _runtime_service()
+            pair = runtime.resolve_idempotent(canonical_key)
+        except RuntimePersistenceError:
+            return reject("RUNTIME_UNAVAILABLE", "runtime database unavailable")
+        if pair is not None:
+            _, stored_task_id = pair
+            durable = runtime.get_task(stored_task_id)
+            session = runtime.get_session(stored_task_id) if durable is not None else None
+            metadata = parse_session_metadata(session.metadata_json) if session is not None else {}
+            routing = metadata.get("routing_metadata") if isinstance(metadata.get("routing_metadata"), dict) else {}
+            stored_contract = routing.get("captain_request_contract") if isinstance(routing, dict) else None
+            if stored_contract is not None:
+                if stored_contract != captain_contract:
+                    return reject("IDEMPOTENCY_CONFLICT", "idempotency_key is already bound to a different request or Artifact snapshot")
+                stored_policy = routing.get("effective_model_policy") if isinstance(routing, dict) else None
+                return {
+                    "ok": True,
+                    "schema": "tp-voyager.dispatch/v1",
+                    "crew": normalized_crew,
+                    "task_kind": normalized_kind,
+                    "selection_performed": False,
+                    "dispatch_performed": False,
+                    "replayed": True,
+                    "effective_model_policy": dict(stored_policy) if isinstance(stored_policy, dict) else {},
+                    **_public(_task_state_from_durable(durable, runtime)),
+                }
+
+    if parsed_profile is not None:
+        try:
+            profile_content = _worker_profile_resolver().resolve(parsed_profile).content
+        except (WorkerProfileError, RuntimePersistenceError) as exc:
+            return reject("WORKER_PROFILE_INVALID", str(exc))
+    if parsed_skills:
+        try:
+            skill_root = os.environ.get("TP_VOYAGER_WORKER_SKILL_ROOT")
+            if not skill_root:
+                raise ValueError("TP_VOYAGER_WORKER_SKILL_ROOT is required")
+            skill_resolver = WorkerSkillResolver(skill_root)
+            skill_content = tuple(skill_resolver.resolve(item).content for item in parsed_skills)
+        except (ValueError, WorkerProfileError) as exc:
+            return reject("WORKER_SKILL_INVALID", str(exc))
 
     research_workspace = None
     research_routing: dict[str, Any] | None = None
@@ -3043,6 +3154,11 @@ def task_dispatch(
             resolved_read_files=resolved_files,
             worker_profile_ref=parsed_profile,
             worker_profile_content=profile_content,
+            worker_skill_refs=parsed_skills,
+            worker_skill_content=skill_content,
+            input_artifact_refs=parsed_artifacts,
+            input_artifact_content=artifact_content,
+            captain_request_contract=captain_contract,
             repository_research=research_routing,
             correlation_id=external_correlation_id,
         )
