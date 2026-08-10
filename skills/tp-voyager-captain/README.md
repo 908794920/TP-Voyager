@@ -7,7 +7,7 @@
 ## 当前版本
 
 ```text
-Captain Skill 1.0.4
+Captain Skill 1.0.5
 ```
 
 v1.0.3 在 v1.0.2 stable 基础上新增：

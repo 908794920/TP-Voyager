@@ -41,6 +41,9 @@ class Task:
     # (ORPHANED), the moment is recorded here.  Never auto-converted.
     lost_at: float | None = None
     orphaned_at: float | None = None
+    # v1.0.5 provenance only; these fields never encode workflow state.
+    run_id: str | None = None
+    step_key: str | None = None
 
     def has_result(self) -> bool:
         return self.result_available and self.result_json is not None

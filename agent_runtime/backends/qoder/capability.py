@@ -30,9 +30,9 @@ def descriptor() -> CrewDescriptor:
             "model_selection",
             "model_discovery",
         ),
-        controlled_capabilities=("analyze_context", "read_files", "search_code", "edit_files", "run_commands"),
+        controlled_capabilities=("analyze_context", "read_files", "search_code", "edit_files", "run_commands", "verify_commands"),
         documented_routes=("acp", "sdk", "headless"),
-        implemented_routes=("acp_read_only", "acp_patch"),
+        implemented_routes=("acp_read_only", "acp_patch", "acp_verify"),
         dispatch_ready=True,
         model_discovery="qodercli --list-models / SDK get_available_models",
         notes=(

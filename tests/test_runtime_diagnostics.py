@@ -256,7 +256,7 @@ class RuntimeDiagnosticsTests(unittest.TestCase):
         doctor = json.loads(stdout.getvalue())
         self.assertEqual(doctor["task_count"], 1)
         self.assertTrue(doctor["integrity_ok"])
-        self.assertEqual(doctor["version"], "1.0.3")
+        self.assertEqual(doctor["version"], "1.0.5")
         self.assertIn("codebuddy", doctor["model_catalog"])
         self.assertIn("qoder", doctor["model_catalog"])
         self.assertFalse(doctor["model_catalog"]["selection_performed"])

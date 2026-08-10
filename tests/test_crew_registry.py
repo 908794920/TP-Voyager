@@ -250,10 +250,14 @@ class CrewRegistryTests(unittest.TestCase):
         self.assertIn("read_files", qoder.controlled_capabilities)
         self.assertIn("edit_files", qoder.controlled_capabilities)
         self.assertIn("run_commands", qoder.controlled_capabilities)
+        self.assertIn("verify_commands", qoder.controlled_capabilities)
+        self.assertIn("acp_verify", qoder.implemented_routes)
         self.assertTrue(codebuddy.dispatch_ready)
         self.assertIn("analyze_context", codebuddy.controlled_capabilities)
         self.assertIn("edit_files", codebuddy.controlled_capabilities)
         self.assertIn("run_commands", codebuddy.controlled_capabilities)
+        self.assertIn("verify_commands", codebuddy.controlled_capabilities)
+        self.assertIn("sdk_verify", codebuddy.implemented_routes)
 
 
 

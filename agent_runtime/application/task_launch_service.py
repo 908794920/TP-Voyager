@@ -125,10 +125,10 @@ class TaskLaunchService:
 
         if selected == "codebuddy":
             route = request.route.strip().lower() or "sdk_context_read_only"
-            if route not in {"sdk_context_read_only", "sdk_patch"}:
+            if route not in {"sdk_context_read_only", "sdk_patch", "sdk_verify"}:
                 return {
                     "ok": False,
-                    "error": "CodeBuddy route must be sdk_context_read_only or sdk_patch",
+                    "error": "CodeBuddy route must be sdk_context_read_only, sdk_patch or sdk_verify",
                 }
             if (
                 request.identity
@@ -152,10 +152,10 @@ class TaskLaunchService:
 
         if selected == "qoder":
             route = request.route.strip().lower() or "acp_read_only"
-            if route not in {"acp_read_only", "acp_patch"}:
+            if route not in {"acp_read_only", "acp_patch", "acp_verify"}:
                 return {
                     "ok": False,
-                    "error": "Qoder route must be acp_read_only or acp_patch",
+                    "error": "Qoder route must be acp_read_only, acp_patch or acp_verify",
                 }
             if (
                 request.identity

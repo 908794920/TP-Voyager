@@ -8,6 +8,7 @@ It owns transport only; durable task state remains in the runtime.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import queue
@@ -85,6 +86,8 @@ class QoderAcpClient:
         cli_path: str | None = None,
         allow_permissions: bool = True,
         read_only: bool = False,
+        allow_file_writes: bool | None = None,
+        allow_terminal: bool | None = None,
         allowed_paths: tuple[str, ...] = (),
         forbidden_paths: tuple[str, ...] = (),
         command_specs: tuple[CommandSpec, ...] = (),
@@ -92,7 +95,9 @@ class QoderAcpClient:
         self.cwd = Path(cwd).resolve()
         self.on_activity = on_activity
         self.read_only = bool(read_only)
-        self.allow_permissions = bool(allow_permissions) and not self.read_only
+        self.allow_file_writes = (not self.read_only) if allow_file_writes is None else bool(allow_file_writes)
+        self.allow_terminal = (not self.read_only) if allow_terminal is None else bool(allow_terminal)
+        self.allow_permissions = bool(allow_permissions) and (self.allow_terminal or self.allow_file_writes)
         self.allowed_paths = tuple(str(item).replace("\\", "/").strip("/") for item in allowed_paths if str(item).strip())
         self.forbidden_paths = tuple(str(item).replace("\\", "/").strip("/") for item in forbidden_paths if str(item).strip())
         self.command_specs = tuple(command_specs)
@@ -110,6 +115,9 @@ class QoderAcpClient:
         self._event_count = 0
         self._stderr_bytes = 0
         self._usage: dict[str, Any] = {}
+        self._usage_events: list[dict[str, Any]] = []
+        self._file_access_events: list[dict[str, Any]] = []
+        self._read_scope_evidence_captured = False
         self._terminals: dict[str, _Terminal] = {}
         self._reader_error: BaseException | None = None
         self._reader = threading.Thread(target=self._read_loop, daemon=True)
@@ -131,6 +139,7 @@ class QoderAcpClient:
         on_dispatch_accepted: Callable[[str], None],
     ) -> AcpRunResult:
         started = time.monotonic()
+        self.capture_read_scope_evidence()
         initialize = self._request(
             "initialize",
             {
@@ -138,9 +147,9 @@ class QoderAcpClient:
                 "clientCapabilities": {
                     "fs": {
                         "readTextFile": True,
-                        "writeTextFile": not self.read_only,
+                        "writeTextFile": self.allow_file_writes,
                     },
-                    "terminal": not self.read_only,
+                    "terminal": self.allow_terminal,
                 },
                 "clientInfo": {
                     "name": "tp-voyager",
@@ -212,6 +221,8 @@ class QoderAcpClient:
                 "duration_seconds": round(time.monotonic() - started, 3),
                 "reasoning_effort_applied": reasoning_applied,
                 "model_applied": model_applied,
+                "usage_provenance": self.usage_provenance(),
+                "file_access_events": self.file_access_snapshot(),
             },
             reasoning_effort_applied=reasoning_applied,
             model_applied=model_applied,
@@ -221,6 +232,77 @@ class QoderAcpClient:
     def usage_snapshot(self) -> dict[str, Any]:
         """Return only scalar usage fields actually observed from ACP."""
         return dict(self._usage)
+
+    def usage_provenance(self) -> dict[str, Any]:
+        known_keys = {
+            "inputTokens", "input_tokens", "prompt_tokens",
+            "outputTokens", "output_tokens", "completion_tokens",
+            "creditsUsed", "credits_used", "credit_used",
+            "cost", "reported_cost", "total_cost",
+        }
+        has_known_numeric = any(
+            key in known_keys
+            and isinstance(value, (int, float)) and not isinstance(value, bool)
+            and value >= 0
+            for key, value in self._usage.items()
+        )
+        status = "observed" if has_known_numeric else ("protocol_unrecognized" if self._usage_events else "provider_omitted")
+        return {
+            "status": status,
+            "event_count": len(self._usage_events),
+            "events": [dict(item) for item in self._usage_events[-16:]],
+        }
+
+    def file_access_snapshot(self) -> list[dict[str, Any]]:
+        return [dict(item) for item in self._file_access_events[-256:]]
+
+    def capture_read_scope_evidence(self) -> None:
+        """Record the bounded files exposed to a read-only ACP session.
+
+        A local ACP agent may read its cwd without invoking the optional client
+        filesystem callback.  This snapshot records only the Captain-approved
+        access boundary and file digest; it does not claim that the agent opened
+        the file and never stores file content.
+        """
+        if self._read_scope_evidence_captured or not self.read_only:
+            return
+        self._read_scope_evidence_captured = True
+        for raw_path in self.allowed_paths:
+            try:
+                path = self._safe_path(raw_path, write=False)
+                digest = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else ""
+                self._record_file_access(
+                    raw_path,
+                    operation="read_scope_grant",
+                    allowed=True,
+                    reason="captain_read_scope",
+                    sha256=digest,
+                )
+            except Exception as exc:
+                self._record_file_access(
+                    raw_path,
+                    operation="read_scope_grant",
+                    allowed=False,
+                    reason=type(exc).__name__,
+                )
+
+    def _record_file_access(self, raw: str, *, operation: str, allowed: bool, reason: str = "", sha256: str = "") -> None:
+        try:
+            candidate = Path(raw)
+            resolved = candidate.resolve() if candidate.is_absolute() else (self.cwd / candidate).resolve()
+            try:
+                rel = resolved.relative_to(self.cwd).as_posix()
+            except ValueError:
+                rel = "<outside-workspace>"
+        except Exception:
+            rel = "<invalid>"
+        self._file_access_events.append({
+            "path": rel[:512], "operation": operation[:32], "allowed": bool(allowed),
+            "reason": str(reason or "")[:160], "timestamp": round(time.time(), 6),
+            "sha256": str(sha256 or "")[:64],
+        })
+        if len(self._file_access_events) > 512:
+            del self._file_access_events[:-512]
 
     def cancel(self, session_id: str = "") -> None:
         self._cancelled.set()
@@ -489,6 +571,10 @@ class QoderAcpClient:
             if isinstance(text, str):
                 self._answer.append(text)
         elif kind == "usage_update":
+            keys = sorted(str(key)[:80] for key in update if key != "sessionUpdate")[:64]
+            self._usage_events.append({"type": "usage_update", "keys": keys, "timestamp": round(time.time(), 6), "size_bytes": len(json.dumps(update, ensure_ascii=False).encode("utf-8"))})
+            if len(self._usage_events) > 32:
+                del self._usage_events[:-32]
             for key, value in update.items():
                 if key != "sessionUpdate" and isinstance(value, (int, float, str, bool)):
                     self._usage[str(key)[:80]] = value
@@ -524,17 +610,33 @@ class QoderAcpClient:
 
     def _dispatch_client_method(self, method: str, params: dict[str, Any]) -> dict[str, Any] | None:
         if method == "fs/read_text_file":
-            path = self._safe_path(str(params.get("path") or ""), write=False)
-            text = path.read_text(encoding="utf-8")
+            raw_path = str(params.get("path") or "")
+            try:
+                path = self._safe_path(raw_path, write=False)
+                text = path.read_text(encoding="utf-8")
+                digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+                self._record_file_access(
+                    raw_path, operation="read", allowed=True,
+                    reason="client_fs_callback", sha256=digest,
+                )
+            except Exception as exc:
+                self._record_file_access(raw_path, operation="read", allowed=False, reason=type(exc).__name__)
+                raise
             line = max(1, int(params.get("line") or 1))
             limit = max(1, min(100_000, int(params.get("limit") or 100_000)))
             return {"content": "\n".join(text.splitlines()[line - 1: line - 1 + limit])}
         if method == "fs/write_text_file":
-            if self.read_only:
-                raise PermissionError("Qoder ACP read-only policy denies file writes")
-            path = self._safe_path(str(params.get("path") or ""), write=True)
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(str(params.get("content") or ""), encoding="utf-8")
+            raw_path = str(params.get("path") or "")
+            try:
+                if not self.allow_file_writes:
+                    raise PermissionError("Qoder ACP policy denies file writes")
+                path = self._safe_path(raw_path, write=True)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(str(params.get("content") or ""), encoding="utf-8")
+                self._record_file_access(raw_path, operation="write", allowed=True)
+            except Exception as exc:
+                self._record_file_access(raw_path, operation="write", allowed=False, reason=type(exc).__name__)
+                raise
             return None
         if method == "session/request_permission":
             options = params.get("options") if isinstance(params.get("options"), list) else []
@@ -543,8 +645,8 @@ class QoderAcpClient:
                 return {"outcome": {"outcome": "cancelled"}}
             return {"outcome": {"outcome": "selected", "optionId": selected}}
         if method == "terminal/create":
-            if self.read_only:
-                raise PermissionError("Qoder ACP read-only policy denies terminal execution")
+            if not self.allow_terminal:
+                raise PermissionError("Qoder ACP policy denies terminal execution")
             return self._terminal_create(params)
         if method == "terminal/output":
             terminal = self._terminal(str(params.get("terminalId") or ""))
@@ -586,8 +688,8 @@ class QoderAcpClient:
             raise PermissionError("ACP file access is forbidden by patch policy")
         if self.allowed_paths and not self._matches(rel, self.allowed_paths):
             raise PermissionError("ACP file access is outside the Captain allowed_paths")
-        if write and self.read_only:
-            raise PermissionError("Qoder ACP read-only policy denies file writes")
+        if write and not self.allow_file_writes:
+            raise PermissionError("Qoder ACP policy denies file writes")
         return candidate
 
     def _select_permission(self, options: list[Any]) -> str | None:

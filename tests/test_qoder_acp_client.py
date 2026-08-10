@@ -271,6 +271,91 @@ class QoderAcpProtocolTests(unittest.TestCase):
             client.close()
 
 
+    def test_verification_allows_exact_terminal_but_denies_file_writes_and_records_reads(self) -> None:
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "src").mkdir()
+            (root / "src" / "a.txt").write_text("hello\n", encoding="utf-8")
+            fake = FakeAcpProcess()
+            with (
+                patch("agent_runtime.backends.qoder.acp_client.popen_command", return_value=fake),
+                patch("agent_runtime.backends.qoder.acp_client.terminate_process_tree"),
+                patch("agent_runtime.backends.qoder.acp_client.subprocess.Popen") as popen,
+            ):
+                process = unittest.mock.MagicMock()
+                process.stdout = None
+                popen.return_value = process
+                client = QoderAcpClient(
+                    cwd=str(root), cli_path="qodercli", on_activity=lambda item: None,
+                    read_only=False, allow_permissions=True, allow_file_writes=False,
+                    allow_terminal=True, allowed_paths=("src/a.txt",), forbidden_paths=(".git",),
+                    command_specs=(CommandSpec("verify", ("python", "-V")),),
+                )
+                read = client._dispatch_client_method("fs/read_text_file", {"path": "src/a.txt"})
+                self.assertIn("hello", read["content"])
+                with self.assertRaises(PermissionError):
+                    client._dispatch_client_method("fs/write_text_file", {"path": "src/a.txt", "content": "x"})
+                terminal = client._dispatch_client_method("terminal/create", {"command": "python", "args": ["-V"]})
+                self.assertIn("terminalId", terminal)
+                events = client.file_access_snapshot()
+                self.assertEqual(events[0]["path"], "src/a.txt")
+                self.assertTrue(events[0]["allowed"])
+                self.assertEqual(len(events[0]["sha256"]), 64)
+                self.assertFalse(events[-1]["allowed"])
+                client.close()
+
+    def test_usage_provenance_distinguishes_omitted_unrecognized_and_observed(self) -> None:
+        fake = FakeAcpProcess()
+        with (
+            patch("agent_runtime.backends.qoder.acp_client.popen_command", return_value=fake),
+            patch("agent_runtime.backends.qoder.acp_client.terminate_process_tree"),
+        ):
+            client = QoderAcpClient(cwd=str(Path.cwd()), cli_path="qodercli", on_activity=lambda item: None)
+            self.assertEqual(client.usage_provenance()["status"], "provider_omitted")
+            client._usage_events.append({"type": "usage_update", "keys": ["mystery"]})
+            client._usage["mystery"] = "x"
+            self.assertEqual(client.usage_provenance()["status"], "protocol_unrecognized")
+            client._usage["inputTokens"] = 1
+            self.assertEqual(client.usage_provenance()["status"], "observed")
+            client.close()
+
+    def test_read_only_scope_snapshot_records_content_free_file_evidence(self) -> None:
+        import hashlib
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            content = b"bounded fixture\n"
+            (root / "fixture.txt").write_bytes(content)
+            fake = FakeAcpProcess()
+            with (
+                patch("agent_runtime.backends.qoder.acp_client.popen_command", return_value=fake),
+                patch("agent_runtime.backends.qoder.acp_client.terminate_process_tree"),
+            ):
+                client = QoderAcpClient(
+                    cwd=str(root), cli_path="qodercli", on_activity=lambda item: None,
+                    read_only=True, allow_permissions=False,
+                    allowed_paths=("fixture.txt",), forbidden_paths=(".git",),
+                )
+                result = client.run(
+                    prompt="inspect fixture.txt",
+                    idle_timeout_seconds=5,
+                    max_task_duration_seconds=10,
+                    on_dispatch_accepted=lambda session_id: None,
+                )
+                events = result.observability["file_access_events"]
+                self.assertEqual(events, [{
+                    "path": "fixture.txt",
+                    "operation": "read_scope_grant",
+                    "allowed": True,
+                    "reason": "captain_read_scope",
+                    "timestamp": events[0]["timestamp"],
+                    "sha256": hashlib.sha256(content).hexdigest(),
+                }])
+                self.assertNotIn("bounded fixture", str(events))
+                client.close()
+
 
 if __name__ == "__main__":
     unittest.main()

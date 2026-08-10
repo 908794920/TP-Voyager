@@ -37,6 +37,7 @@ from agent_runtime.domain.ids import (
 from agent_runtime.domain.session import Session
 from agent_runtime.domain.task import Task
 from agent_runtime.domain.timeutil import now_epoch
+from agent_runtime.domain.run_control import RunControlSpec
 from agent_runtime.domain.structured_result import (
     RESULT_SCHEMA,
     StructuredResult,
@@ -58,6 +59,7 @@ from agent_runtime.persistence.idempotency_repository import (
     IdempotencyRepository,
 )
 from agent_runtime.persistence.session_repository import SessionRepository
+from agent_runtime.persistence.run_control_repository import RunControlError, RunControlRepository
 from agent_runtime.persistence.task_repository import (
     TERMINAL_NOT_IN_PLACEHOLDERS,
     TaskRepository,
@@ -158,6 +160,7 @@ class CreateTaskResult:
     # task's current_attempt_id so callers never fall back to an empty id.
     attempt_id: str | None = None
     error: str | None = None
+    reason_code: str | None = None
 
 
 def build_session_metadata(metadata: dict[str, Any]) -> str:
@@ -191,6 +194,7 @@ class TaskService:
         self.evidence = EvidenceRepository(db)
         self.artifacts = ArtifactRepository(db)
         self.lineage = LineageRepository(db)
+        self.run_controls = RunControlRepository()
 
     # ------------------------------------------------------------------ create
 
@@ -203,6 +207,8 @@ class TaskService:
         idempotency_key: str,
         request_fingerprint: str,
         lineage: TaskLineage | None = None,
+        run_control: RunControlSpec | None = None,
+        requested_runtime_seconds: float = 0.0,
         now: float | None = None,
     ) -> CreateTaskResult:
         """Atomically claim the key and persist task/session/attempt/event.
@@ -267,7 +273,28 @@ class TaskService:
             ),
         )
         try:
-            with self.db.transaction() as connection:
+            with self.db.immediate_transaction() as connection:
+                if durable_task.run_id and durable_task.step_key:
+                    existing_step = connection.execute(
+                        "SELECT task_id FROM tasks WHERE run_id=? AND step_key=?",
+                        (durable_task.run_id, durable_task.step_key),
+                    ).fetchone()
+                    if existing_step is not None:
+                        existing_task_id = str(existing_step["task_id"])
+                        existing_binding = (
+                            connection.execute(
+                                "SELECT request_fingerprint, task_id FROM idempotency WHERE idempotency_key=?",
+                                (idempotency_key,),
+                            ).fetchone()
+                            if idempotency_key else None
+                        )
+                        if (
+                            existing_binding is not None
+                            and str(existing_binding["task_id"]) == existing_task_id
+                            and str(existing_binding["request_fingerprint"]) == request_fingerprint
+                        ):
+                            raise _ReplayOrConflict(ClaimOutcome.REPLAY.value, existing_task_id)
+                        raise _StepConflict(existing_task_id)
                 # Task row first: the idempotency claim references it via FK, and a
                 # REPLAY/CONFLICT outcome rolls the whole transaction back.
                 self.tasks.create(connection, durable_task)
@@ -280,6 +307,15 @@ class TaskService:
                 )
                 if claim.outcome in {ClaimOutcome.REPLAY, ClaimOutcome.CONFLICT}:
                     raise _ReplayOrConflict(claim.outcome.value, claim.task_id)
+                if run_control is not None:
+                    try:
+                        self.run_controls.admit_current_task(
+                            connection, run_control,
+                            requested_runtime_seconds=requested_runtime_seconds,
+                            now=now,
+                        )
+                    except RunControlError as exc:
+                        raise _RunBudgetRejected(exc.code, exc.detail) from exc
                 self.sessions.create(connection, session)
                 self.tasks.create_attempt(connection, attempt)
                 self.lineage.create(connection, durable_lineage)
@@ -302,6 +338,14 @@ class TaskService:
                             ),
                         ),
                     )
+        except _RunBudgetRejected as exc:
+            return CreateTaskResult(outcome="budget_rejected", error=exc.detail, reason_code=exc.code)
+        except _StepConflict as exc:
+            return CreateTaskResult(
+                outcome="step_conflict", task_id=exc.task_id,
+                error="run_id + step_key is already bound to another durable Task",
+                reason_code="STEP_IDEMPOTENCY_CONFLICT",
+            )
         except _ReplayOrConflict as exc:
             result = _handle_replay_or_conflict(exc)
             if result.outcome == "replayed" and exc.task_id:
@@ -325,6 +369,13 @@ class TaskService:
 
     def get_task(self, task_id: str) -> Task | None:
         return self.tasks.get_by_id(task_id)
+
+    def get_task_by_run_step(self, run_id: str, step_key: str) -> Task | None:
+        return self.tasks.get_by_run_step(run_id, step_key)
+
+    def get_run_control(self, run_id: str):
+        with self.db.immediate_transaction() as connection:
+            return self.run_controls.get(connection, run_id, now=now_epoch())
 
     def list_tasks(self) -> list[Task]:
         return self.tasks.list_all()
@@ -1212,6 +1263,19 @@ class TaskService:
                 if isinstance(kind, str) and kind:
                     activities.append({"kind": kind, "at": event.event_time})
         return activities
+
+
+class _StepConflict(Exception):
+    def __init__(self, task_id: str) -> None:
+        super().__init__(f"run step already bound to {task_id}")
+        self.task_id = task_id
+
+
+class _RunBudgetRejected(Exception):
+    def __init__(self, code: str, detail: str) -> None:
+        super().__init__(detail)
+        self.code = code
+        self.detail = detail
 
 
 class _ReplayOrConflict(Exception):

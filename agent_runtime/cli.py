@@ -85,7 +85,7 @@ def _doctor_projection(overview: dict[str, Any]) -> dict[str, Any]:
     projection = dict(overview)
     projection.update({
         "schema": "tp-voyager.doctor/v1",
-        "version": "1.0.3",
+        "version": "1.0.5",
         "ok": installation_ready,
         "runtime": {
             "ok": runtime_ok,

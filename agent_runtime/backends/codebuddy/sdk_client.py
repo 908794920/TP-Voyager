@@ -33,6 +33,28 @@ from agent_runtime.backends.errors import (
 # Official built-in tool names from CodeBuddy settings documentation.  The
 # context-only route denies all native tools; later patch work will use a
 # separate, explicitly bounded tool gateway rather than widening this route.
+
+_CODEBUDDY_USAGE_FIELDS = (
+    "input_tokens", "output_tokens",
+    "cache_read_input_tokens", "cache_creation_input_tokens",
+    "cached_input_tokens", "cache_write_input_tokens",
+    "credits", "credits_used", "total_credits",
+)
+
+def _normalize_codebuddy_usage(value: object) -> dict[str, Any]:
+    """Serialize only bounded, documented/observed numeric Usage fields."""
+    if value is None:
+        return {}
+    source = value if isinstance(value, dict) else None
+    out: dict[str, Any] = {}
+    for name in _CODEBUDDY_USAGE_FIELDS:
+        raw = source.get(name) if source is not None else getattr(value, name, None)
+        if isinstance(raw, bool):
+            continue
+        if isinstance(raw, (int, float)) and raw >= 0:
+            out[name] = raw
+    return out
+
 _CODEBUDDY_BUILTIN_TOOLS = (
     "AskUserQuestion",
     "Bash",
@@ -270,7 +292,7 @@ class CodeBuddySdkClient:
                         kind="stream_activity",
                         timestamp=time.time(),
                         detail={
-                            "route": "sdk_patch" if self.access_mode == "patch" else "sdk_context_read_only",
+                            "route": "sdk_patch" if self.access_mode == "patch" else ("sdk_verify" if self.access_mode == "verification" else "sdk_context_read_only"),
                             "sdk_message": type_name[:80],
                         },
                     )
@@ -298,7 +320,7 @@ class CodeBuddySdkClient:
                 else "".join(text_parts).strip()
             )
             usage = getattr(result_message, "usage", None)
-            usage_dict = dict(usage) if isinstance(usage, dict) else {}
+            usage_dict = _normalize_codebuddy_usage(usage)
             total_cost = getattr(result_message, "total_cost_usd", None)
             duration_ms = getattr(result_message, "duration_ms", None)
             turns = getattr(result_message, "num_turns", None)
@@ -313,9 +335,9 @@ class CodeBuddySdkClient:
                     else None
                 ),
                 observability={
-                    "route": "sdk_patch" if self.access_mode == "patch" else "sdk_context_read_only",
+                    "route": "sdk_patch" if self.access_mode == "patch" else ("sdk_verify" if self.access_mode == "verification" else "sdk_context_read_only"),
                     "access_mode": self.access_mode,
-                    "native_tools_enabled": self.access_mode == "patch",
+                    "native_tools_enabled": self.access_mode in {"patch", "verification"},
                     "command_whitelist_size": len(self.command_specs),
                     "event_count": event_count,
                     "duration_seconds": round(time.monotonic() - started, 3),
@@ -419,8 +441,11 @@ class CodeBuddySdkClient:
                 raw = data.get("path")
                 allowed = self._path_allowed(raw, write=False)
             elif name in {"Edit", "MultiEdit", "Write"}:
+                # Independent verification never grants source-write tools,
+                # even though exact test commands may create disposable build
+                # outputs through Bash inside the isolated worktree.
                 raw = data.get("file_path", data.get("path"))
-                allowed = self._path_allowed(raw, write=True)
+                allowed = self.access_mode == "patch" and self._path_allowed(raw, write=True)
             elif name == "Bash":
                 command = str(data.get("command") or "").strip()
                 raw_cwd = data.get("cwd", data.get("working_directory"))
@@ -443,13 +468,19 @@ class CodeBuddySdkClient:
 
             if not allowed:
                 return sdk.PermissionResultDeny(
-                    message=f"TP-Voyager patch policy denied tool: {name[:80]}",
+                    message=f"TP-Voyager controlled policy denied tool: {name[:80]}",
                     interrupt=False,
                 )
             return sdk.PermissionResultAllow(updated_input=data)
 
         if self.access_mode == "patch":
             allowed_native = {"Read", "Glob", "Grep", "Edit", "MultiEdit", "Write"}
+            if self.command_specs:
+                allowed_native.add("Bash")
+            permission_mode = "default"
+            disallowed = [tool for tool in _CODEBUDDY_BUILTIN_TOOLS if tool not in allowed_native]
+        elif self.access_mode == "verification":
+            allowed_native = {"Read", "Glob", "Grep"}
             if self.command_specs:
                 allowed_native.add("Bash")
             permission_mode = "default"

@@ -290,6 +290,77 @@ class QoderServerIntegrationTests(unittest.TestCase):
         self.assertEqual(fake.starts[0].metadata["route"], "acp_read_only")
         self.assertEqual(fake.starts[0].metadata["routing_metadata"]["repository_research"]["commit"], "deadbeef")
 
+
+    def test_repository_research_reuses_snapshot_for_later_scope_segment(self) -> None:
+        target = Path(self.tmp.name) / "segmented-research"
+        calls: list[list[str]] = []
+
+        def runner(argv, **kwargs):
+            calls.append(list(argv))
+            if argv[:2] == ["git", "clone"]:
+                source = Path(argv[-1])
+                source.mkdir(parents=True)
+                (source / ".git").mkdir()
+                for index in range(300):
+                    (source / f"f{index:03d}.txt").write_text("x" * 32, encoding="utf-8")
+                return SimpleNamespace(returncode=0, stdout="", stderr="")
+            if argv[:3] == ["git", "rev-parse", "HEAD"]:
+                return SimpleNamespace(returncode=0, stdout="deadbeef\n", stderr="")
+            if argv[:3] == ["git", "status", "--porcelain=v1"]:
+                return SimpleNamespace(returncode=0, stdout="", stderr="")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        research_service = RepositoryResearchService(
+            metadata_loader=lambda owner, repo: {"size": 1, "private": False}, runner=runner,
+        )
+        fake = FakeBackend(
+            result=BackendResult(
+                backend="qoder", stop_reason="end_turn", answer="Segment findings.",
+                result={"backend": "qoder", "stopReason": "end_turn"},
+                backend_session_id="qoder-segmented-research",
+            )
+        )
+        with patch("agent_runtime.server.RepositoryResearchService", return_value=research_service), patch(
+            "agent_runtime.server._create_qoder_backend", return_value=fake
+        ):
+            first = server.task_dispatch(
+                objective="Study segment zero", crew="qoder", task_kind="repository_research", model="Lite",
+                read_scope={"globs": ["*.txt"], "max_files": 128, "max_bytes": 4096},
+                repository_research={
+                    "url": "https://github.com/example/segmented",
+                    "target_directory": str(target), "max_size_bytes": 1024 * 1024,
+                    "report_path": "reports/seg0.md",
+                },
+                scope_segment={"index": 0}, idempotency_key="segment-0", timeout_seconds=10,
+            )
+            self.assertTrue(first["ok"], first)
+            self.assertEqual(self.wait(first["task_id"])["state"], "completed")
+            self.assertEqual(first["repository_research"]["scope_segment_index"], 0)
+            self.assertGreater(first["repository_research"]["scope_segment_count"], 1)
+            snapshot = first["repository_snapshot_ref"]
+
+            second = server.task_dispatch(
+                objective="Study segment one", crew="qoder", task_kind="repository_research", model="Lite",
+                read_scope={"globs": ["*.txt"], "max_files": 128, "max_bytes": 4096},
+                repository_research={
+                    "url": "https://github.com/example/segmented",
+                    "target_directory": str(target), "max_size_bytes": 1024 * 1024,
+                    "report_path": "reports/seg1.md",
+                },
+                repository_snapshot_ref=snapshot, scope_segment={"index": 1},
+                idempotency_key="segment-1", timeout_seconds=10,
+            )
+            self.assertTrue(second["ok"], second)
+            self.assertEqual(self.wait(second["task_id"])["state"], "completed")
+            self.assertEqual(second["repository_research"]["scope_segment_index"], 1)
+
+        self.assertEqual(sum(1 for argv in calls if argv[:2] == ["git", "clone"]), 1)
+        second_result = server.task_result(second["task_id"])
+        self.assertEqual(second_result["repository_research"]["acquisition"], "runtime_snapshot_reuse")
+        self.assertEqual(second_result["repository_research"]["snapshot_source_task_id"], first["task_id"])
+        self.assertTrue((target / "reports" / "seg0.md").is_file())
+        self.assertTrue((target / "reports" / "seg1.md").is_file())
+
     def test_generic_subagent_resume_uses_controlled_route(self) -> None:
         fake = FakeBackend(
             result=BackendResult(

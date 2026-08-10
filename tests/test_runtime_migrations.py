@@ -15,7 +15,7 @@ from agent_runtime.persistence.migrations import (
 
 EXPECTED_TABLES = {
     "tasks", "sessions", "attempts", "events", "idempotency",
-    "evidences", "artifacts", "task_lineage",
+    "evidences", "artifacts", "task_lineage", "run_controls",
     "workflows", "workflow_stages", "workflow_approvals", "workflow_events",
     "context_manifests", "context_entries", "tool_invocations",
     "knowledge_collections", "knowledge_sources", "knowledge_resolutions",
@@ -66,6 +66,36 @@ class MigrationTests(unittest.TestCase):
             migrate(connection)
             migrate(connection)
             self.assertEqual(schema_version(connection), SCHEMA_VERSION)
+
+
+    def test_schema_twelve_upgrades_to_run_control_and_provenance(self) -> None:
+        db = Database(self.db_path)
+        db.initialize()
+        with db.connect() as connection:
+            with connection:
+                connection.execute(
+                    "INSERT INTO tasks (task_id, task_type, status, route, created_at, updated_at) "
+                    "VALUES ('wb-v12-keep', 'codebuddy', 'queued', 'sdk_context_read_only', 1.0, 1.0)"
+                )
+                connection.execute("DROP TABLE run_controls")
+                connection.execute("DROP INDEX IF EXISTS uq_tasks_run_step")
+                connection.execute("DROP INDEX IF EXISTS idx_tasks_run_id")
+                # SQLite cannot drop columns portably; recreate the v12 tasks
+                # shape by omitting the newly added columns into a replacement.
+                columns = [row[1] for row in connection.execute("PRAGMA table_info(tasks)").fetchall()]
+                if "run_id" in columns:
+                    connection.execute("ALTER TABLE tasks DROP COLUMN run_id")
+                if "step_key" in columns:
+                    connection.execute("ALTER TABLE tasks DROP COLUMN step_key")
+                connection.execute("PRAGMA user_version = 12")
+        db.initialize()
+        with db.connect() as connection:
+            self.assertEqual(schema_version(connection), SCHEMA_VERSION)
+            columns = {row[1] for row in connection.execute("PRAGMA table_info(tasks)").fetchall()}
+            self.assertIn("run_id", columns)
+            self.assertIn("step_key", columns)
+            self.assertIsNotNone(connection.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='run_controls'").fetchone())
+            self.assertIsNotNone(connection.execute("SELECT task_id FROM tasks WHERE task_id='wb-v12-keep'").fetchone())
 
     def test_schema_six_upgrades_to_context_manifest_tables(self) -> None:
         db = Database(self.db_path)

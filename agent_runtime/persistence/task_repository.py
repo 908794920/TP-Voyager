@@ -14,7 +14,7 @@ _TASK_COLUMNS = (
     "finished_at, cancel_requested_at, cancel_confirmed_at, session_id, "
     "current_attempt_id, result_available, result_json, error_code, "
     "error_message, version, terminal_reason, cancel_scope, cancel_initiator, "
-    "timeout_reason, lost_at, orphaned_at"
+    "timeout_reason, lost_at, orphaned_at, run_id, step_key"
 )
 
 # Lease tuple shape passed to fenced writers: (owner_instance_id,
@@ -68,6 +68,8 @@ def _row_to_task(row: sqlite3.Row) -> Task:
         timeout_reason=row["timeout_reason"],
         lost_at=row["lost_at"],
         orphaned_at=row["orphaned_at"],
+        run_id=row["run_id"],
+        step_key=row["step_key"],
     )
 
 
@@ -82,7 +84,7 @@ class TaskRepository:
         connection.execute(
             f"""
             INSERT INTO tasks ({_TASK_COLUMNS})
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 task.task_id,
@@ -108,6 +110,8 @@ class TaskRepository:
                 task.timeout_reason,
                 task.lost_at,
                 task.orphaned_at,
+                task.run_id,
+                task.step_key,
             ),
         )
 
@@ -123,6 +127,14 @@ class TaskRepository:
             f"SELECT {_TASK_COLUMNS} FROM tasks WHERE task_id = ?",
             (task_id,),
         ).fetchone()
+        return _row_to_task(row) if row else None
+
+    def get_by_run_step(self, run_id: str, step_key: str) -> Task | None:
+        with self.db.connect() as connection:
+            row = connection.execute(
+                f"SELECT {_TASK_COLUMNS} FROM tasks WHERE run_id = ? AND step_key = ?",
+                (run_id, step_key),
+            ).fetchone()
         return _row_to_task(row) if row else None
 
     def update_status(

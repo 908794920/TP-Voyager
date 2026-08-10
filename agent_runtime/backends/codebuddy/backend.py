@@ -46,7 +46,7 @@ class CodeBuddyBackend:
     def capabilities(self) -> BackendCapabilities:
         return BackendCapabilities(
             runtime="codebuddy",
-            routes=("sdk_context_read_only", "sdk_patch"),
+            routes=("sdk_context_read_only", "sdk_patch", "sdk_verify"),
             supports_resume=True,
             supports_streaming=True,
             supports_cancel=True,
@@ -56,13 +56,13 @@ class CodeBuddyBackend:
 
     def start(self, request: BackendStartRequest, callbacks: BackendCallbacks) -> BackendResult:
         route = str(request.metadata.get("route") or "").strip().lower()
-        if route not in {"sdk_context_read_only", "sdk_patch"}:
+        if route not in {"sdk_context_read_only", "sdk_patch", "sdk_verify"}:
             raise BackendProtocolError(f"Unsupported CodeBuddy route: {route}")
         return self._run_sdk(request, callbacks, resume_session_id="")
 
     def resume(self, request: BackendResumeRequest, callbacks: BackendCallbacks) -> BackendResult:
         route = str(request.metadata.get("route") or "").strip().lower()
-        if route not in {"sdk_context_read_only", "sdk_patch"}:
+        if route not in {"sdk_context_read_only", "sdk_patch", "sdk_verify"}:
             raise BackendProtocolError("CodeBuddy resume is only supported on controlled SDK routes")
         if not request.resume_session_id:
             raise BackendProtocolError("CodeBuddy SDK resume requires a durable session id")
@@ -202,11 +202,11 @@ class CodeBuddyBackend:
                     command_specs.append(CommandSpec.from_dict(item))
                 except ValueError:
                     raise BackendProtocolError("CodeBuddy patch policy contains an invalid command spec")
-        if route == "sdk_patch":
+        if route in {"sdk_patch", "sdk_verify"}:
             client = self._sdk_client_factory(
                 cwd=request.cwd,
                 on_activity=callbacks.on_activity,
-                access_mode="patch",
+                access_mode=("patch" if route == "sdk_patch" else "verification"),
                 allowed_paths=tuple(str(item) for item in plan.get("allowed_paths", []) if isinstance(item, str)),
                 forbidden_paths=tuple(str(item) for item in plan.get("forbidden_paths", []) if isinstance(item, str)),
                 command_specs=tuple(command_specs),

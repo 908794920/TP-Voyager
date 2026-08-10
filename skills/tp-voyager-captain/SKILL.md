@@ -2,13 +2,13 @@
 name: tp-voyager-captain
 description: Route bounded work through TP-Voyager MCP.
 metadata:
-  version: "1.0.4"
+  version: "1.0.5"
   protocol: "tp-voyager-captain/v1"
 ---
 
 # TP-Voyager Captain Skill
 
-> Version: 1.0.4
+> Version: 1.0.5
 >
 > Role: Captain-side orchestration skill for TP-Voyager.
 >
@@ -964,6 +964,65 @@ For most delegated work, use only:
 If this loop is enough, do not invoke additional control APIs.
 
 ---
+
+
+## 15.1 v1.0.5 Full Development Flow
+
+For a multi-step development voyage, keep every Crew task independent and let
+the Captain decide the next step.  When continuity matters, create one
+Captain-owned `run_control` and assign a unique `step_key` to every accepted
+dispatch.  `run_id + step_key` is a durable lookup key; it is provenance, not a
+workflow definition.
+
+Recommended flow:
+
+```text
+research / repository_research
+→ inspect CrewOutcome
+→ analysis / design
+→ small_patch
+→ Patch Artifact
+→ Captain Host reviews and applies the patch to Passenger Workspace
+→ Captain Host supplies tp-voyager.apply_receipt/v1
+→ verify_only with access_mode=verification
+→ NEEDS_FIX: Captain dispatches a targeted new patch
+→ verification again
+→ Captain accepts delivery
+```
+
+Rules:
+
+- `CrewOutcome` is machine-readable only when the Crew emits the exact
+  `tp-voyager.crew_outcome/v1` contract.  Never infer NEEDS_* from prose.
+- Passenger Workspace mutation belongs to the Captain Host. TP-Voyager never
+  silently applies a Patch Artifact back to that workspace.
+- Verification must carry the Captain Host Apply Receipt. TP-Voyager rebuilds
+  the exact base + Patch Artifact in a disposable verification worktree and
+  verifies the resulting tree hash before any verification command runs.
+- `trusted_instruction_refs` may reference only operator-configured trusted
+  roots and exact SHA-256 content. Their content is transient.
+- Large repository research stays within the normal per-task read budget by
+  using deterministic `scope_segment` slices of one Context/Scope Manifest.
+  Later slices use `repository_snapshot_ref`; do not clone the same snapshot
+  again.
+- RunControl is only a durable resource ledger. Budgets may stay equal or
+  narrow; they never encode stages, ordering, next actions, or acceptance.
+- If strict token/Credit ceilings cannot be enforced from provider-observed
+  Usage, stop with `BUDGET_NOT_ENFORCEABLE`; never estimate consumption.
+
+Recovery after a Captain/Host restart:
+
+```text
+known task_id
+→ task_result(task_id=...)
+
+or
+
+known run_id + step_key
+→ task_result(run_id=..., step_key=...)
+```
+
+The default Captain surface remains exactly six tools.
 
 ## 16. Completion Standard
 

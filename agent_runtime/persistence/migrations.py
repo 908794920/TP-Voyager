@@ -12,7 +12,7 @@ from typing import Sequence
 
 from agent_runtime.persistence.errors import RuntimePersistenceError
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 
 _MIGRATIONS: dict[int, Sequence[str]] = {
     1: [
@@ -1199,6 +1199,71 @@ def _migrate_v12(connection: sqlite3.Connection) -> None:
         connection.execute("PRAGMA foreign_keys = ON")
 
 
+
+def _migrate_v13(connection: sqlite3.Connection) -> None:
+    """Add v1.0.5 run provenance and the resource-only RunControl ledger."""
+    if connection.in_transaction:
+        raise RuntimePersistenceError("V13 migration must start outside an explicit transaction")
+    connection.execute("BEGIN IMMEDIATE")
+    try:
+        columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(tasks)").fetchall()}
+        if "run_id" not in columns:
+            connection.execute("ALTER TABLE tasks ADD COLUMN run_id TEXT")
+        if "step_key" not in columns:
+            connection.execute("ALTER TABLE tasks ADD COLUMN step_key TEXT")
+        connection.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_tasks_run_step "
+            "ON tasks(run_id, step_key) "
+            "WHERE run_id IS NOT NULL AND run_id <> '' AND step_key IS NOT NULL AND step_key <> ''"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_tasks_run_id ON tasks(run_id)"
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS run_controls (
+                run_id TEXT PRIMARY KEY,
+                max_dispatches INTEGER NOT NULL,
+                max_runtime_seconds REAL NOT NULL,
+                max_input_tokens INTEGER,
+                max_output_tokens INTEGER,
+                max_credits REAL,
+                require_strict_usage_budget INTEGER NOT NULL DEFAULT 0,
+                dispatches_reserved INTEGER NOT NULL DEFAULT 0,
+                dispatches_consumed INTEGER NOT NULL DEFAULT 0,
+                runtime_reserved_seconds REAL NOT NULL DEFAULT 0,
+                runtime_consumed_seconds REAL NOT NULL DEFAULT 0,
+                input_tokens_consumed INTEGER,
+                output_tokens_consumed INTEGER,
+                credits_consumed REAL,
+                usage_complete INTEGER NOT NULL DEFAULT 1,
+                status TEXT NOT NULL DEFAULT 'open',
+                revision INTEGER NOT NULL DEFAULT 1,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL,
+                CHECK (length(run_id) BETWEEN 1 AND 160),
+                CHECK (max_dispatches > 0),
+                CHECK (max_runtime_seconds > 0),
+                CHECK (max_input_tokens IS NULL OR max_input_tokens > 0),
+                CHECK (max_output_tokens IS NULL OR max_output_tokens > 0),
+                CHECK (max_credits IS NULL OR max_credits > 0),
+                CHECK (require_strict_usage_budget IN (0,1)),
+                CHECK (dispatches_reserved >= 0 AND dispatches_consumed >= 0),
+                CHECK (runtime_reserved_seconds >= 0 AND runtime_consumed_seconds >= 0),
+                CHECK (usage_complete IN (0,1)),
+                CHECK (status IN ('open','exhausted','closed')),
+                CHECK (revision > 0),
+                CHECK (updated_at >= created_at)
+            )
+            """
+        )
+        connection.execute("PRAGMA user_version = 13")
+        connection.commit()
+    except BaseException:
+        connection.rollback()
+        raise
+
+
 def migrate(connection: sqlite3.Connection) -> None:
     """Apply all pending migrations; idempotent and repeatable."""
     if connection.in_transaction:
@@ -1227,6 +1292,9 @@ def migrate(connection: sqlite3.Connection) -> None:
         current = _user_version(connection)
         if current < 12:
             _migrate_v12(connection)
+        current = _user_version(connection)
+        if current < 13:
+            _migrate_v13(connection)
     except sqlite3.Error as exc:
         raise RuntimePersistenceError(f"migration failed: {exc}") from exc
 

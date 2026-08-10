@@ -43,6 +43,7 @@ class QoderBackend:
         *,
         read_only_acp_client_factory=None,
         patch_acp_client_factory=None,
+        verification_acp_client_factory=None,
     ) -> None:
         self._read_only_acp_client_factory = (
             read_only_acp_client_factory
@@ -53,6 +54,12 @@ class QoderBackend:
                 read_only=False, allow_permissions=True, **kwargs
             )
         )
+        self._verification_acp_client_factory = verification_acp_client_factory or (
+            lambda **kwargs: QoderAcpClient(
+                read_only=False, allow_permissions=True,
+                allow_file_writes=False, allow_terminal=True, **kwargs
+            )
+        )
         self._lock = threading.RLock()
         self._live: dict[str, _LiveExecution] = {}
         self._pending_cancel: set[str] = set()
@@ -60,7 +67,7 @@ class QoderBackend:
     def capabilities(self) -> BackendCapabilities:
         return BackendCapabilities(
             runtime="qoder",
-            routes=("acp_read_only", "acp_patch"),
+            routes=("acp_read_only", "acp_patch", "acp_verify"),
             supports_resume=True,
             supports_streaming=True,
             supports_reasoning_effort=True,
@@ -73,11 +80,13 @@ class QoderBackend:
             return self._run_acp(request, callbacks, resume_session_id="", mode="read_only")
         if route == "acp_patch":
             return self._run_acp(request, callbacks, resume_session_id="", mode="patch")
+        if route == "acp_verify":
+            return self._run_acp(request, callbacks, resume_session_id="", mode="verification")
         raise BackendProtocolError(f"Unsupported Qoder controlled route: {route}")
 
     def resume(self, request: BackendResumeRequest, callbacks: BackendCallbacks) -> BackendResult:
         route = str(request.metadata.get("route") or "acp_read_only").lower()
-        if route not in {"acp_read_only", "acp_patch"}:
+        if route not in {"acp_read_only", "acp_patch", "acp_verify"}:
             raise BackendProtocolError("Qoder resume is only supported on controlled ACP routes")
         if not request.resume_session_id:
             raise BackendProtocolError("Qoder ACP resume requires a durable session id")
@@ -85,7 +94,7 @@ class QoderBackend:
             request,
             callbacks,
             resume_session_id=request.resume_session_id,
-            mode=("read_only" if route == "acp_read_only" else "patch"),
+            mode=("read_only" if route == "acp_read_only" else ("verification" if route == "acp_verify" else "patch")),
         )
 
     def cancel(self, request: BackendCancelRequest) -> BackendCancelResult:
@@ -225,8 +234,8 @@ class QoderBackend:
                     forbidden_paths=(".git", ".codebuddy", ".qoder"),
                 )
             route = "acp_read_only"
-        elif mode == "patch":
-            factory = self._patch_acp_client_factory
+        elif mode in {"patch", "verification"}:
+            factory = self._patch_acp_client_factory if mode == "patch" else self._verification_acp_client_factory
             client = factory(
                 cwd=request.cwd,
                 on_activity=callbacks.on_activity,
@@ -234,7 +243,7 @@ class QoderBackend:
                 forbidden_paths=tuple(str(item) for item in plan.get("forbidden_paths", []) if isinstance(item, str)),
                 command_specs=tuple(command_specs),
             )
-            route = "acp_patch"
+            route = "acp_patch" if mode == "patch" else "acp_verify"
         live = _LiveExecution(route=route, client=client)
         self._register(request.task_id, live)
         try:
@@ -277,7 +286,7 @@ class QoderBackend:
                 observability={
                     **result.observability,
                     "access_mode": mode,
-                    "command_whitelist_size": len(command_specs) if mode == "patch" else 0,
+                    "command_whitelist_size": len(command_specs) if mode in {"patch", "verification"} else 0,
                 },
                 backend_session_id=result.session_id,
             )
