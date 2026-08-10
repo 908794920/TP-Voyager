@@ -1,6 +1,6 @@
-# TP-Voyager Project Charter v1.0.3
+# TP-Voyager Project Charter v1.0.5
 
-> **Status:** Revised baseline for v1.0.3. All future requirements, architecture changes, tests, and documentation must obey this charter unless the charter itself is explicitly revised first.
+> **Status:** Revised baseline for v1.0.5. All future requirements, architecture changes, tests, and documentation must obey this charter unless the charter itself is explicitly revised first.
 
 ## 1. Product model
 
@@ -79,9 +79,21 @@ Initial execution modes:
 ```text
 read_only
 patch
+verification
 ```
 
+`verification` is valid only for `verify_only`.  It runs against a Runtime-owned disposable Git worktree reconstructed from a Captain-Host Apply Receipt and the exact content-addressed Patch Artifact. Verification commands may create temporary build/test outputs only inside that disposable workspace; Passenger Workspace is never modified by TP-Voyager.
+
+Passenger Workspace mutation belongs to the Captain Host. TP-Voyager owns Patch Artifact integrity, Apply Receipt validation, verification-subject binding, and durable Evidence; it does not become a merge/apply engine.
+
 Unrestricted direct-write, arbitrary shell, unrestricted network, autonomous repo-wide refactors, and agent societies are not baseline features.
+
+
+## 5.1 Outcome and run-control boundary
+
+Crew may return a bounded `tp-voyager.crew_outcome/v1` such as `COMPLETED`, `NEEDS_CONTEXT`, `NEEDS_AUTHORIZATION`, `NEEDS_FIX`, or `BLOCKED`. CrewOutcome is not a Durable Task state and TP-Voyager never infers it from free-form prose.
+
+A v1.0.5 `RunControl` is a resource ledger only: immutable/narrowable dispatch/runtime/observable-Usage ceilings plus durable accounting. It must not store stage, role, next action, dependencies, business decisions, or acceptance decisions. `correlation_id` remains external association only. `run_id + step_key` may identify an existing durable Task for recovery but does not define execution order.
 
 ## 6. Scope-creep gate
 

@@ -159,6 +159,43 @@ class RepositoryResearchService:
             shutil.rmtree(target, ignore_errors=True)
             raise
 
+    def reuse(
+        self, *, root: str, expected_url: str, commit: str, report_path: str, max_size_bytes: int,
+    ) -> RepositoryResearchWorkspace:
+        """Reuse one Runtime-owned static snapshot without performing network I/O."""
+        target = Path(root).resolve()
+        source = target / "source"
+        reports = target / "reports"
+        if not target.is_dir() or not source.is_dir() or not reports.is_dir():
+            raise RepositoryResearchError("repository snapshot workspace is unavailable")
+        observed_commit = self._git_text(source, ["rev-parse", "HEAD"])
+        if not observed_commit or observed_commit != str(commit or "").strip():
+            raise RepositoryResearchError("repository snapshot commit drift")
+        status = self._runner(
+            ["git", "status", "--porcelain=v1", "--untracked-files=all"], cwd=str(source),
+            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15,
+            check=False, text=True, encoding="utf-8", errors="replace",
+        )
+        if status.returncode != 0 or str(status.stdout or "").strip():
+            raise RepositoryResearchError("repository snapshot source is no longer clean")
+        checkout_size, file_count = self._checkout_size(source)
+        if checkout_size > int(max_size_bytes):
+            raise RepositoryResearchError("repository snapshot exceeds original size ceiling")
+        if file_count > _MAX_FILES:
+            raise RepositoryResearchError(f"repository file count exceeds {_MAX_FILES}")
+        report_target = (target / report_path).resolve()
+        try:
+            report_target.relative_to(reports.resolve())
+        except ValueError as exc:
+            raise RepositoryResearchError("repository snapshot report_path escaped reports/") from exc
+        if report_target.exists():
+            raise RepositoryResearchError("repository snapshot report_path already exists; overwrite is forbidden")
+        return RepositoryResearchWorkspace(
+            root=str(target), source_root=str(source), report_path=report_path,
+            source_url=str(expected_url), declared_max_size_bytes=int(max_size_bytes),
+            api_size_bytes=0, checkout_size_bytes=checkout_size, commit=observed_commit,
+        )
+
     @staticmethod
     def cleanup(workspace: RepositoryResearchWorkspace) -> None:
         shutil.rmtree(Path(workspace.root), ignore_errors=True)
@@ -176,7 +213,7 @@ class RepositoryResearchService:
             f"https://api.github.com/repos/{owner}/{repo}",
             headers={
                 "Accept": "application/vnd.github+json",
-                "User-Agent": "TP-Voyager/1.0.3",
+                "User-Agent": "TP-Voyager/1.0.5",
             },
             method="GET",
         )

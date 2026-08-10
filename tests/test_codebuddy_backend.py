@@ -275,6 +275,28 @@ class CodeBuddySdkClientTests(unittest.TestCase):
         self.assertIn("WebFetch", options.kwargs["disallowed_tools"])
         self.assertNotIn("Write", options.kwargs["disallowed_tools"])
 
+    def test_verification_policy_denies_write_tools_and_allows_exact_command(self) -> None:
+        from agent_runtime.domain.dispatch import CommandSpec
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "src").mkdir()
+            (root / "src" / "a.py").write_text("VALUE=1\n", encoding="utf-8")
+            client = CodeBuddySdkClient(
+                cwd=tmp, on_activity=lambda activity: None, sdk_module=FakeSdkModule, region="cn",
+                access_mode="verification", allowed_paths=("src/a.py",), forbidden_paths=(".git",),
+                command_specs=(CommandSpec("tests", ("python", "-m", "unittest")),),
+            )
+            options = client._build_options(FakeSdkModule, resume_session_id="", model="", session_id="session")
+            authorize = options.kwargs["can_use_tool"]
+            read = asyncio.run(authorize("Read", {"file_path": "src/a.py"}, object()))
+            write = asyncio.run(authorize("Write", {"file_path": "src/a.py", "content": "x"}, object()))
+            command = asyncio.run(authorize("Bash", {"command": "python -m unittest"}, object()))
+            self.assertEqual(read.behavior, "allow")
+            self.assertEqual(write.behavior, "deny")
+            self.assertEqual(command.behavior, "allow")
+            self.assertIn("Write", options.kwargs["disallowed_tools"])
+            self.assertNotIn("Bash", options.kwargs["disallowed_tools"])
+
     def test_sdk_error_result_fails_closed(self) -> None:
         class ErrorClient(FakeSdkClient):
             def receive_response(self):

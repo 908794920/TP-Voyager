@@ -35,8 +35,11 @@ WorkBuddy 已从当前生产执行路径移除，仅保留必要的历史数据�
 
 ## 当前状态
 
-**TP-Voyager v1.0.4 — Captain Contract Closure + Dispatch Governance（stable）**
+**TP-Voyager v1.0.5 — Full Development Flow Control（release candidate，基于 v1.0.4 stable）**
 
+
+
+v1.0.5 在不增加 Captain 默认工具数量、不接入 Planner/Workflow Engine 的前提下新增：`trusted_instruction_refs`、结构化 CrewOutcome、Captain-Host Apply Receipt 校验、精确 Verification Subject、Disposable Verification Workspace、大仓库 Scope 分片与 Runtime-owned snapshot 复用、Durable RunControl 资源预算、以及 `task_result(run_id, step_key)` 跨会话恢复。Passenger Workspace 的真实修改仍由 Captain Host 完成。
 v1.0.4 keeps the exact six-tool Captain surface (`voyager_overview`,
 `crew_catalog`, `crew_health`, `crew_recommend`, `task_dispatch`,
 `task_result`).  Model choice is explicit and policy can only narrow it;

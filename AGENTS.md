@@ -12,33 +12,21 @@
 
 ## 当前基线
 
-**TP-Voyager v1.0.3 — stable（v1.0.2 stable 基线）**
+**TP-Voyager v1.0.5 — release candidate（基于 v1.0.4 stable）**
 
-T0–T4 与 v1.0.2 已完成真实环境验收；**v1.0.3 Model Awareness + repository_research** 已通过真实 Windows + 正式 MCP + CodeBuddy/Qoder CLI/账号环境 Live Gate（2026-08-09），标记 stable：
+v1.0.4 已完成真实环境 Stable Gate。v1.0.5 在其六工具 Captain Surface、Model Policy、Worker Skill、Artifact Handoff 与 Durable Core 上继续收口完整开发流：Trusted Instruction、CrewOutcome、Apply Receipt/精确 Verification Subject、Large Research 分片、RunControl 资源账本以及 `run_id + step_key` 恢复。
 
 ```text
-T0 目标架构收口      ACCEPTED
-T1 Crew Registry     ACCEPTED
-T2 Captain Boundary  ACCEPTED
-T3 受控只读 Worker   ACCEPTED
-T4 Patch Worker      ACCEPTED (v1.0.1)
-v1.0.2 cognition      LIVE-GATE PASSED / stable
-v1.0.3 awareness/research  CODE-GATE PASSED / LIVE-GATE PASSED / stable
-
 Passenger → Captain AI → TP-Voyager → Crew
                               ├─ CodeBuddy CLI
                               └─ Qoder CLI
 ```
 
-- Captain：理解目标、拆解任务、选择 Crew、风险判断、结果评审与最终交付。
-- TP-Voyager：可靠且受控的执行、持久化、恢复、权限、验证、证据、进度投影与结果读取。
+- Captain：理解目标、拆解与顺序、选择 Crew/model、应用被接受的 Patch Artifact 到 Passenger Workspace、风险/验收与最终交付。
+- TP-Voyager：可靠执行、持久化、恢复、权限、Patch/Receipt 事实校验、隔离 Verification、Outcome/Evidence/Artifact 与资源预算。
 - Crew：执行边界明确的具体工作。
 
-**TP-Voyager 不得演化成第二个 Captain。**
-
-v1.0.2 的 Model Policy、Usage Evidence、Worker Profile、read_scope、correlation_id 与 v1.0.3 的 Model Registry/Usage Statistics/repository_research 都只能增强 Captain 认知与受控执行；不得据此引入自动选模、模型评分/路由、自动 fallback、第二任务系统或 Planner。
-
-`repository_research` 只允许 Runtime 对 Captain 指定的公开 GitHub URL 做大小预检与浅克隆，Crew 仍走既有 read-only 路线；不得执行/构建下载源码、安装依赖、修改 source、覆盖已有目录或递归研究其他仓库。
+**TP-Voyager 不得演化成第二个 Captain。** RunControl 不是 Workflow；`step_key` 不是 Planner；Passenger Workspace mutation 不属于 Runtime。
 
 ## Backend 边界
 

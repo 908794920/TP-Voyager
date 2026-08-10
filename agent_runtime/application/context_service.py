@@ -26,6 +26,8 @@ from agent_runtime.persistence.context_repository import ContextRepository
 MAX_CONTEXT_FILES = 256
 MAX_CONTEXT_TOTAL_BYTES = 8 * 1024 * 1024
 DEFAULT_RENDER_BYTES = 2 * 1024 * 1024
+MAX_SCOPE_MANIFEST_FILES = 20_000
+MAX_SCOPE_MANIFEST_BYTES = 512 * 1024 * 1024
 _CONTEXT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
 
 
@@ -136,6 +138,160 @@ class ProjectContextService:
         if total_bytes > scope.max_bytes:
             raise ContextError(f"read_scope byte limit is {scope.max_bytes}")
         return ordered
+
+    def resolve_scope_manifest(self, cwd: str, scope: ReadScope) -> list[str]:
+        """Expand a broad research scope without widening a single-task budget.
+
+        The resulting file list is only manifest metadata.  Individual Crew
+        tasks still consume deterministic segments bounded by ReadScope's
+        ``max_files`` / ``max_bytes``.
+        """
+        root = self._root(cwd)
+        mandatory_forbidden = (".git", ".codebuddy", ".qoder")
+
+        def forbidden(relpath: str) -> bool:
+            parts = PurePosixPath(relpath).parts
+            return any(part in mandatory_forbidden for part in parts)
+
+        resolved: set[str] = set()
+        for relpath in scope.files:
+            normalized = self._normalize_relpath(relpath)
+            if forbidden(normalized):
+                raise ContextError("read_scope includes a mandatory forbidden path")
+            candidate = self._resolved_candidate(root, normalized, allow_external_symlinks=False)
+            if not candidate.is_file():
+                raise ContextError(f"context file does not exist: {normalized}")
+            resolved.add(normalized)
+
+        for directory in scope.directories:
+            normalized = self._normalize_relpath(directory)
+            if forbidden(normalized):
+                raise ContextError("read_scope includes a mandatory forbidden path")
+            directory_path = self._resolved_candidate(root, normalized, allow_external_symlinks=False)
+            if not directory_path.is_dir():
+                raise ContextError(f"read_scope directory does not exist: {normalized}")
+            for candidate in directory_path.rglob("*"):
+                if not candidate.is_file():
+                    continue
+                try:
+                    rel = candidate.resolve(strict=True).relative_to(root).as_posix()
+                except (OSError, RuntimeError, ValueError) as exc:
+                    raise ContextError("read_scope directory contains an external symlink") from exc
+                if not forbidden(rel):
+                    resolved.add(rel)
+                if len(resolved) > MAX_SCOPE_MANIFEST_FILES:
+                    raise ContextError(f"scope manifest file limit is {MAX_SCOPE_MANIFEST_FILES}")
+
+        for pattern in scope.globs:
+            matched = False
+            try:
+                candidates = root.glob(pattern)
+            except (OSError, ValueError) as exc:
+                raise ContextError("read_scope glob could not be evaluated") from exc
+            for candidate in candidates:
+                if not candidate.is_file():
+                    continue
+                try:
+                    rel = candidate.resolve(strict=True).relative_to(root).as_posix()
+                except (OSError, RuntimeError, ValueError) as exc:
+                    raise ContextError("read_scope glob resolved outside cwd") from exc
+                if forbidden(rel):
+                    continue
+                matched = True
+                resolved.add(rel)
+                if len(resolved) > MAX_SCOPE_MANIFEST_FILES:
+                    raise ContextError(f"scope manifest file limit is {MAX_SCOPE_MANIFEST_FILES}")
+            if not matched:
+                raise ContextError(f"read_scope glob matched no files: {pattern}")
+
+        if not resolved:
+            raise ContextError("read_scope resolved to no readable files")
+        return sorted(resolved)
+
+    def register_scope_manifest(
+        self, cwd: str, files: Iterable[str], *, context_id: str = "",
+    ) -> ContextRegistrationResult:
+        """Persist a large metadata-only Scope Manifest in existing Context tables."""
+        root = self._root(cwd)
+        if isinstance(files, (str, bytes)):
+            raise ContextError("files must be a list of relative paths")
+        normalized: list[str] = []
+        seen: set[str] = set()
+        total = 0
+        entries: list[ContextEntry] = []
+        for raw in files:
+            rel = self._normalize_relpath(raw)
+            if rel in seen:
+                continue
+            seen.add(rel)
+            normalized.append(rel)
+            if len(normalized) > MAX_SCOPE_MANIFEST_FILES:
+                raise ContextError(f"scope manifest file limit is {MAX_SCOPE_MANIFEST_FILES}")
+        if not normalized:
+            raise ContextError("at least one scope-manifest file is required")
+        for rel in sorted(normalized):
+            entry = self._capture_one(root, rel, allow_external_symlinks=False)
+            total += entry.size_bytes
+            if total > MAX_SCOPE_MANIFEST_BYTES:
+                raise ContextError(f"scope manifest byte limit is {MAX_SCOPE_MANIFEST_BYTES}")
+            entries.append(entry)
+        identifier = self._context_id(context_id)
+        root_hash = self._root_hash(entries)
+        with self.db.immediate_fenced_transaction() as (connection, db_now):
+            existing = self.repo.get_manifest_in_connection(connection, identifier)
+            if existing is not None:
+                existing_entries = self.repo.list_entries_in_connection(connection, identifier)
+                if existing.root_hash == root_hash and [
+                    (item.relpath, item.sha256, item.size_bytes) for item in existing_entries
+                ] == [(item.relpath, item.sha256, item.size_bytes) for item in entries]:
+                    return ContextRegistrationResult(self._projection(existing, existing_entries), replayed=True)
+                raise ContextConflictError("context_id already exists with a different manifest")
+            durable_entries = [
+                ContextEntry(context_id=identifier, relpath=item.relpath, sha256=item.sha256, size_bytes=item.size_bytes)
+                for item in entries
+            ]
+            manifest = ContextManifest(
+                context_id=identifier, root_hash=root_hash, file_count=len(durable_entries),
+                total_bytes=total, created_at=db_now,
+            )
+            self.repo.create(connection, manifest, durable_entries)
+            return ContextRegistrationResult(self._projection(manifest, durable_entries), replayed=False)
+
+    def scope_segments(
+        self, context_id: str, *, max_files: int, max_bytes: int,
+    ) -> list[list[str]]:
+        """Partition an existing Scope Manifest deterministically without reading content."""
+        if max_files <= 0 or max_files > MAX_CONTEXT_FILES:
+            raise ContextError(f"segment max_files must be between 1 and {MAX_CONTEXT_FILES}")
+        if max_bytes <= 0 or max_bytes > MAX_CONTEXT_TOTAL_BYTES:
+            raise ContextError(f"segment max_bytes must be between 1 and {MAX_CONTEXT_TOTAL_BYTES}")
+        manifest = self.get(context_id)
+        segments: list[list[str]] = []
+        current: list[str] = []
+        current_bytes = 0
+        for item in manifest["entries"]:
+            size = int(item["size_bytes"])
+            if size > max_bytes:
+                raise ContextError(f"scope segment cannot fit file within max_bytes: {item['relpath']}")
+            if current and (len(current) >= max_files or current_bytes + size > max_bytes):
+                segments.append(current)
+                current = []
+                current_bytes = 0
+            current.append(str(item["relpath"]))
+            current_bytes += size
+        if current:
+            segments.append(current)
+        return segments
+
+    def register_scope_segment(
+        self, cwd: str, scope_manifest_id: str, *, index: int, max_files: int, max_bytes: int,
+    ) -> ContextRegistrationResult:
+        segments = self.scope_segments(scope_manifest_id, max_files=max_files, max_bytes=max_bytes)
+        if index < 0 or index >= len(segments):
+            raise ContextError(f"scope segment index must be between 0 and {max(0, len(segments)-1)}")
+        manifest = self.get(scope_manifest_id)
+        deterministic_id = f"seg-{str(manifest['root_hash'])[:20]}-{index:04d}"
+        return self.register(cwd, segments[index], context_id=deterministic_id)
 
     def register(
         self,

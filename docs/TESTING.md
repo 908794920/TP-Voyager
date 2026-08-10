@@ -238,3 +238,59 @@ v1.0.3 Windows Real Live Matrix 状态：**PASSED（2026-08-09）**。
 3. “研究这个公开 GitHub 仓库，只读源码并把报告写到指定目录；不要运行或安装它。”
 
 验收重点不是回答文风，而是 Captain 是否能在**不理解 CodeBuddy/Qoder CLI 差异**的情况下正确使用六个高层工具、是否会尊重 incomplete/unknown、是否仍由 Captain 显式选择 Crew/model。
+
+## v1.0.5 Full Development Flow Control Gate
+
+v1.0.5 inherits the v1.0.4 stable gates and adds the following code-side requirements:
+
+```text
+- schema 12 -> 13 preserves existing durable data and creates only the resource-ledger RunControl additions
+- trusted_instruction_refs are alias/path/SHA-256 pinned and content is transient
+- CrewOutcome is explicit tp-voyager.crew_outcome/v1; prose is never inferred
+- Captain Host remains the only Passenger Workspace mutation owner
+- Apply Receipt is content-addressed and verification reconstructs base + exact Patch Artifact
+- verification runs only in a disposable worktree; Passenger Workspace is unchanged by Runtime verification
+- CodeBuddy typed Usage is normalized without serializing arbitrary provider objects
+- Qoder Usage provenance distinguishes observed/omitted/unrecognized and file access Evidence contains no file content
+- large research uses ContextManifest + deterministic scope segments; single-task 256-file/8MiB limits are not widened
+- repository_snapshot_ref reuses a clean Runtime-owned snapshot without re-cloning
+- RunControl is a resource ledger only; ceilings may stay equal/narrow and admission is atomic/idempotent
+- run_id + step_key can recover the same durable Task through existing task_result
+- default Captain MCP Surface remains exactly six tools
+```
+
+Automated release-candidate gate:
+
+```powershell
+.\run_tests.cmd smoke
+.\run_tests.cmd current
+python -m agent_runtime.testing.runner regression
+python -m agent_runtime.testing.runner stress
+```
+
+### v1.0.5 Real Captain Host Stable Gate
+
+Stable requires a real ChatGPT/Codex Captain Host, real TP-Voyager MCP stdio, and real CodeBuddy/Qoder accounts. At minimum verify:
+
+```text
+H1 Host loads the v1.0.5 Captain Skill and sees exactly the six Captain tools.
+H2 A real run_control + step_key sequence can be recovered after MCP restart/new Captain session via task_result(run_id, step_key).
+H3 CodeBuddy and Qoder each execute one bounded task with structured CrewOutcome behavior observed; malformed/missing Outcome stays unavailable.
+H4 A real small_patch produces a Patch Artifact; Captain Host applies it to Passenger Workspace and supplies tp-voyager.apply_receipt/v1.
+H5 verify_only/access_mode=verification reconstructs the exact base + Patch Artifact, matches receipt result_tree_hash, runs authorized verification, and does not mutate Passenger Workspace beyond the Captain-applied change.
+H6 A deliberately mismatched receipt/tree fails with APPLY_RECEIPT_SUBJECT_MISMATCH before verification commands run.
+H7 RunControl max_dispatches cannot be pierced by concurrent dispatch; idempotency replay is not charged twice; widening an existing ceiling is rejected.
+H8 If strict Credits/tokens are requested but provider-level enforcement is unavailable, dispatch fails BUDGET_NOT_ENFORCEABLE rather than estimating.
+H9 A >256-file repository_research is processed through deterministic segments; later segments reuse repository_snapshot_ref and do not clone again.
+H10 CodeBuddy typed Usage and Qoder Usage/access provenance are visible only as provider-observed bounded Evidence.
+H11 Complete one real flow: research -> analysis/design -> patch -> Captain Host apply -> independent verification -> NEEDS_FIX targeted rework (or an injected sample) -> re-verification -> delivery decision.
+H12 Final Passenger Workspace contains only Captain-accepted changes, and the external project/task ledger records the Captain's acceptance/verification facts.
+```
+
+A Python MCP client alone does not satisfy H1/H2/H11/H12. Those items must be exercised from the actual Captain Host used in production.
+
+### v1.0.5 Real Captain Host Stable Gate 状态：PASSED（2026-08-10）
+
+真实 Codex Desktop Captain Host + 真实 MCP stdio + CodeBuddy CLI 2.133.1 + Qoder CLI 1.1.17。A2~I 矩阵 11 项全 PASS，`task_result(run_id, step_key)` 在 MCP/Captain 重启后恢复同一 Durable Task 成立，`git diff --check` 通过。
+
+v1.0.5 已满足 stable gate 条件，`v1.0.5-rc` 提升为 `v1.0.5 stable`。历史额度失败保留为 superseded 证据，不构成当前阻断。

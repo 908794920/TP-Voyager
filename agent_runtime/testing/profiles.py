@@ -44,7 +44,7 @@ SMOKE_TARGETS = (
     TestTarget("tests.test_crew_registry.CrewRegistryTests.test_catalog_is_content_free_and_does_not_select_or_dispatch", 90, "Crew Registry boundary"),
     TestTarget("tests.test_captain_boundary.CaptainBoundaryTests.test_overview_is_bounded_content_free_and_surfaces_attention", 90, "Captain voyage overview"),
     TestTarget("tests.test_v2_task_launch.TaskLaunchServiceTests.test_qoder_routes_explicit_fields_and_rejects_legacy_review_fields", 90, "shared launch boundary"),
-    TestTarget("tests.test_v2_plan_execution_controller.PlanExecutionControllerTests.test_pump_advances_one_task_at_a_time_to_completion", 120, "durable plan execution spine"),
+    TestTarget("tests.test_v105_flow_control.V105FlowControlTests.test_apply_receipt_binds_exact_verification_subject", 120, "v1.0.5 Apply Receipt / verification-subject closure"),
     TestTarget("tests.test_runtime_migrations.MigrationTests.test_empty_database_initializes_to_current_schema", 120, "schema initialization"),
     TestTarget("tests.test_captain_policy_evidence.CaptainPolicyEvidenceTests.test_usage_evidence_records_only_provider_reported_values", 90, "Usage Evidence contract"),
     TestTarget("tests.test_captain_policy_evidence.CaptainPolicyEvidenceTests.test_read_only_artifact_capture_does_not_project_preexisting_dirty_diff", 90, "v1.0.3 read-only artifact attribution"),
@@ -64,6 +64,7 @@ CURRENT_TARGETS = (
     TestTarget("tests.test_runtime_reconciliation", 120, "restart reconciliation"),
     TestTarget("tests.test_tp_voyager_architecture", 90, "Charter/directory architecture gate"),
     TestTarget("tests.test_test_profiles", 90, "test policy integrity"),
+    TestTarget("tests.test_v105_flow_control", 180, "v1.0.5 flow-control contract"),
 )
 
 REGRESSION_MODULES = (
@@ -96,6 +97,8 @@ REGRESSION_MODULES = (
     "test_v2_plan_execution_foundation",
     "test_v2_server_api",
     "test_v2_task_launch",
+    "test_v105_flow_control",
+    "test_v105_server_contract",
 )
 
 

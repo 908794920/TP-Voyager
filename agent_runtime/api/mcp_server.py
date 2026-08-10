@@ -26,6 +26,7 @@ from agent_runtime.domain.ids import new_runtime_session_id, new_task_id
 from agent_runtime.domain.lineage import TaskLineage
 from agent_runtime.domain.workflow import WorkflowStageSpec
 from agent_runtime.domain.session import Session
+from agent_runtime.domain.crew_outcome import parse_crew_outcome
 from agent_runtime.domain.structured_result import (
     RESULT_SCHEMA,
     StructuredResult,
@@ -33,6 +34,9 @@ from agent_runtime.domain.structured_result import (
     parse_structured_result,
 )
 from agent_runtime.domain.task import Task
+from agent_runtime.domain.evidence import Evidence
+from agent_runtime.domain.enums import EvidenceOrigin, EvidenceType, TrustState
+from agent_runtime.domain.ids import new_evidence_id
 from agent_runtime.domain.timeutil import now_epoch
 from agent_runtime.verification.artifacts import (
     ArtifactCaptureBatch,
@@ -97,23 +101,31 @@ from agent_runtime.application.outcome_service import assess_task_result
 from agent_runtime.application.crew import CrewProvider, CrewRegistryService
 from agent_runtime.application.dispatch import CaptainDispatchService
 from agent_runtime.application.dispatch.profiles import (
+    TrustedTextError,
     WorkerProfileError,
     WorkerProfileResolver,
     WorkerSkillResolver,
+    resolve_trusted_instruction_refs,
 )
 from agent_runtime.application.dispatch.artifact_inputs import ArtifactInputResolver
 from agent_runtime.application.voyage import VoyageOverviewService
 from agent_runtime.domain.dispatch import (
+    ApplyReceipt,
     CaptainDispatchRequest,
     CommandSpec,
     ModelPolicy,
     PatchPolicy,
     ReadScope,
     RepositoryResearchSpec,
+    RepositorySnapshotRef,
+    ScopeSegmentSpec,
+    TrustedInstructionRef,
+    VerificationPolicy,
     WorkerProfileRef,
     WorkerSkillRef,
     canonical_input_artifact_refs,
 )
+from agent_runtime.domain.run_control import RunControlSpec
 from agent_runtime.backends.codebuddy import CodeBuddyBackend
 from agent_runtime.backends.codebuddy.captain_dispatch import CodeBuddyContextReadOnlyDispatcher
 from agent_runtime.backends.codebuddy.capability import descriptor as codebuddy_crew_descriptor
@@ -130,6 +142,10 @@ from agent_runtime.application.dispatch.workspace import (
 from agent_runtime.application.dispatch.repository_research import (
     RepositoryResearchError,
     RepositoryResearchService,
+)
+from agent_runtime.verification.subject import (
+    VerificationSubjectError,
+    VerificationSubjectService,
 )
 from agent_runtime.application.tool_service import (
     ToolRuntimeError,
@@ -586,6 +602,8 @@ def _task_state_from_durable(
     task.cancel_scope = durable.cancel_scope or ""
     task.cancel_initiator = durable.cancel_initiator or ""
     task.timeout_reason = durable.timeout_reason
+    task.run_id = durable.run_id
+    task.step_key = durable.step_key
     task.lost_at = durable.lost_at
     task.orphaned_at = durable.orphaned_at
     task.result_available = durable.result_available
@@ -813,7 +831,7 @@ def _retire_patch_workspace_before_completion(task: TaskState) -> None:
     Cleanup failure therefore fails the task rather than being hidden behind a
     successful terminal state.
     """
-    if task.workspace_mode != "patch_worktree" or not task.source_cwd or not task.cwd:
+    if task.workspace_mode not in {"patch_worktree", "verification_worktree"} or not task.source_cwd or not task.cwd:
         return
     root = _get_runtime_database().path.parent / "workspaces"
     PatchWorkspaceService(root).cleanup(task.cwd, source_root=task.source_cwd)
@@ -827,7 +845,7 @@ def _retire_failed_patch_workspace_before_terminal(task: TaskState) -> str | Non
     transient cleanup failures while preserving explicit attention when the
     workspace genuinely cannot be retired.
     """
-    if task.workspace_mode != "patch_worktree" or not task.source_cwd or not task.cwd:
+    if task.workspace_mode not in {"patch_worktree", "verification_worktree"} or not task.source_cwd or not task.cwd:
         return None
     root = _get_runtime_database().path.parent / "workspaces"
     service = PatchWorkspaceService(root)
@@ -842,10 +860,33 @@ def _retire_failed_patch_workspace_before_terminal(task: TaskState) -> str | Non
 
 
 def _is_captain_read_only_task(task: TaskState) -> bool:
-    """True only for accepted Captain routes whose Crew cannot own writes."""
-    return task.route in {"sdk_context_read_only", "acp_read_only"} and task.workspace_mode != "patch_worktree"
+    """True for Captain routes that cannot own source-code mutations.
+
+    Verification commands may create disposable build/test outputs, but those
+    changes are never attributed as Crew patch artifacts.
+    """
+    return task.route in {"sdk_context_read_only", "acp_read_only", "sdk_verify", "acp_verify"} and task.workspace_mode != "patch_worktree"
 
 
+
+
+def _trusted_instruction_roots() -> dict[str, str]:
+    """Load operator-owned alias -> absolute trusted-root mapping."""
+    path = _get_runtime_database().path.parent / "trusted_instruction_roots.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    except (OSError, json.JSONDecodeError):
+        raise ValueError("trusted_instruction_roots.json is invalid")
+    if not isinstance(data, dict):
+        raise ValueError("trusted_instruction_roots.json must be an object")
+    roots: dict[str, str] = {}
+    for alias, root in data.items():
+        key = str(alias or "").strip()
+        raw = str(root or "").strip()
+        if not key or not raw:
+            raise ValueError("trusted instruction root aliases and paths must be non-empty")
+        roots[key] = raw
+    return roots
 
 
 def _repository_research_captain_fingerprint(
@@ -862,6 +903,8 @@ def _repository_research_captain_fingerprint(
     correlation_id: str,
     required_capabilities: list[str] | None,
     repository_research: RepositoryResearchSpec,
+    repository_snapshot_ref: RepositorySnapshotRef | None = None,
+    scope_segment: ScopeSegmentSpec | None = None,
 ) -> str:
     """Hash Captain-owned repository_research inputs for safe outer replay.
 
@@ -885,6 +928,8 @@ def _repository_research_captain_fingerprint(
             {str(item).strip() for item in (required_capabilities or []) if str(item).strip()}
         ),
         "repository_research": repository_research.to_dict(),
+        "repository_snapshot_ref": repository_snapshot_ref.to_dict() if repository_snapshot_ref is not None else None,
+        "scope_segment": (scope_segment or ScopeSegmentSpec()).to_dict(),
     }
     encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
@@ -929,6 +974,83 @@ def _repository_research_report_declaration(
         name=target.name,
         metadata={"source": "runtime_repository_research_report", "role": "research_report"},
     )
+def _observability_evidence(
+    task: TaskState, attempt_id: str, observability: dict[str, Any],
+) -> list[Evidence]:
+    """Convert bounded backend observability facts into immutable Evidence.
+
+    Only metadata already normalized by the backend adapters is admitted.
+    Prompt/answer/reasoning/file contents are never persisted here.
+    """
+    now = now_epoch()
+    output: list[Evidence] = []
+    usage_provenance = observability.get("usage_provenance")
+    if isinstance(usage_provenance, dict):
+        safe = {
+            "status": str(usage_provenance.get("status") or "unknown")[:80],
+            "event_count": int(usage_provenance.get("event_count") or 0),
+            "events": [],
+        }
+        raw_events = usage_provenance.get("events")
+        if isinstance(raw_events, list):
+            for item in raw_events[:64]:
+                if not isinstance(item, dict):
+                    continue
+                safe["events"].append({
+                    "type": str(item.get("type") or "")[:80],
+                    "keys": [str(key)[:80] for key in list(item.get("keys") or [])[:32]],
+                    "timestamp": item.get("timestamp"),
+                    "size_bytes": item.get("size_bytes"),
+                })
+        output.append(Evidence(
+            evidence_id=new_evidence_id(), task_id=task.task_id, attempt_id=attempt_id,
+            evidence_type=EvidenceType.REVIEW.value, trust_state=TrustState.OBSERVED.value,
+            origin=EvidenceOrigin.BACKEND.value, summary="Qoder usage protocol provenance observed",
+            detail_json=json.dumps(safe, ensure_ascii=False, sort_keys=True),
+            captured_at=now, created_at=now,
+        ))
+    raw_access = observability.get("file_access_events")
+    if isinstance(raw_access, list):
+        for item in raw_access[:256]:
+            if not isinstance(item, dict):
+                continue
+            safe = {
+                "path": str(item.get("path") or "")[:512],
+                "operation": str(item.get("operation") or "")[:40],
+                "allowed": bool(item.get("allowed")),
+                "reason": str(item.get("reason") or "")[:160] or None,
+                "timestamp": item.get("timestamp"),
+                "sha256": str(item.get("sha256") or "")[:64] or None,
+            }
+            output.append(Evidence(
+                evidence_id=new_evidence_id(), task_id=task.task_id, attempt_id=attempt_id,
+                evidence_type=EvidenceType.FILE.value, trust_state=TrustState.OBSERVED.value,
+                origin=EvidenceOrigin.BACKEND.value,
+                summary=("Qoder file access allowed" if safe["allowed"] else "Qoder file access denied"),
+                detail_json=json.dumps(safe, ensure_ascii=False, sort_keys=True),
+                captured_at=now, created_at=now,
+            ))
+    subject = task.routing_metadata.get("verification_subject") if isinstance(task.routing_metadata, dict) else None
+    if isinstance(subject, dict):
+        safe_subject = {
+            key: subject.get(key)
+            for key in (
+                "repository_identity", "base_commit", "base_tree_hash", "patch_artifact_id",
+                "patch_sha256", "result_tree_hash", "apply_receipt_sha256",
+                "context_id", "context_root_hash",
+            )
+            if subject.get(key) is not None
+        }
+        output.append(Evidence(
+            evidence_id=new_evidence_id(), task_id=task.task_id, attempt_id=attempt_id,
+            evidence_type=EvidenceType.REVIEW.value, trust_state=TrustState.OBSERVED.value,
+            origin=EvidenceOrigin.RUNTIME.value, summary="Apply Receipt reconstructed as exact verification subject",
+            detail_json=json.dumps(safe_subject, ensure_ascii=False, sort_keys=True),
+            captured_at=now, created_at=now,
+        ))
+    return output
+
+
 def _persist_completed(
     task: TaskState,
     result: dict[str, Any],
@@ -1054,6 +1176,9 @@ def _persist_completed(
         claims=list(normalized.claims),
         verification=verification.to_dict(),
         usage=usage,
+        crew_outcome=parse_crew_outcome(
+            backend_result.answer if backend_result is not None else task.answer or str(result.get("answer") or "")
+        ),
     )
     # Patch completion is not externally visible until the isolated worktree
     # has been retired.  This closes the race where status/result became
@@ -1064,11 +1189,12 @@ def _persist_completed(
         capture.cleanup_orphans()
         raise
 
+    extra_evidence = _observability_evidence(task, attempt_id, observability)
     try:
         _runtime_service().save_result(
             task.task_id,
             structured_result=structured_result,
-            initial_evidence=verification.evidence,
+            initial_evidence=[*verification.evidence, *extra_evidence],
             artifact_declarations=capture.artifacts,
             status="completed",
             version=task.version,
@@ -1553,7 +1679,8 @@ def _run_official_cli_task(
         metadata = {
             "route": task.route,
             "access_mode": (
-                "patch" if "patch" in task.route
+                "verification" if "verify" in task.route
+                else "patch" if "patch" in task.route
                 else "read_only" if "read_only" in task.route
                 else "legacy"
             ),
@@ -1657,7 +1784,7 @@ def _cleanup_terminal_patch_workspace(task: TaskState) -> None:
     clean failed tasks after their evidence has been persisted.
     Cancelled/lost/orphaned worktrees stay available for operator inspection.
     """
-    if task.workspace_mode != "patch_worktree" or not task.source_cwd or not task.cwd:
+    if task.workspace_mode not in {"patch_worktree", "verification_worktree"} or not task.source_cwd or not task.cwd:
         return
     if task.state != "failed" or task.persist_error:
         return
@@ -1665,7 +1792,7 @@ def _cleanup_terminal_patch_workspace(task: TaskState) -> None:
         root = _get_runtime_database().path.parent / "workspaces"
         PatchWorkspaceService(root).cleanup(task.cwd, source_root=task.source_cwd)
     except PatchWorkspaceCleanupError as exc:
-        task.persist_error = f"patch workspace cleanup requires attention: {type(exc).__name__}"
+        task.persist_error = f"isolated workspace cleanup requires attention: {type(exc).__name__}"
 
 
 def _run_qoder(task: TaskState, timeout_seconds: float) -> None:
@@ -1757,7 +1884,7 @@ def _durable_cli_start(
     except ValueError as exc:
         return {"ok": False, "error": str(exc)}
     routing = dict(routing_metadata or {})
-    allowed_routing_keys = {"read_scope", "worker_profile_ref", "worker_skill_refs", "input_artifact_refs", "captain_request_contract", "effective_model_policy", "correlation_id", "model_policy", "repository_research"}
+    allowed_routing_keys = {"read_scope", "worker_profile_ref", "worker_skill_refs", "input_artifact_refs", "trusted_instruction_refs", "captain_request_contract", "effective_model_policy", "correlation_id", "model_policy", "repository_research", "repository_snapshot_ref", "scope_segment", "run_control", "step_key", "apply_receipt", "verification_policy", "verification_subject"}
     if set(routing) - allowed_routing_keys:
         return {"ok": False, "error": "routing_metadata contains unsupported keys"}
     try:
@@ -1766,6 +1893,17 @@ def _durable_cli_start(
         return {"ok": False, "error": "routing_metadata must be JSON serializable"}
     if len(encoded_routing.encode("utf-8")) > 32 * 1024:
         return {"ok": False, "error": "routing_metadata exceeds 32 KiB"}
+
+    run_spec: RunControlSpec | None = None
+    raw_run = routing.get("run_control")
+    if raw_run is not None:
+        try:
+            run_spec = RunControlSpec.from_dict(raw_run)
+        except (TypeError, ValueError) as exc:
+            return {"ok": False, "reason_code": "RUN_CONTROL_INVALID", "error": str(exc)}
+    routing_step_key = str(routing.get("step_key") or "").strip()
+    if (run_spec is None) != (not routing_step_key):
+        return {"ok": False, "reason_code": "RUN_STEP_INVALID", "error": "run_control and step_key must be supplied together"}
 
     try:
         service = _runtime_service()
@@ -1800,6 +1938,15 @@ def _durable_cli_start(
         resume_session_id = prior_session.backend_session_id
 
     baseline = capture_workspace_baseline(working_dir)
+    if workspace_mode.strip() == "verification_worktree":
+        # The reconstructed patch is the trusted verification subject, not a
+        # pre-existing dirty Passenger baseline.  Keep Git identity/head for
+        # command-stability checks but do not attribute the staged patch as a
+        # Crew mutation.
+        baseline = WorkspaceBaseline(
+            git_root=baseline.git_root, head=baseline.head, dirty=False,
+            status_sha256=baseline.status_sha256, changed_files=(),
+        )
     canonical_key = idempotency_key.strip()
     if len(canonical_key) > 128:
         return {"ok": False, "error": "idempotency_key must be at most 128 characters"}
@@ -1882,6 +2029,8 @@ def _durable_cli_start(
         created_at=now,
         updated_at=now,
         session_id=runtime_session_id,
+        run_id=(run_spec.run_id if run_spec is not None else None),
+        step_key=(routing_step_key or None),
     )
     session = Session(
         session_id=runtime_session_id,
@@ -1899,6 +2048,8 @@ def _durable_cli_start(
             idempotency_key=canonical_key,
             request_fingerprint=fingerprint,
             lineage=lineage,
+            run_control=run_spec,
+            requested_runtime_seconds=float(effective_max),
             now=now,
         )
     except RuntimePersistenceError as exc:
@@ -1914,8 +2065,10 @@ def _durable_cli_start(
                 else {"task_id": created.task_id}
             ),
         }
+    if created.outcome in {"budget_rejected", "step_conflict"}:
+        return {"ok": False, "reason_code": created.reason_code, "error": created.error}
     if created.outcome == "conflict":
-        return {"ok": False, "error": created.error}
+        return {"ok": False, "reason_code": "IDEMPOTENCY_CONFLICT", "error": created.error}
 
     task = TaskState(
         task_id=task_id,
@@ -1950,6 +2103,8 @@ def _durable_cli_start(
         workspace_base_revision=workspace_base_revision.strip(),
         patch_policy=dict(patch_policy or {}),
         routing_metadata=routing,
+        run_id=(run_spec.run_id if run_spec is not None else None),
+        step_key=(routing_step_key or None),
     )
     with TASKS_LOCK:
         TASKS[task_id] = task
@@ -2004,8 +2159,8 @@ def _qoder_start(
     routing_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     canonical_route = route.strip().lower() or "acp_read_only"
-    if canonical_route not in {"acp_read_only", "acp_patch"}:
-        return {"ok": False, "error": "Qoder route must be acp_read_only or acp_patch"}
+    if canonical_route not in {"acp_read_only", "acp_patch", "acp_verify"}:
+        return {"ok": False, "error": "Qoder route must be acp_read_only, acp_patch or acp_verify"}
     effective_max = (
         max_task_duration_seconds
         if max_task_duration_seconds is not None
@@ -2020,7 +2175,7 @@ def _qoder_start(
         runtime="qoder",
         task_type="qoder",
         route=canonical_route,
-        resumable_routes=frozenset({"acp_read_only", "acp_patch"}),
+        resumable_routes=frozenset({"acp_read_only", "acp_patch", "acp_verify"}),
         worker_target=_run_qoder,
         prompt=prompt,
         cwd=cwd,
@@ -2084,10 +2239,10 @@ def _codebuddy_start(
     routing_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     canonical_route = route.strip().lower() or "sdk_context_read_only"
-    if canonical_route not in {"sdk_context_read_only", "sdk_patch"}:
+    if canonical_route not in {"sdk_context_read_only", "sdk_patch", "sdk_verify"}:
         return {
             "ok": False,
-            "error": "CodeBuddy route must be sdk_context_read_only or sdk_patch",
+            "error": "CodeBuddy route must be sdk_context_read_only, sdk_patch or sdk_verify",
         }
     effective_max = (
         max_task_duration_seconds
@@ -2108,7 +2263,7 @@ def _codebuddy_start(
         runtime="codebuddy",
         task_type="codebuddy",
         route=canonical_route,
-        resumable_routes=frozenset({"sdk_context_read_only", "sdk_patch"}),
+        resumable_routes=frozenset({"sdk_context_read_only", "sdk_patch", "sdk_verify"}),
         worker_target=_run_codebuddy,
         prompt=prompt,
         cwd=cwd,
@@ -2290,9 +2445,26 @@ def _routing_projection(task: TaskState) -> dict[str, Any]:
     if isinstance(research, dict):
         output["repository_research"] = {
             key: research.get(key)
-            for key in ("url", "source_subdirectory", "report_path", "repository_size_bytes", "commit", "acquisition")
+            for key in (
+                "url", "source_subdirectory", "report_path", "repository_size_bytes",
+                "commit", "acquisition", "scope_manifest_id", "scope_root_hash",
+                "scope_file_count", "scope_total_bytes", "scope_segment_index",
+                "scope_segment_count", "scope_segment_context_id",
+                "scope_segment_root_hash", "scope_segment_file_count",
+                "scope_segment_total_bytes", "snapshot_source_task_id",
+            )
             if research.get(key) is not None
         }
+    snapshot_ref = routing.get("repository_snapshot_ref")
+    if isinstance(snapshot_ref, dict):
+        output["repository_snapshot_ref"] = {
+            key: snapshot_ref.get(key)
+            for key in ("source_task_id", "commit", "scope_manifest_id", "scope_root_hash")
+            if snapshot_ref.get(key) is not None
+        }
+    segment = routing.get("scope_segment")
+    if isinstance(segment, dict):
+        output["scope_segment"] = {"index": segment.get("index")}
     scope = routing.get("read_scope")
     if isinstance(scope, dict):
         resolved = scope.get("resolved_files")
@@ -2304,6 +2476,71 @@ def _routing_projection(task: TaskState) -> dict[str, Any]:
             "max_bytes": scope.get("max_bytes"),
             "resolved_file_count": len(resolved) if isinstance(resolved, list) else 0,
         }
+
+    run = routing.get("run_control")
+    step_key = str(routing.get("step_key") or task.step_key or "").strip()
+    run_id = str(run.get("run_id") or task.run_id or "").strip() if isinstance(run, dict) else str(task.run_id or "").strip()
+    if run_id:
+        try:
+            snapshot = _runtime_service().get_run_control(run_id)
+            output["run_control"] = snapshot.to_dict() if snapshot is not None else {"run_id": run_id, "status": "unknown"}
+        except RuntimePersistenceError:
+            output["run_control"] = {"run_id": run_id, "status": "unknown"}
+
+    captain_contract = routing.get("captain_request_contract")
+    effective_policy = routing.get("effective_model_policy")
+    instructions = routing.get("trusted_instruction_refs")
+    input_artifacts = routing.get("input_artifact_refs")
+    verification_subject = routing.get("verification_subject")
+    provenance: dict[str, Any] = {}
+    if run_id:
+        provenance["run_id"] = run_id
+    if step_key:
+        provenance["step_key"] = step_key
+    if isinstance(captain_contract, dict):
+        objective_hash = captain_contract.get("objective_sha256")
+        if isinstance(objective_hash, str):
+            provenance["captain_request_sha256"] = objective_hash
+    if isinstance(effective_policy, dict):
+        policy_hash = effective_policy.get("policy_sha256")
+        if isinstance(policy_hash, str) and policy_hash:
+            provenance["policy_sha256"] = policy_hash
+    if isinstance(research, dict) and research.get("scope_manifest_id"):
+        provenance["scope_manifest_id"] = research.get("scope_manifest_id")
+        provenance["scope_root_hash"] = research.get("scope_root_hash")
+        provenance["scope_segment_context_id"] = research.get("scope_segment_context_id")
+        provenance["scope_segment_root_hash"] = research.get("scope_segment_root_hash")
+        provenance["scope_segment_index"] = research.get("scope_segment_index")
+    elif task.context_id:
+        provenance["scope_manifest_id"] = task.context_id
+        try:
+            manifest = _context_service().get(task.context_id)
+            root_hash = manifest.get("root_hash") if isinstance(manifest, dict) else None
+            if isinstance(root_hash, str) and root_hash:
+                provenance["scope_root_hash"] = root_hash
+        except (ContextError, RuntimePersistenceError):
+            pass
+    if isinstance(instructions, list):
+        provenance["instruction_refs"] = [
+            {key: item.get(key) for key in ("root_alias", "path", "sha256") if item.get(key) is not None}
+            for item in instructions[:8] if isinstance(item, dict)
+        ]
+    if isinstance(input_artifacts, list):
+        provenance["input_artifact_refs"] = [
+            {key: item.get(key) for key in ("source_task_id", "artifact_id", "sha256", "byte_size") if item.get(key) is not None}
+            for item in input_artifacts[:8] if isinstance(item, dict)
+        ]
+    receipt = routing.get("apply_receipt")
+    if isinstance(receipt, dict):
+        provenance["apply_receipt_sha256"] = receipt.get("receipt_sha256")
+    if isinstance(verification_subject, dict):
+        provenance["verification_subject"] = {
+            key: verification_subject.get(key)
+            for key in ("repository_identity", "base_commit", "patch_artifact_id", "patch_sha256", "result_tree_hash", "apply_receipt_sha256", "context_id", "context_root_hash")
+            if verification_subject.get(key) is not None
+        }
+    if provenance:
+        output["provenance"] = provenance
     return output
 
 
@@ -2395,6 +2632,7 @@ def _task_result_response(task_id: str) -> dict[str, Any]:
             _usage_evidence_for_task(task_id)
             or (parsed.usage if parsed is not None else {})
         ),
+        "crew_outcome": (parsed.crew_outcome if parsed is not None else {}),
         "result_summary": _result_summary(task),
     }
 
@@ -2834,11 +3072,18 @@ def task_dispatch(
     worker_profile_ref: dict[str, Any] | None = None,
     worker_skill_refs: list[dict[str, Any]] | None = None,
     input_artifact_refs: list[dict[str, Any]] | None = None,
+    trusted_instruction_refs: list[dict[str, Any]] | None = None,
+    run_control: dict[str, Any] | None = None,
+    step_key: str = "",
+    apply_receipt: dict[str, Any] | None = None,
+    verification_policy: dict[str, Any] | None = None,
     correlation_id: str = "",
     timeout_seconds: int = 300,
     required_capabilities: list[str] | None = None,
     patch_policy: dict[str, Any] | None = None,
     repository_research: dict[str, Any] | None = None,
+    repository_snapshot_ref: dict[str, Any] | None = None,
+    scope_segment: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Dispatch one explicit Captain-selected Crew task under bounded policy.
 
@@ -2886,6 +3131,17 @@ def task_dispatch(
         except (TypeError, ValueError) as exc:
             return reject("INVALID_REPOSITORY_RESEARCH", str(exc))
 
+    parsed_snapshot_ref: RepositorySnapshotRef | None = None
+    if repository_snapshot_ref is not None:
+        try:
+            parsed_snapshot_ref = RepositorySnapshotRef.from_dict(repository_snapshot_ref)
+        except (TypeError, ValueError) as exc:
+            return reject("INVALID_REPOSITORY_SNAPSHOT_REF", str(exc))
+    try:
+        parsed_scope_segment = ScopeSegmentSpec.from_dict(scope_segment)
+    except (TypeError, ValueError) as exc:
+        return reject("INVALID_SCOPE_SEGMENT", str(exc))
+
     if normalized_kind == "repository_research":
         if parsed_research is None:
             return reject("REPOSITORY_RESEARCH_REQUIRED", "repository_research contract is required")
@@ -2895,8 +3151,8 @@ def task_dispatch(
             return reject("REPOSITORY_RESEARCH_CWD_CONFLICT", "cwd must be empty; target_directory owns the research workspace")
         if context_id or context_files:
             return reject("REPOSITORY_RESEARCH_CONTEXT_CONFLICT", "repository_research uses read_scope over the acquired source")
-    elif parsed_research is not None:
-        return reject("REPOSITORY_RESEARCH_NOT_APPLICABLE", "repository_research is only valid for repository_research task_kind")
+    elif parsed_research is not None or parsed_snapshot_ref is not None or scope_segment is not None:
+        return reject("REPOSITORY_RESEARCH_NOT_APPLICABLE", "repository research snapshot/segment contracts are only valid for repository_research task_kind")
 
     parsed_scope: ReadScope | None = None
     supplied_files = list(context_files or [])
@@ -2923,8 +3179,8 @@ def task_dispatch(
         return reject("INVALID_CONTEXT_REQUEST", "pass context_id or context_files, not both")
     if parsed_scope is not None and effective_context_id:
         return reject("INVALID_CONTEXT_REQUEST", "pass context_id or read_scope, not both")
-    if parsed_scope is not None and normalized_mode != "read_only":
-        return reject("READ_SCOPE_NOT_APPLICABLE", "read_scope is only accepted for read_only access_mode")
+    if parsed_scope is not None and normalized_mode not in {"read_only", "verification"}:
+        return reject("READ_SCOPE_NOT_APPLICABLE", "read_scope is only accepted for read_only or verification access_mode")
     if effective_context_id and normalized_crew == "qoder":
         return reject("CONTEXT_ID_NOT_APPLICABLE", "Qoder Captain dispatch uses read_scope, not Context Manifest ids")
 
@@ -2939,13 +3195,15 @@ def task_dispatch(
             return reject("CONTEXT_INVALID", str(exc))
         except RuntimePersistenceError:
             return reject("RUNTIME_UNAVAILABLE", "runtime database unavailable")
-    elif parsed_scope is not None and normalized_kind != "repository_research":
+    elif parsed_scope is not None and normalized_kind != "repository_research" and normalized_mode != "verification":
         try:
             resolved_files = tuple(_context_service().resolve_read_scope(effective_cwd, parsed_scope))
-            if normalized_crew == "codebuddy":
-                registered = _context_service().register(effective_cwd, resolved_files)
-                effective_context_id = str(registered.manifest.get("context_id") or "")
-                context_auto_created = True
+            # ContextManifest is the provider-neutral Scope Manifest truth.
+            # CodeBuddy consumes it directly; Qoder keeps using ACP allowed_paths
+            # but shares the same hashable scope provenance.
+            registered = _context_service().register(effective_cwd, resolved_files)
+            effective_context_id = str(registered.manifest.get("context_id") or "")
+            context_auto_created = True
         except (ValueError, TypeError, ContextError) as exc:
             return reject("READ_SCOPE_INVALID", str(exc))
         except RuntimePersistenceError:
@@ -2973,6 +3231,58 @@ def task_dispatch(
     except (TypeError, ValueError) as exc:
         return reject("INPUT_ARTIFACT_INVALID", str(exc))
     artifact_content: tuple[str, ...] = ()
+
+    parsed_instructions: tuple[TrustedInstructionRef, ...] = ()
+    instruction_content: tuple[str, ...] = ()
+    if trusted_instruction_refs is not None:
+        try:
+            if not isinstance(trusted_instruction_refs, list) or len(trusted_instruction_refs) > 8:
+                raise ValueError("trusted_instruction_refs must contain at most 8 entries")
+            parsed_instructions = tuple(TrustedInstructionRef.from_dict(item) for item in trusted_instruction_refs)
+        except (TypeError, ValueError) as exc:
+            return reject("TRUSTED_INSTRUCTION_INVALID", str(exc))
+
+    parsed_run_control: RunControlSpec | None = None
+    if run_control is not None:
+        try:
+            parsed_run_control = RunControlSpec.from_dict(run_control)
+        except (TypeError, ValueError) as exc:
+            return reject("RUN_CONTROL_INVALID", str(exc))
+    canonical_step_key = str(step_key or "").strip()
+    if canonical_step_key:
+        if len(canonical_step_key) > 160 or "\x00" in canonical_step_key or any(ord(ch) < 32 for ch in canonical_step_key):
+            return reject("STEP_KEY_INVALID", "step_key must be printable and at most 160 characters")
+        if parsed_run_control is None:
+            return reject("RUN_CONTROL_REQUIRED", "step_key requires run_control")
+    elif parsed_run_control is not None:
+        return reject("STEP_KEY_REQUIRED", "run_control requires an explicit step_key")
+
+    parsed_apply_receipt: ApplyReceipt | None = None
+    if apply_receipt is not None:
+        try:
+            parsed_apply_receipt = ApplyReceipt.from_dict(apply_receipt)
+        except (TypeError, ValueError) as exc:
+            return reject("APPLY_RECEIPT_INVALID", str(exc))
+
+    parsed_verification_policy: VerificationPolicy | None = None
+    if verification_policy is not None:
+        try:
+            parsed_verification_policy = VerificationPolicy.from_dict(verification_policy)
+        except (TypeError, ValueError) as exc:
+            return reject("VERIFICATION_POLICY_INVALID", str(exc))
+    if normalized_mode == "verification":
+        if normalized_kind != "verify_only":
+            return reject("ACCESS_MODE_TASK_MISMATCH", "verification access_mode is only valid for verify_only")
+        if parsed_apply_receipt is None:
+            return reject("APPLY_RECEIPT_REQUIRED", "verification requires apply_receipt")
+        if parsed_verification_policy is None:
+            return reject("VERIFICATION_POLICY_REQUIRED", "verification requires verification_policy")
+        if parsed_scope is None:
+            return reject("VERIFICATION_SCOPE_REQUIRED", "verification requires read_scope")
+        if not str(cwd or "").strip():
+            return reject("VERIFICATION_PASSENGER_CWD_REQUIRED", "verification requires Passenger workspace cwd")
+    elif parsed_apply_receipt is not None or parsed_verification_policy is not None:
+        return reject("VERIFICATION_CONTRACT_NOT_APPLICABLE", "apply_receipt and verification_policy are only valid for verification access_mode")
 
     external_correlation_id = str(correlation_id or "").strip()
     if external_correlation_id:
@@ -3008,7 +3318,14 @@ def task_dispatch(
         worker_profile_ref=parsed_profile.to_dict() if parsed_profile is not None else None,
         worker_skill_refs=[item.to_dict() for item in parsed_skills],
         input_artifact_refs=[item.to_dict() for item in parsed_artifacts],
+        trusted_instruction_refs=[item.to_dict() for item in parsed_instructions],
+        run_control=parsed_run_control.to_dict() if parsed_run_control is not None else None,
+        step_key=canonical_step_key,
+        apply_receipt=parsed_apply_receipt.to_dict() if parsed_apply_receipt is not None else None,
+        verification_policy=parsed_verification_policy.to_dict() if parsed_verification_policy is not None else None,
         repository_research=parsed_research.to_dict() if parsed_research is not None else None,
+        repository_snapshot_ref=parsed_snapshot_ref.to_dict() if parsed_snapshot_ref is not None else None,
+        scope_segment=parsed_scope_segment.to_dict(),
         correlation_id=external_correlation_id,
     )
     canonical_key = str(idempotency_key or "").strip()
@@ -3057,6 +3374,51 @@ def task_dispatch(
             skill_content = tuple(skill_resolver.resolve(item).content for item in parsed_skills)
         except (ValueError, WorkerProfileError) as exc:
             return reject("WORKER_SKILL_INVALID", str(exc))
+    if parsed_instructions:
+        try:
+            instruction_content = resolve_trusted_instruction_refs(parsed_instructions, _trusted_instruction_roots())
+        except (ValueError, TrustedTextError, RuntimePersistenceError) as exc:
+            return reject("TRUSTED_INSTRUCTION_INVALID", str(exc))
+
+    verification_workspace = None
+    verification_subject: dict[str, Any] = {}
+    verification_source_cwd = ""
+    verification_base_revision = ""
+    if normalized_mode == "verification":
+        try:
+            subject_service = VerificationSubjectService(
+                _get_runtime_database(),
+                _get_runtime_database().path.parent / "workspaces",
+            )
+            verification_workspace = subject_service.prepare(parsed_apply_receipt, str(cwd or ""))  # type: ignore[arg-type]
+            verification_source_cwd = verification_workspace.source_root
+            verification_base_revision = verification_workspace.base_revision
+            effective_cwd = verification_workspace.worktree_root
+            resolved_files = tuple(_context_service().resolve_read_scope(effective_cwd, parsed_scope))  # type: ignore[arg-type]
+            registered = _context_service().register(effective_cwd, resolved_files)
+            effective_context_id = str(registered.manifest.get("context_id") or "")
+            context_auto_created = True
+            verification_subject = {
+                "schema": "tp-voyager.verification_subject/v1",
+                "repository_identity": parsed_apply_receipt.repository_identity,  # type: ignore[union-attr]
+                "base_commit": parsed_apply_receipt.base_commit,  # type: ignore[union-attr]
+                "base_tree_hash": parsed_apply_receipt.base_tree_hash,  # type: ignore[union-attr]
+                "patch_artifact_id": parsed_apply_receipt.patch_artifact_id,  # type: ignore[union-attr]
+                "patch_sha256": parsed_apply_receipt.patch_sha256,  # type: ignore[union-attr]
+                "result_tree_hash": parsed_apply_receipt.result_tree_hash,  # type: ignore[union-attr]
+                "apply_receipt_sha256": parsed_apply_receipt.receipt_sha256,  # type: ignore[union-attr]
+                "context_id": effective_context_id,
+                "context_root_hash": str(registered.manifest.get("root_hash") or ""),
+            }
+        except VerificationSubjectError as exc:
+            return reject(exc.code, exc.detail)
+        except (ContextError, RuntimePersistenceError, OSError, ValueError) as exc:
+            if verification_workspace is not None:
+                try:
+                    PatchWorkspaceService(_get_runtime_database().path.parent / "workspaces").cleanup(verification_workspace)
+                except PatchWorkspaceCleanupError:
+                    pass
+            return reject("VERIFICATION_WORKSPACE_FAILED", str(exc))
 
     research_workspace = None
     research_routing: dict[str, Any] | None = None
@@ -3071,6 +3433,8 @@ def task_dispatch(
             correlation_id=external_correlation_id,
             required_capabilities=required_capabilities,
             repository_research=parsed_research,
+            repository_snapshot_ref=parsed_snapshot_ref,
+            scope_segment=parsed_scope_segment,
         )
         canonical_key = str(idempotency_key or "").strip()
         if canonical_key:
@@ -3109,6 +3473,15 @@ def task_dispatch(
                         "commit": str(stored_research.get("commit") or ""),
                         "repository_size_bytes": stored_research.get("repository_size_bytes"),
                         "report_path": str(stored_research.get("report_path") or parsed_research.report_path),
+                        "scope_segment_index": stored_research.get("scope_segment_index"),
+                        "scope_segment_count": stored_research.get("scope_segment_count"),
+                        "scope_segment_context_id": stored_research.get("scope_segment_context_id"),
+                    },
+                    "repository_snapshot_ref": {
+                        "source_task_id": str(stored_research.get("snapshot_source_task_id") or stored_task_id),
+                        "commit": str(stored_research.get("commit") or ""),
+                        "scope_manifest_id": str(stored_research.get("scope_manifest_id") or ""),
+                        "scope_root_hash": str(stored_research.get("scope_root_hash") or ""),
                     },
                 }
                 if external_correlation_id:
@@ -3119,20 +3492,98 @@ def task_dispatch(
 
         service = RepositoryResearchService()
         try:
-            research_workspace = service.prepare(parsed_research)
-            effective_cwd = research_workspace.root
-            parsed_scope = service.prefix_read_scope(parsed_scope)  # type: ignore[arg-type]
-            resolved_files = tuple(_context_service().resolve_read_scope(effective_cwd, parsed_scope))
+            snapshot_source_task_id = ""
+            if parsed_snapshot_ref is None:
+                research_workspace = service.prepare(parsed_research)
+                effective_cwd = research_workspace.root
+                prefixed_scope = service.prefix_read_scope(parsed_scope)  # type: ignore[arg-type]
+                manifest_files = _context_service().resolve_scope_manifest(effective_cwd, prefixed_scope)
+                full_manifest_result = _context_service().register_scope_manifest(effective_cwd, manifest_files)
+                full_manifest = full_manifest_result.manifest
+            else:
+                runtime = _runtime_service()
+                source_task = runtime.get_task(parsed_snapshot_ref.source_task_id)
+                source_session = runtime.get_session(parsed_snapshot_ref.source_task_id) if source_task is not None else None
+                if source_task is None or source_session is None or source_task.status != "completed":
+                    raise RepositoryResearchError("repository snapshot source task is unavailable or not completed")
+                source_meta = parse_session_metadata(source_session.metadata_json)
+                source_routing = source_meta.get("routing_metadata") if isinstance(source_meta.get("routing_metadata"), dict) else {}
+                source_research = source_routing.get("repository_research") if isinstance(source_routing, dict) else None
+                if not isinstance(source_research, dict):
+                    raise RepositoryResearchError("repository snapshot source task has no research provenance")
+                if str(source_research.get("url") or "") != parsed_research.url:
+                    raise RepositoryResearchError("repository snapshot URL does not match Captain contract")
+                if str(source_research.get("commit") or "") != parsed_snapshot_ref.commit:
+                    raise RepositoryResearchError("repository snapshot commit does not match source task")
+                root = str(source_meta.get("cwd") or "")
+                if not root:
+                    raise RepositoryResearchError("repository snapshot source workspace is unavailable")
+                research_workspace = service.reuse(
+                    root=root, expected_url=parsed_research.url, commit=parsed_snapshot_ref.commit,
+                    report_path=parsed_research.report_path, max_size_bytes=parsed_research.max_size_bytes,
+                )
+                effective_cwd = research_workspace.root
+                manifest_check = _context_service().verify(parsed_snapshot_ref.scope_manifest_id, effective_cwd)
+                if not bool(manifest_check.get("valid")):
+                    raise RepositoryResearchError("repository snapshot scope manifest drift")
+                full_manifest = _context_service().get(parsed_snapshot_ref.scope_manifest_id)
+                if str(full_manifest.get("root_hash") or "") != parsed_snapshot_ref.scope_root_hash:
+                    raise RepositoryResearchError("repository snapshot scope manifest drift")
+                if str(manifest_check.get("current_root_hash") or "") != parsed_snapshot_ref.scope_root_hash:
+                    raise RepositoryResearchError("repository snapshot scope manifest drift")
+                snapshot_source_task_id = parsed_snapshot_ref.source_task_id
+                prefixed_scope = service.prefix_read_scope(parsed_scope)  # type: ignore[arg-type]
+                # Scope selectors are re-evaluated only to prove the Captain is
+                # requesting the same bounded source set, never to create a new
+                # hidden snapshot truth.
+                requested_files = _context_service().resolve_scope_manifest(effective_cwd, prefixed_scope)
+                if requested_files != [str(item.get("relpath") or "") for item in full_manifest.get("entries", [])]:
+                    raise RepositoryResearchError("repository snapshot read_scope differs from source manifest")
+
+            segment_max_files = min(int(parsed_scope.max_files), 256)  # type: ignore[union-attr]
+            segment_max_bytes = int(parsed_scope.max_bytes)  # type: ignore[union-attr]
             if normalized_crew == "codebuddy":
-                registered = _context_service().register(effective_cwd, resolved_files)
-                effective_context_id = str(registered.manifest.get("context_id") or "")
-                context_auto_created = True
+                # CodeBuddy's immutable Context rendering is deliberately
+                # bounded more tightly than the generic ContextManifest store.
+                segment_max_bytes = min(segment_max_bytes, 256 * 1024)
+            segments = _context_service().scope_segments(
+                str(full_manifest.get("context_id") or ""),
+                max_files=segment_max_files, max_bytes=segment_max_bytes,
+            )
+            if parsed_scope_segment.index >= len(segments):
+                raise RepositoryResearchError(
+                    f"scope segment index must be between 0 and {max(0, len(segments)-1)}"
+                )
+            segment_result = _context_service().register_scope_segment(
+                effective_cwd, str(full_manifest.get("context_id") or ""),
+                index=parsed_scope_segment.index, max_files=segment_max_files, max_bytes=segment_max_bytes,
+            )
+            segment_manifest = segment_result.manifest
+            effective_context_id = str(segment_manifest.get("context_id") or "")
+            resolved_files = tuple(str(item.get("relpath") or "") for item in segment_manifest.get("entries", []))
+            context_auto_created = True
+            parsed_scope = prefixed_scope
             research_routing = {
                 **research_workspace.routing_metadata(),
+                "acquisition": ("runtime_snapshot_reuse" if parsed_snapshot_ref is not None else research_workspace.routing_metadata().get("acquisition")),
                 "captain_request_fingerprint": research_request_fingerprint,
+                "scope_manifest_id": str(full_manifest.get("context_id") or ""),
+                "scope_root_hash": str(full_manifest.get("root_hash") or ""),
+                "scope_file_count": int(full_manifest.get("file_count") or 0),
+                "scope_total_bytes": int(full_manifest.get("total_bytes") or 0),
+                "scope_segment_index": parsed_scope_segment.index,
+                "scope_segment_count": len(segments),
+                "scope_segment_context_id": effective_context_id,
+                "scope_segment_root_hash": str(segment_manifest.get("root_hash") or ""),
+                "scope_segment_file_count": int(segment_manifest.get("file_count") or 0),
+                "scope_segment_total_bytes": int(segment_manifest.get("total_bytes") or 0),
+                "scope_segment_max_files": segment_max_files,
+                "scope_segment_max_bytes": segment_max_bytes,
             }
+            if snapshot_source_task_id:
+                research_routing["snapshot_source_task_id"] = snapshot_source_task_id
         except (RepositoryResearchError, ContextError, RuntimePersistenceError, OSError, ValueError) as exc:
-            if research_workspace is not None:
+            if research_workspace is not None and parsed_snapshot_ref is None:
                 service.cleanup(research_workspace)
             return reject("REPOSITORY_RESEARCH_PREPARE_FAILED", str(exc))
 
@@ -3158,14 +3609,37 @@ def task_dispatch(
             worker_skill_content=skill_content,
             input_artifact_refs=parsed_artifacts,
             input_artifact_content=artifact_content,
+            trusted_instruction_refs=parsed_instructions,
+            trusted_instruction_content=instruction_content,
+            run_control=parsed_run_control,
+            step_key=canonical_step_key,
+            apply_receipt=parsed_apply_receipt,
+            verification_policy=parsed_verification_policy,
+            verification_subject=verification_subject,
+            workspace_source_cwd=verification_source_cwd,
+            workspace_mode=("verification_worktree" if verification_workspace is not None else ""),
+            workspace_base_revision=verification_base_revision,
             captain_request_contract=captain_contract,
             repository_research=research_routing,
+            repository_snapshot_ref=parsed_snapshot_ref,
+            scope_segment=parsed_scope_segment,
             correlation_id=external_correlation_id,
         )
     )
-    if research_workspace is not None and not result.get("ok"):
+    if verification_workspace is not None and (not result.get("ok") or bool(result.get("replayed"))):
+        try:
+            PatchWorkspaceService(_get_runtime_database().path.parent / "workspaces").cleanup(verification_workspace)
+        except PatchWorkspaceCleanupError:
+            if result.get("ok"):
+                result = {"ok": False, "schema": "tp-voyager.dispatch/v1", "reason_code": "VERIFICATION_WORKSPACE_CLEANUP_FAILED", "detail": "verification replay workspace cleanup failed", "dispatch_performed": False}
+    if research_workspace is not None and not result.get("ok") and parsed_snapshot_ref is None:
         RepositoryResearchService.cleanup(research_workspace)
     if research_workspace is not None and result.get("ok"):
+        source_task_id = (
+            parsed_snapshot_ref.source_task_id
+            if parsed_snapshot_ref is not None
+            else str(result.get("task_id") or "")
+        )
         result = {
             **result,
             "repository_research": {
@@ -3174,6 +3648,15 @@ def task_dispatch(
                 "commit": research_workspace.commit,
                 "repository_size_bytes": research_workspace.checkout_size_bytes,
                 "report_path": research_workspace.report_path,
+                "scope_segment_index": parsed_scope_segment.index,
+                "scope_segment_count": (research_routing or {}).get("scope_segment_count"),
+                "scope_segment_context_id": effective_context_id,
+            },
+            "repository_snapshot_ref": {
+                "source_task_id": source_task_id,
+                "commit": research_workspace.commit,
+                "scope_manifest_id": str((research_routing or {}).get("scope_manifest_id") or ""),
+                "scope_root_hash": str((research_routing or {}).get("scope_root_hash") or ""),
             },
         }
 
@@ -3189,15 +3672,32 @@ def task_dispatch(
         result = {**result, "read_scope_resolved_file_count": len(resolved_files)}
     if external_correlation_id:
         result = {**result, "correlation_id": external_correlation_id}
+    if parsed_run_control is not None:
+        result = {**result, "run_id": parsed_run_control.run_id, "step_key": canonical_step_key}
     if parsed_profile is not None:
         result = {**result, "worker_profile_ref": parsed_profile.to_dict()}
     return result
 
 
 @_mcp_tool()
-def task_result(task_id: str) -> dict[str, Any]:
-    """Return explicit terminal material; status/overview remain content-free."""
-    return _task_result_response(task_id)
+def task_result(task_id: str = "", run_id: str = "", step_key: str = "") -> dict[str, Any]:
+    """Return explicit terminal material by task_id or durable run_id + step_key."""
+    canonical_task = str(task_id or "").strip()
+    canonical_run = str(run_id or "").strip()
+    canonical_step = str(step_key or "").strip()
+    if canonical_task:
+        if canonical_run or canonical_step:
+            return {"ok": False, "error": "pass task_id or run_id + step_key, not both"}
+        return _task_result_response(canonical_task)
+    if not canonical_run or not canonical_step:
+        return {"ok": False, "error": "task_id or run_id + step_key is required"}
+    try:
+        durable = _runtime_service().get_task_by_run_step(canonical_run, canonical_step)
+    except RuntimePersistenceError as exc:
+        return {"ok": False, "error": f"runtime database unavailable: {exc}"}
+    if durable is None:
+        return {"ok": False, "error": "Unknown run_id + step_key"}
+    return _task_result_response(durable.task_id)
 
 
 @_mcp_tool()

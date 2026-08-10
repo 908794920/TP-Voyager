@@ -12,6 +12,8 @@ from pathlib import PurePosixPath
 import re
 from typing import Any
 
+from agent_runtime.domain.run_control import RunControlSpec
+
 
 _MANDATORY_FORBIDDEN = (".git", ".codebuddy", ".qoder")
 
@@ -153,6 +155,36 @@ class PatchPolicy:
             "max_diff_lines": self.max_diff_lines,
             "verification_timeout_seconds": self.verification_timeout_seconds,
         }
+
+
+@dataclass(frozen=True)
+class VerificationPolicy:
+    """Exact commands allowed inside a disposable verification workspace."""
+
+    commands: tuple[CommandSpec, ...]
+    timeout_seconds: int = 900
+
+    @classmethod
+    def from_dict(cls, value: object) -> "VerificationPolicy":
+        if not isinstance(value, dict):
+            raise ValueError("verification_policy must be an object")
+        raw = value.get("commands")
+        if not isinstance(raw, list) or not raw or len(raw) > 16:
+            raise ValueError("verification_policy.commands must be a non-empty bounded list")
+        commands = tuple(CommandSpec.from_dict(item) for item in raw)
+        ids = [item.command_id for item in commands]
+        if len(ids) != len(set(ids)):
+            raise ValueError("verification_policy command ids must be unique")
+        try:
+            timeout = int(value.get("timeout_seconds") or 900)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("verification_policy.timeout_seconds is invalid") from exc
+        if timeout <= 0 or timeout > 7200:
+            raise ValueError("verification_policy.timeout_seconds must be between 1 and 7200")
+        return cls(commands=commands, timeout_seconds=timeout)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"commands": [item.to_dict() for item in self.commands], "timeout_seconds": self.timeout_seconds}
 
 
 @dataclass(frozen=True)
@@ -373,7 +405,7 @@ class WorkerSkillRef(WorkerProfileRef):
             "allowed_task_kinds",
             frozenset({"research", "repository_research", "code_review", "small_patch", "test_failure_triage", "verify_only"}),
         )
-        access_modes = bounded_tokens("allowed_access_modes", frozenset({"read_only", "patch"}))
+        access_modes = bounded_tokens("allowed_access_modes", frozenset({"read_only", "patch", "verification"}))
         try:
             max_bytes = int(value.get("max_bytes"))
         except (TypeError, ValueError) as exc:
@@ -455,6 +487,186 @@ def canonical_input_artifact_refs(value: object) -> tuple[InputArtifactRef, ...]
 
 
 @dataclass(frozen=True)
+class TrustedInstructionRef:
+    """Hash-pinned Captain reference to operator-owned trusted instruction text."""
+
+    root_alias: str
+    path: str
+    sha256: str
+    max_bytes: int = 64 * 1024
+
+    @classmethod
+    def from_dict(cls, value: object) -> "TrustedInstructionRef":
+        if not isinstance(value, dict):
+            raise ValueError("trusted_instruction_ref must be an object")
+        root_alias = str(value.get("root_alias") or "").strip()
+        if not _PROFILE_TOKEN_RE.fullmatch(root_alias):
+            raise ValueError("trusted_instruction_ref.root_alias is invalid")
+        path = _safe_relpath(value.get("path"), field_name="trusted_instruction_ref.path")
+        sha256 = str(value.get("sha256") or "").strip().lower()
+        if not _SHA256_RE.fullmatch(sha256):
+            raise ValueError("trusted_instruction_ref.sha256 must be a 64-character hex digest")
+        try:
+            max_bytes = int(value.get("max_bytes") or (64 * 1024))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("trusted_instruction_ref.max_bytes is invalid") from exc
+        if max_bytes <= 0 or max_bytes > 256 * 1024:
+            raise ValueError("trusted_instruction_ref.max_bytes must be between 1 and 262144")
+        return cls(root_alias, path, sha256, max_bytes)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"root_alias": self.root_alias, "path": self.path, "sha256": self.sha256, "max_bytes": self.max_bytes}
+
+
+@dataclass(frozen=True)
+class ApplyReceipt:
+    """Captain-Host assertion about one accepted Patch Artifact application.
+
+    Runtime never trusts this receipt blindly.  Verification reconstructs the
+    subject from base_revision + Patch Artifact and compares result_tree_hash.
+    """
+
+    repository_identity: str
+    base_commit: str
+    base_tree_hash: str
+    patch_artifact_id: str
+    patch_sha256: str
+    result_tree_hash: str
+    changed_files: tuple[str, ...]
+    applied_by: str
+    applied_at: str
+    git_status_digest: str
+    conflicts: tuple[str, ...]
+    receipt_sha256: str
+
+    @classmethod
+    def from_dict(cls, value: object) -> "ApplyReceipt":
+        if not isinstance(value, dict):
+            raise ValueError("apply_receipt must be an object")
+        if str(value.get("schema") or "").strip() != "tp-voyager.apply_receipt/v1":
+            raise ValueError("apply_receipt.schema must be tp-voyager.apply_receipt/v1")
+        def text(name: str, limit: int = 512) -> str:
+            raw = str(value.get(name) or "").strip()
+            if not raw or len(raw) > limit or "\x00" in raw:
+                raise ValueError(f"apply_receipt.{name} is invalid")
+            return raw
+        def sha(name: str) -> str:
+            raw = text(name, 64).lower()
+            if not _SHA256_RE.fullmatch(raw):
+                raise ValueError(f"apply_receipt.{name} must be sha256")
+            return raw
+        def string_list(name: str, max_items: int = 256) -> tuple[str, ...]:
+            raw = value.get(name)
+            if not isinstance(raw, list) or len(raw) > max_items:
+                raise ValueError(f"apply_receipt.{name} must be a bounded list")
+            out: list[str] = []
+            for item in raw:
+                entry = str(item or "").strip().replace("\\", "/")
+                if not entry or len(entry) > 512 or "\x00" in entry:
+                    raise ValueError(f"apply_receipt.{name} contains invalid entry")
+                if entry not in out:
+                    out.append(entry)
+            return tuple(out)
+        applied_by = text("applied_by", 80)
+        if applied_by != "captain_host":
+            raise ValueError("apply_receipt.applied_by must be captain_host")
+        changed_files = tuple(_safe_relpath(item, field_name="apply_receipt.changed_files") for item in string_list("changed_files"))
+        return cls(
+            repository_identity=text("repository_identity", 1024),
+            base_commit=text("base_commit", 160),
+            base_tree_hash=text("base_tree_hash", 160),
+            patch_artifact_id=text("patch_artifact_id", 128),
+            patch_sha256=sha("patch_sha256"),
+            result_tree_hash=text("result_tree_hash", 160),
+            changed_files=changed_files,
+            applied_by=applied_by,
+            applied_at=text("applied_at", 80),
+            git_status_digest=sha("git_status_digest"),
+            conflicts=string_list("conflicts", 64),
+            receipt_sha256=sha("receipt_sha256"),
+        )
+
+    def canonical_body(self) -> dict[str, Any]:
+        return {
+            "schema": "tp-voyager.apply_receipt/v1",
+            "repository_identity": self.repository_identity,
+            "base_commit": self.base_commit,
+            "base_tree_hash": self.base_tree_hash,
+            "patch_artifact_id": self.patch_artifact_id,
+            "patch_sha256": self.patch_sha256,
+            "result_tree_hash": self.result_tree_hash,
+            "changed_files": list(self.changed_files),
+            "applied_by": self.applied_by,
+            "applied_at": self.applied_at,
+            "git_status_digest": self.git_status_digest,
+            "conflicts": list(self.conflicts),
+        }
+
+    def to_dict(self) -> dict[str, Any]:
+        return {**self.canonical_body(), "receipt_sha256": self.receipt_sha256}
+
+
+@dataclass(frozen=True)
+class RepositorySnapshotRef:
+    """Reference to one Runtime-owned repository_research snapshot."""
+
+    source_task_id: str
+    commit: str
+    scope_manifest_id: str
+    scope_root_hash: str
+
+    @classmethod
+    def from_dict(cls, value: object) -> "RepositorySnapshotRef":
+        if not isinstance(value, dict):
+            raise ValueError("repository_snapshot_ref must be an object")
+        source_task_id = str(value.get("source_task_id") or "").strip()
+        commit = str(value.get("commit") or "").strip()
+        manifest = str(value.get("scope_manifest_id") or "").strip()
+        root_hash = str(value.get("scope_root_hash") or "").strip().lower()
+        if not source_task_id or len(source_task_id) > 128:
+            raise ValueError("repository_snapshot_ref.source_task_id is invalid")
+        if not commit or len(commit) > 160:
+            raise ValueError("repository_snapshot_ref.commit is invalid")
+        if not manifest or len(manifest) > 80:
+            raise ValueError("repository_snapshot_ref.scope_manifest_id is invalid")
+        if not _SHA256_RE.fullmatch(root_hash):
+            raise ValueError("repository_snapshot_ref.scope_root_hash must be sha256")
+        return cls(source_task_id, commit, manifest, root_hash)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "source_task_id": self.source_task_id,
+            "commit": self.commit,
+            "scope_manifest_id": self.scope_manifest_id,
+            "scope_root_hash": self.scope_root_hash,
+        }
+
+
+@dataclass(frozen=True)
+class ScopeSegmentSpec:
+    """Captain-selected deterministic segment of a larger Scope Manifest."""
+
+    index: int = 0
+
+    @classmethod
+    def from_dict(cls, value: object) -> "ScopeSegmentSpec":
+        if value is None:
+            return cls(0)
+        if not isinstance(value, dict):
+            raise ValueError("scope_segment must be an object")
+        try:
+            index = int(value.get("index") or 0)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("scope_segment.index is invalid") from exc
+        if index < 0 or index > 10000:
+            raise ValueError("scope_segment.index is outside the bounded limit")
+        return cls(index)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"index": self.index}
+
+
+@dataclass(frozen=True)
 class CaptainDispatchRequest:
     objective: str
     crew: str
@@ -475,9 +687,21 @@ class CaptainDispatchRequest:
     worker_skill_content: tuple[str, ...] = ()
     input_artifact_refs: tuple[InputArtifactRef, ...] = ()
     input_artifact_content: tuple[str, ...] = ()
+    trusted_instruction_refs: tuple[TrustedInstructionRef, ...] = ()
+    trusted_instruction_content: tuple[str, ...] = ()
+    run_control: RunControlSpec | None = None
+    step_key: str = ""
+    apply_receipt: ApplyReceipt | None = None
+    verification_policy: VerificationPolicy | None = None
+    verification_subject: dict[str, Any] = field(default_factory=dict)
+    workspace_source_cwd: str = ""
+    workspace_mode: str = ""
+    workspace_base_revision: str = ""
     captain_request_contract: dict[str, Any] = field(default_factory=dict)
     effective_model_policy: dict[str, Any] = field(default_factory=dict)
     repository_research: dict[str, Any] | None = None
+    repository_snapshot_ref: RepositorySnapshotRef | None = None
+    scope_segment: ScopeSegmentSpec = field(default_factory=ScopeSegmentSpec)
     worker_profile_content: str = ""
     correlation_id: str = ""
 
@@ -496,12 +720,28 @@ class CaptainDispatchRequest:
             data["worker_skill_refs"] = [item.to_dict() for item in self.worker_skill_refs]
         if self.input_artifact_refs:
             data["input_artifact_refs"] = [item.to_dict() for item in self.input_artifact_refs]
+        if self.trusted_instruction_refs:
+            data["trusted_instruction_refs"] = [item.to_dict() for item in self.trusted_instruction_refs]
+        if self.run_control is not None:
+            data["run_control"] = self.run_control.to_dict()
+        if self.step_key:
+            data["step_key"] = self.step_key
+        if self.apply_receipt is not None:
+            data["apply_receipt"] = self.apply_receipt.to_dict()
+        if self.verification_policy is not None:
+            data["verification_policy"] = self.verification_policy.to_dict()
+        if self.verification_subject:
+            data["verification_subject"] = dict(self.verification_subject)
         if self.captain_request_contract:
             data["captain_request_contract"] = dict(self.captain_request_contract)
         if self.effective_model_policy:
             data["effective_model_policy"] = dict(self.effective_model_policy)
         if self.repository_research is not None:
             data["repository_research"] = dict(self.repository_research)
+        if self.repository_snapshot_ref is not None:
+            data["repository_snapshot_ref"] = self.repository_snapshot_ref.to_dict()
+        if self.repository_research is not None or self.repository_snapshot_ref is not None or self.scope_segment.index:
+            data["scope_segment"] = self.scope_segment.to_dict()
         if self.correlation_id:
             data["correlation_id"] = self.correlation_id
         return data

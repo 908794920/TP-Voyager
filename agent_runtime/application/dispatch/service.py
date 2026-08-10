@@ -14,6 +14,7 @@ from typing import Any, Callable, Mapping
 from agent_runtime.application.crew import CrewRegistryService
 from agent_runtime.application.dispatch.policy import DispatchModelPolicyError, GlobalDispatchModelPolicy
 from agent_runtime.domain.dispatch import CaptainDispatchRequest
+from agent_runtime.domain.crew_outcome import OUTCOME_PROMPT_CONTRACT
 from agent_runtime.persistence.runtime_paths import canonical_runtime_home
 from agent_runtime.persistence.errors import RuntimePersistenceError
 
@@ -24,7 +25,7 @@ ArtifactLoader = Callable[[tuple[Any, ...]], tuple[str, ...]]
 _ALLOWED_TASK_KINDS = frozenset(
     {"research", "repository_research", "code_review", "small_patch", "test_failure_triage", "verify_only"}
 )
-_ALLOWED_ACCESS_MODES = frozenset({"read_only", "patch"})
+_ALLOWED_ACCESS_MODES = frozenset({"read_only", "patch", "verification"})
 
 
 class CaptainDispatchService:
@@ -132,10 +133,10 @@ class CaptainDispatchService:
                 crew=crew, task_kind=kind,
             )
 
-        if mode != "read_only" and (request.read_scope is not None or request.resolved_read_files):
+        if mode not in {"read_only", "verification"} and (request.read_scope is not None or request.resolved_read_files):
             return self._reject(
                 "READ_SCOPE_NOT_APPLICABLE",
-                "read_scope is only accepted for read_only access_mode",
+                "read_scope is only accepted for read_only or verification access_mode",
                 crew=crew,
                 task_kind=kind,
             )
@@ -181,23 +182,21 @@ class CaptainDispatchService:
                 return self._reject(
                     "ACCESS_MODE_TASK_MISMATCH",
                     "patch access_mode is only available for small_patch tasks",
-                    crew=crew,
-                    task_kind=kind,
+                    crew=crew, task_kind=kind,
                 )
             if request.patch_policy is None:
-                return self._reject(
-                    "PATCH_POLICY_REQUIRED",
-                    "patch access_mode requires an explicit bounded patch_policy",
-                    crew=crew,
-                    task_kind=kind,
-                )
+                return self._reject("PATCH_POLICY_REQUIRED", "patch access_mode requires an explicit bounded patch_policy", crew=crew, task_kind=kind)
             if not request.patch_policy.verification_command_ids:
-                return self._reject(
-                    "VERIFICATION_COMMAND_REQUIRED",
-                    "small_patch requires at least one explicit verification command",
-                    crew=crew,
-                    task_kind=kind,
-                )
+                return self._reject("VERIFICATION_COMMAND_REQUIRED", "small_patch requires at least one explicit verification command", crew=crew, task_kind=kind)
+        elif mode == "verification":
+            if kind != "verify_only":
+                return self._reject("ACCESS_MODE_TASK_MISMATCH", "verification access_mode is only available for verify_only tasks", crew=crew, task_kind=kind)
+            if request.apply_receipt is None:
+                return self._reject("APPLY_RECEIPT_REQUIRED", "verification requires a validated Apply Receipt", crew=crew, task_kind=kind)
+            if request.verification_policy is None or not request.verification_policy.commands:
+                return self._reject("VERIFICATION_POLICY_REQUIRED", "verification requires explicit command specs", crew=crew, task_kind=kind)
+            if request.read_scope is None or not request.resolved_read_files:
+                return self._reject("VERIFICATION_SCOPE_REQUIRED", "verification requires a bounded read_scope", crew=crew, task_kind=kind)
         elif request.patch_policy is not None:
             return self._reject(
                 "PATCH_POLICY_NOT_APPLICABLE",
@@ -268,6 +267,12 @@ class CaptainDispatchService:
                 for index, skill in enumerate(request.worker_skill_refs)
             ]
             blocks.append("[Trusted Worker Skills]\n\n" + "\n\n".join(skills))
+        if request.trusted_instruction_refs:
+            instructions = [
+                f"Instruction: {ref.root_alias}:{ref.path}\nSHA256: {ref.sha256}\n{request.trusted_instruction_content[index].strip()}"
+                for index, ref in enumerate(request.trusted_instruction_refs)
+            ]
+            blocks.append("[Trusted Captain Instructions]\n\n" + "\n\n".join(instructions))
         if request.input_artifact_refs:
             entries = [
                 f"Source Task: {ref.source_task_id}\nArtifact: {ref.artifact_id}\nSHA256: {ref.sha256}\nBytes: {ref.byte_size}\n"
@@ -275,7 +280,7 @@ class CaptainDispatchService:
                 for ref, content in zip(request.input_artifact_refs, artifact_content)
             ]
             blocks.append("[Untrusted Input Artifacts]\n\n" + "\n\n---\n\n".join(entries))
-        blocks.append("# Assigned bounded task\n\n" + objective)
+        blocks.append("# Assigned bounded task\n\n" + objective + OUTCOME_PROMPT_CONTRACT)
         request = replace(request, objective="\n\n".join(blocks), input_artifact_content=tuple(artifact_content))
 
         result = dict(dispatcher(request) or {})

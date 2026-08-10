@@ -2,6 +2,38 @@
 
 本项目从 TP-Voyager 正式基线开始记录对外版本。
 
+## 1.0.5 — 2026-08-10
+
+基于 `v1.0.4 stable` 的 Full Development Flow Control 正式版本。默认 Captain MCP Surface 仍严格保持 6 tools；TP-Voyager 不计划、不自动推进阶段。
+
+- Adds hash-pinned `trusted_instruction_refs` on operator-configured roots and explicit `tp-voyager.crew_outcome/v1` without prose inference.
+- Adds Durable RunControl schema v13 resource ledger, atomic/idempotent dispatch admission, immutable-or-narrower ceilings, observable Usage accounting, and `run_id + step_key` recovery through existing `task_result`.
+- Defines Captain-Host Passenger Workspace mutation boundary. Runtime validates `tp-voyager.apply_receipt/v1`, reconstructs base + exact Patch Artifact in a disposable verification worktree, binds a content-addressed verification subject, and never silently applies patches to Passenger Workspace.
+- Adds independent `verify_only` / `verification` Crew route with exact command authorization and source-write denial; temporary build/test writes stay inside the disposable workspace.
+- Fixes CodeBuddy typed Usage normalization and adds bounded Qoder Usage/file-access provenance Evidence.
+- Extends existing ContextManifest into a provider-neutral large Scope Manifest, deterministic segments, and `repository_snapshot_ref` reuse without repeated clone or a second Scope/Research store.
+- Keeps correlation_id external-association-only; RunControl/step provenance is not a Workflow ledger.
+
+Live Gate（2026-08-10，Codex Desktop 真实 Captain Host + 真实 MCP stdio + CodeBuddy CLI 2.133.1 + Qoder CLI 1.1.17）A2~I 全部 PASS，矩阵 11 项完整证据已记录：
+
+1. A2 Real Host 暴露恰好六个 Captain 工具；CodeBuddy hy3 / Qoder lite 均 live-health `available`；
+2. B/B2 RunControl 预算收窄、幂等 replay、并发上限守卫成立；原因码 `RUN_BUDGET_RELAXATION_REJECTED` / `RUN_DISPATCH_BUDGET_EXCEEDED` 正确投影；
+3. C `trusted_instruction_refs` 正向/hash/traversal 校验成立；CodeBuddy `COMPLETED` 与 Qoder `NEEDS_CONTEXT` 结构化 Outcome 均可观测；
+4. D 越界补丁候选被拒后，定向 two-file patch verification `PASSED` 4/4；Patch Artifact 由 Captain Host 应用并签发 `tp-voyager.apply_receipt/v1`；
+5. E/E2 精确 Receipt 验证 CodeBuddy/Qoder 均 `PASSED`（3/3）；drift 场景在任务创建前以 `APPLY_RECEIPT_SUBJECT_MISMATCH` fail-closed；
+6. F CodeBuddy typed Usage 非空、缺失字段保持 null、不按公开费率估算 provider cost；
+7. G 配置化 qoder-client 包装后新任务 `wb-ba5f2df38df0` completed，持久化 `provider_omitted` Usage provenance 与无正文文件访问 Evidence；
+8. H 312-file Scope Manifest 按 128-file 段处理，段 1 复用 `repository_snapshot_ref` 不重复 clone，source drift fail-closed；
+9. I 完整 research → analysis/design → patch → Host apply → verification → delivery 流程无自动 Crew/model/fallback。
+
+历史额度失败（Qoder Lite 月度限额、DeepSeek-V4-Flash 订阅额度、model-policy 拒绝）均由后续配置复验取代，保留为可追溯 superseded 证据。
+
+已满足 stable gate 全部条件：A2~I 全 PASS、`task_result(run_id, step_key)` 重启后可恢复同一 Durable Task、`git diff --check` 通过。
+
+## 1.0.4 — 2026-08-09
+
+Captain Contract Closure + Dispatch Governance stable baseline: account-live model catalog projection, six-tool MCP-only Captain contract, operator model-policy intersection, trusted Worker Skills, bounded untrusted Artifact handoff, and real Windows Live Gate.
+
 ## 1.0.3 — 2026-08-09
 
 基于 `v1.0.2 stable` 的 Model Awareness Completion + Controlled Repository Research 版本。默认 Captain MCP Surface 仍严格保持 6 tools；不新增 Planner、模型自动路由、自动 fallback、计费系统或第二套状态机。

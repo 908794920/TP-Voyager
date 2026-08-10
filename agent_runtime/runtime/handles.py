@@ -57,6 +57,8 @@ class TaskState:
     last_activity_kind: str | None = None
     event_count: int = 0
     timeout_reason: str | None = None
+    run_id: str | None = None
+    step_key: str | None = None
     parent_task_id: str | None = None
     root_task_id: str | None = None
     context_id: str | None = None

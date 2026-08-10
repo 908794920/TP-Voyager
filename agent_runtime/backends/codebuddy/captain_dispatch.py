@@ -18,7 +18,7 @@ from agent_runtime.application.dispatch.workspace import (
 from agent_runtime.application.task_launch_service import TaskLaunchRequest, TaskLaunchService
 from agent_runtime.backends.codebuddy.process import resolve_codebuddy_cli
 from agent_runtime.backends.codebuddy.sdk_client import load_codebuddy_sdk
-from agent_runtime.domain.dispatch import CaptainDispatchRequest, PatchPolicy
+from agent_runtime.domain.dispatch import CaptainDispatchRequest, PatchPolicy, VerificationPolicy
 
 
 _MAX_CONTEXT_BYTES = 256 * 1024
@@ -51,6 +51,8 @@ class CodeBuddyContextReadOnlyDispatcher:
     def __call__(self, request: CaptainDispatchRequest) -> dict[str, Any]:
         if request.access_mode == "patch":
             return self._dispatch_patch(request)
+        if request.access_mode == "verification":
+            return self._dispatch_verification(request)
         return self._dispatch_read_only(request)
 
     def _dispatch_read_only(self, request: CaptainDispatchRequest) -> dict[str, Any]:
@@ -104,10 +106,7 @@ class CodeBuddyContextReadOnlyDispatcher:
             )
         )
         if not result.get("ok"):
-            return self._reject(
-                "DISPATCH_FAILED",
-                str(result.get("error") or "CodeBuddy controlled dispatch failed"),
-            )
+            return self._launch_rejection(result, "CodeBuddy controlled dispatch failed")
         return {
             **result,
             "dispatch_performed": True,
@@ -174,7 +173,7 @@ class CodeBuddyContextReadOnlyDispatcher:
         if not result.get("ok"):
             if not workspace.reused:
                 self._patch_workspaces.cleanup(workspace)
-            return self._reject("DISPATCH_FAILED", str(result.get("error") or "CodeBuddy patch dispatch failed"))
+            return self._launch_rejection(result, "CodeBuddy patch dispatch failed")
         if bool(result.get("replayed")) and not workspace.reused:
             # A completed/rejected idempotent replay may have caused a fresh
             # deterministic worktree to be created only for fingerprinting.
@@ -187,6 +186,62 @@ class CodeBuddyContextReadOnlyDispatcher:
             "base_revision": workspace.base_revision,
             "allowed_paths": list(policy.allowed_paths),
             "command_ids": [item.command_id for item in policy.commands],
+        }
+
+    def _dispatch_verification(self, request: CaptainDispatchRequest) -> dict[str, Any]:
+        policy = request.verification_policy
+        if policy is None:
+            return self._reject("VERIFICATION_POLICY_REQUIRED", "CodeBuddy verification route requires verification_policy")
+        if not request.workspace_source_cwd or request.workspace_mode != "verification_worktree":
+            return self._reject("VERIFICATION_WORKSPACE_REQUIRED", "validated disposable verification workspace is required")
+        timeout = int(request.timeout_seconds)
+        if timeout < 2:
+            return self._reject("INVALID_REQUEST", "timeout_seconds must be at least 2")
+        try:
+            self._preflight()
+        except Exception as exc:
+            return self._reject("CREW_UNAVAILABLE", type(exc).__name__)
+        allowed = list(request.resolved_read_files)
+        forbidden = [".git", ".codebuddy", ".qoder"]
+        idle = max(1, min(180, timeout // 2))
+        result = self._launch_service.start(
+            TaskLaunchRequest(
+                prompt=self._build_verification_prompt(request.objective, policy),
+                runtime="codebuddy",
+                route="sdk_verify",
+                cwd=request.cwd,
+                timeout_seconds=timeout,
+                model=request.model,
+                idempotency_key=request.idempotency_key,
+                idle_timeout_seconds=idle,
+                max_task_duration_seconds=timeout,
+                execution_mode="background",
+                agent_profile=(request.worker_profile_ref.profile_id if request.worker_profile_ref else ""),
+                context_id=request.context_id,
+                routing_metadata=request.routing_metadata(),
+                allowed_paths=allowed,
+                forbidden_paths=forbidden,
+                verification_command_specs=list(policy.commands),
+                verification_timeout_seconds=policy.timeout_seconds,
+                require_patch=False,
+                source_cwd=request.workspace_source_cwd,
+                workspace_mode=request.workspace_mode,
+                workspace_base_revision=request.workspace_base_revision,
+                patch_policy={
+                    "allowed_paths": allowed,
+                    "forbidden_paths": forbidden,
+                    "commands": [item.to_dict() for item in policy.commands],
+                },
+            )
+        )
+        if not result.get("ok"):
+            return self._launch_rejection(result, "CodeBuddy verification dispatch failed")
+        return {
+            **result,
+            "dispatch_performed": True,
+            "access_mode": "verification",
+            "workspace_isolated": True,
+            "verification_subject": dict(request.verification_subject),
         }
 
     @staticmethod
@@ -220,6 +275,28 @@ class CodeBuddyContextReadOnlyDispatcher:
             f"## Objective\n{str(objective).strip()}\n\n"
             f"## Allowed paths\n{allowed}\n\n"
             f"## Authorized commands (exact forms)\n{commands}\n"
+        )
+
+    @classmethod
+    def _build_verification_prompt(cls, objective: str, policy: VerificationPolicy) -> str:
+        commands = "\n".join(
+            f"- {item.command_id}: {cls._command_text(item.argv)}" for item in policy.commands
+        )
+        return (
+            "# TP-Voyager independent verification task\n\n"
+            "You are an independent Crew verifier in a disposable Git worktree reconstructed by TP-Voyager. "
+            "Do not edit source files, do not broaden scope, and run only the exact authorized commands below. "
+            "Build/test tools may create temporary outputs inside this disposable workspace. "
+            "Report findings and the structured CrewOutcome; never modify the Passenger workspace.\n\n"
+            f"## Verification objective\n{str(objective).strip()}\n\n"
+            f"## Authorized commands\n{commands}\n"
+        )
+
+    @staticmethod
+    def _launch_rejection(result: dict[str, Any], fallback: str) -> dict[str, Any]:
+        return CodeBuddyContextReadOnlyDispatcher._reject(
+            str(result.get("reason_code") or "DISPATCH_FAILED"),
+            str(result.get("error") or result.get("detail") or fallback),
         )
 
     @staticmethod

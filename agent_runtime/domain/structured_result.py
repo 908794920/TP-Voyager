@@ -46,6 +46,7 @@ class StructuredResult:
     claims: list[Any] = field(default_factory=list)
     verification: dict[str, Any] = field(default_factory=dict)
     usage: dict[str, Any] = field(default_factory=dict)
+    crew_outcome: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         """Return the frozen wire shape stored in ``tasks.result_json``."""
@@ -69,6 +70,7 @@ class StructuredResult:
             "claims": list(self.claims),
             "verification": dict(self.verification),
             "usage": dict(self.usage),
+            "crew_outcome": dict(self.crew_outcome),
         }
 
 
@@ -94,6 +96,7 @@ class ParsedResult:
     claims: list[Any]
     verification: dict[str, Any]
     usage: dict[str, Any]
+    crew_outcome: dict[str, Any]
     raw: dict[str, Any]
 
     def summary_source(self) -> dict[str, Any]:
@@ -157,6 +160,7 @@ def parse_structured_result(result_json: str) -> ParsedResult:
             claims=list(payload.get("claims", [])) if isinstance(payload.get("claims"), list) else [],
             verification=_dict_field(payload, "verification"),
             usage=_dict_field(payload, "usage"),
+            crew_outcome=_dict_field(payload, "crew_outcome"),
             raw=dict(payload),
         )
 
@@ -194,7 +198,7 @@ def parse_structured_result(result_json: str) -> ParsedResult:
             raise StructuredResultParseError(
                 f"Structured Result {key} must be an array"
             )
-    for key in ("verification", "usage"):
+    for key in ("verification", "usage", "crew_outcome"):
         value = payload.get(key, {})
         if not isinstance(value, dict):
             raise StructuredResultParseError(
@@ -220,5 +224,6 @@ def parse_structured_result(result_json: str) -> ParsedResult:
         claims=list(payload.get("claims", [])),
         verification=dict(payload.get("verification", {})),
         usage=dict(payload.get("usage", {})),
+        crew_outcome=dict(payload.get("crew_outcome", {})),
         raw=dict(payload),
     )

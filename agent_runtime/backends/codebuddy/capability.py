@@ -32,9 +32,9 @@ def descriptor() -> CrewDescriptor:
             "host_permission_callback",
             "model_selection",
         ),
-        controlled_capabilities=("analyze_context", "edit_files", "run_commands"),
+        controlled_capabilities=("analyze_context", "edit_files", "run_commands", "verify_commands"),
         documented_routes=("sdk", "headless", "public_acp_beta", "http_api_beta"),
-        implemented_routes=("sdk_context_read_only", "sdk_patch"),
+        implemented_routes=("sdk_context_read_only", "sdk_patch", "sdk_verify"),
         dispatch_ready=True,
         model_discovery="codebuddy_acp_account_live",
         notes=(
