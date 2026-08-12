@@ -156,8 +156,8 @@ WorkBuddy 已从当前生产 Backend 移除。
 
 正式约束来源：
 
-1. `TP_VOYAGER_CHARTER.md`
-2. `TP_VOYAGER_DIRECTORY_BASELINE.md`
+1. `docs/architecture/CHARTER.md`
+2. `docs/architecture/DIRECTORY_BASELINE.md`
 3. `AGENTS.md`
 
 任何新需求必须先通过 Charter Gate。

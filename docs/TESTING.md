@@ -19,7 +19,7 @@ Smoke + 直接受影响专项
 直接运行：
 
 ```bat
-run_tests.cmd
+scripts\run_tests.cmd
 ```
 
 无参数时默认 Smoke。
@@ -160,8 +160,8 @@ P2
 自动化最小 Gate：
 
 ```powershell
-.\run_tests.cmd smoke
-.\run_tests.cmd current
+.\scripts\run_tests.cmd smoke
+.\scripts\run_tests.cmd current
 python -m agent_runtime.testing.runner regression
 python -m agent_runtime.testing.runner stress
 ```
@@ -262,8 +262,8 @@ v1.0.5 inherits the v1.0.4 stable gates and adds the following code-side require
 Automated release-candidate gate:
 
 ```powershell
-.\run_tests.cmd smoke
-.\run_tests.cmd current
+.\scripts\run_tests.cmd smoke
+.\scripts\run_tests.cmd current
 python -m agent_runtime.testing.runner regression
 python -m agent_runtime.testing.runner stress
 ```

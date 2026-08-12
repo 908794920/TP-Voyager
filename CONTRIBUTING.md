@@ -6,8 +6,8 @@
 
 提交代码前请依次阅读：
 
-1. `TP_VOYAGER_CHARTER.md`
-2. `TP_VOYAGER_DIRECTORY_BASELINE.md`
+1. `docs/architecture/CHARTER.md`
+2. `docs/architecture/DIRECTORY_BASELINE.md`
 3. `AGENTS.md`
 
 ## 建议流程

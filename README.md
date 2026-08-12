@@ -105,7 +105,7 @@ py -m venv .venv
 ### 2. 启动 Runtime
 
 ```powershell
-.\start_runtime.cmd
+.\scripts\start_runtime.cmd
 ```
 
 或：
@@ -118,7 +118,7 @@ py -m venv .venv
 
 ```powershell
 $env:AGENT_RUNTIME_PYTHON = "D:\path\to\python.exe"
-.\start_runtime.cmd
+.\scripts\start_runtime.cmd
 ```
 
 ### 3. 配置 operator 模型资料
@@ -229,9 +229,10 @@ TP-Voyager/
 │   └── tp-voyager-captain/     # Captain 使用规范
 ├── tests/
 ├── docs/                       # 面向人阅读的产品/运维/架构文档
+│   └── architecture/           # 治理基线（Charter / Directory Baseline）
+├── scripts/                    # 启动与测试脚本
 ├── AGENTS.md                   # AI 开发约束
-├── TP_VOYAGER_CHARTER.md       # 产品边界
-└── TP_VOYAGER_DIRECTORY_BASELINE.md
+└── CHANGELOG.md
 ```
 
 v1.0.6 **不为了目录好看大搬 Durable Core**。已有大型历史 service 暂时保持兼容位置；新能力优先进入已有职责槽位，后续只有在真实维护成本证明值得时再迁移。
@@ -276,14 +277,14 @@ Evidence over claims
 日常默认：
 
 ```powershell
-.\run_tests.cmd
+.\scripts\run_tests.cmd
 ```
 
 更完整的维护 profile：
 
 ```powershell
-.\run_tests.cmd current
-.\run_tests.cmd regression
+.\scripts\run_tests.cmd current
+.\scripts\run_tests.cmd regression
 ```
 
 详见 [docs/TESTING.md](docs/TESTING.md)。

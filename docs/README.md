@@ -14,8 +14,8 @@ README 只负责快速理解和上手；实现细节按主题放在这里。
 - [测试策略](TESTING.md) — Smoke、Current、Regression、Live Gate。
 - [CodeBuddy Backend](BACKEND_CODEBUDDY.md) — CodeBuddy 受控路线与模型目录来源。
 - [Qoder Backend](BACKEND_QODER.md) — Qoder ACP/SDK 路线与动态模型目录。
-- [项目 Charter](../TP_VOYAGER_CHARTER.md) — 产品最高边界。
-- [目录基线](../TP_VOYAGER_DIRECTORY_BASELINE.md) — 代码职责与目录约束。
+- [项目 Charter](architecture/CHARTER.md) — 产品最高边界。
+- [目录基线](architecture/DIRECTORY_BASELINE.md) — 代码职责与目录约束。
 - [AI 开发规则](../AGENTS.md) — 修改仓库前必须遵守的约束。
 
 ## 历史

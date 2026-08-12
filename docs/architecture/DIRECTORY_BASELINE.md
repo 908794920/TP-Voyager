@@ -3,7 +3,7 @@
 > **Status:** Frozen Baseline  
 > **Purpose:** Prevent architecture drift, directory inflation, responsibility overlap, and AI-driven restructuring without evidence.
 >
-> This document is subordinate only to `TP_VOYAGER_CHARTER.md`.
+> This document is subordinate only to `docs/architecture/CHARTER.md`.
 >
 > If a future implementation proposal conflicts with this directory baseline, the proposal must be rejected unless the baseline itself is explicitly revised first.
 
@@ -42,21 +42,24 @@ Reuse an existing responsibility slot before creating a new directory.
 ```text
 TP-Voyager/
 │
-├── TP_VOYAGER_CHARTER.md
-├── TP_VOYAGER_DIRECTORY_BASELINE.md
-├── AGENTS.md
 ├── README.md
+├── AGENTS.md
+├── CHANGELOG.md
+├── CONTRIBUTING.md
+├── SECURITY.md
+├── LICENSE
 ├── pyproject.toml
-├── run_tests.cmd
-├── start_runtime.cmd
-│
+├── requirements.txt
 ├── agent_runtime/
-│
 ├── skills/
-│
 ├── tests/
-│
-└── docs/
+├── docs/
+│   └── architecture/
+│       ├── CHARTER.md
+│       └── DIRECTORY_BASELINE.md
+└── scripts/
+    ├── start_runtime.cmd
+    └── run_tests.cmd
 ```
 
 These are the expected long-term top-level areas.
@@ -80,7 +83,7 @@ TP-Voyager/
 └── ...
 ```
 
-If a responsibility can fit under the existing `agent_runtime/`, `skills/`, `tests/`, or `docs/` hierarchy, it must go there.
+If a responsibility can fit under the existing `agent_runtime/`, `skills/`, `tests/`, `docs/`, or `scripts/` hierarchy, it must go there.
 
 ---
 
@@ -817,15 +820,21 @@ Frozen current-document shape:
 
 ```text
 docs/
+├── README.md
 ├── ARCHITECTURE.md
+├── MODEL_ROUTING.md
 ├── TESTING.md
 ├── OPERATIONS.md
 ├── BACKEND_CODEBUDDY.md
 ├── BACKEND_QODER.md
+├── architecture/
+│   ├── CHARTER.md
+│   └── DIRECTORY_BASELINE.md
+├── examples/
 └── records/
 ```
 
-Current Source of Truth stays in the top of `docs/`.
+Current product/operations documentation stays at the top of `docs/`; governance baselines live in `docs/architecture/`.
 
 Historical documents belong in:
 
@@ -1158,8 +1167,8 @@ Large restructuring after T0 requires explicit Charter-level review.
 Any execution AI working on TP-Voyager must follow this order:
 
 ```text
-1. Read TP_VOYAGER_CHARTER.md
-2. Read TP_VOYAGER_DIRECTORY_BASELINE.md
+1. Read docs/architecture/CHARTER.md
+2. Read docs/architecture/DIRECTORY_BASELINE.md
 3. Read AGENTS.md
 4. Locate the existing responsibility slot
 5. Modify the smallest required surface
@@ -1205,13 +1214,17 @@ The long-term target is:
 ```text
 TP-Voyager/
 │
-├── TP_VOYAGER_CHARTER.md
-├── TP_VOYAGER_DIRECTORY_BASELINE.md
-├── AGENTS.md
 ├── README.md
+├── AGENTS.md
+├── CHANGELOG.md
+├── CONTRIBUTING.md
+├── SECURITY.md
+├── LICENSE
 ├── pyproject.toml
-├── run_tests.cmd
-├── start_runtime.cmd
+├── requirements.txt
+├── scripts/
+│   ├── run_tests.cmd
+│   └── start_runtime.cmd
 │
 ├── agent_runtime/
 │   │

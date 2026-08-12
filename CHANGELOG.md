@@ -12,7 +12,7 @@ Routable Model Catalog + public documentation cleanup。保持 Captain 显式决
 - 显式 policy route / profile route / historical route 即使暂时未出现在 Provider catalog 也继续可见，但 `available=null`，不猜 entitlement；
 - Provider reference multiplier 永远保持 `calculation_allowed=false`，真实消耗仍只使用 `tp-voyager.usage/v1` Evidence；
 - Qoder SDK `context_config` / `thinking_config.enabled.efforts` 被机械归一化供 Captain 阅读，不把公开文档冒充实时 Provider 状态；
-- 根 README 从开发流水账收敛为产品入口；新增 `docs/README.md`、`docs/MODEL_ROUTING.md` 与可编辑的完整当前 route profile 示例；同步清理 CodeBuddy/Operations/Captain Skill 的过时说明；
+- 根 README 从开发流水账收敛为产品入口；启动/测试脚本移入 `scripts/`，治理基线移入 `docs/architecture/`；新增 `docs/README.md`、`docs/MODEL_ROUTING.md` 与可编辑 route profile 示例，并同步修正所有入口路径；
 - 不做 Durable Core/Planner/Task Service 美容式大搬迁；不增加第二套路由、计费、Evidence 或 Task 系统。
 
 ## 1.0.5 — 2026-08-10

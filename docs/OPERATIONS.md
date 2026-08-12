@@ -12,7 +12,7 @@ py -m venv .venv
 启动：
 
 ```bat
-start_runtime.cmd
+scripts\start_runtime.cmd
 ```
 
 也可以直接：
@@ -23,7 +23,7 @@ python -m agent_runtime.server
 
 ## Python 选择规则
 
-`start_runtime.cmd` / `run_tests.cmd` 按以下顺序选择 Python：
+`scripts\start_runtime.cmd` / `scripts\run_tests.cmd` 按以下顺序选择 Python：
 
 ```text
 1. AGENT_RUNTIME_PYTHON
@@ -94,14 +94,14 @@ Vendor-specific、`subagent_*`、`context_*`、Planner/Artifact 等历史兼容�
 
 ```bat
 set TP_VOYAGER_MCP_SURFACE=diagnostic
-start_runtime.cmd
+scripts\start_runtime.cmd
 ```
 
 PowerShell：
 
 ```powershell
 $env:TP_VOYAGER_MCP_SURFACE = "diagnostic"
-.\start_runtime.cmd
+.\scripts\start_runtime.cmd
 ```
 
 诊断 Surface 只改变工具可见性，不创建第二套 Runtime 或状态机。

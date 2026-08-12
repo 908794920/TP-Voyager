@@ -14,9 +14,11 @@ PKG = REPO_ROOT / "agent_runtime"
 
 
 class TPVoyagerArchitectureBaselineTests(unittest.TestCase):
-    def test_root_governance_documents_are_present(self) -> None:
-        self.assertTrue((REPO_ROOT / "TP_VOYAGER_CHARTER.md").is_file())
-        self.assertTrue((REPO_ROOT / "TP_VOYAGER_DIRECTORY_BASELINE.md").is_file())
+    def test_governance_documents_and_scripts_are_present(self) -> None:
+        self.assertTrue((REPO_ROOT / "docs" / "architecture" / "CHARTER.md").is_file())
+        self.assertTrue((REPO_ROOT / "docs" / "architecture" / "DIRECTORY_BASELINE.md").is_file())
+        self.assertTrue((REPO_ROOT / "scripts" / "start_runtime.cmd").is_file())
+        self.assertTrue((REPO_ROOT / "scripts" / "run_tests.cmd").is_file())
 
     def test_current_product_docs_define_passenger_captain_and_two_crew_families(self) -> None:
         readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
@@ -24,8 +26,8 @@ class TPVoyagerArchitectureBaselineTests(unittest.TestCase):
         for text in ("TP-Voyager", "Captain", "CodeBuddy CLI", "Qoder CLI"):
             self.assertIn(text, readme)
         self.assertTrue("Passenger" in readme or "乘客" in readme)
-        self.assertIn("TP_VOYAGER_CHARTER.md", agents)
-        self.assertIn("TP_VOYAGER_DIRECTORY_BASELINE.md", agents)
+        self.assertIn("docs/architecture/CHARTER.md", agents)
+        self.assertIn("docs/architecture/DIRECTORY_BASELINE.md", agents)
         self.assertIn("CodeBuddy", agents)
         self.assertIn("Qoder", agents)
         self.assertIn("WorkBuddy", agents)  # only as an explicit do-not-reintroduce boundary
@@ -34,7 +36,8 @@ class TPVoyagerArchitectureBaselineTests(unittest.TestCase):
         current = {path.name for path in (REPO_ROOT / "docs").glob("*.md")}
         self.assertEqual(
             current,
-            {"ARCHITECTURE.md", "BACKEND_CODEBUDDY.md", "BACKEND_QODER.md", "TESTING.md", "OPERATIONS.md"},
+            {"README.md", "ARCHITECTURE.md", "MODEL_ROUTING.md", "BACKEND_CODEBUDDY.md",
+             "BACKEND_QODER.md", "TESTING.md", "OPERATIONS.md"},
         )
         codebuddy_doc = (REPO_ROOT / "docs" / "BACKEND_CODEBUDDY.md").read_text(encoding="utf-8")
         qoder_doc = (REPO_ROOT / "docs" / "BACKEND_QODER.md").read_text(encoding="utf-8")

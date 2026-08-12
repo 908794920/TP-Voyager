@@ -11,6 +11,7 @@ set "ELECTRON_RUN_AS_NODE="
 set "PYTHONHOME="
 set "PYTHONPATH="
 
+for %%I in ("%~dp0..") do set "_TPV_ROOT=%%~fI"
 set "_TPV_PYTHON="
 
 if defined AGENT_RUNTIME_PYTHON (
@@ -23,8 +24,8 @@ if defined AGENT_RUNTIME_PYTHON (
 )
 
 if not defined _TPV_PYTHON (
-  if exist "%~dp0.venv\Scripts\python.exe" (
-    set "_TPV_PYTHON=%~dp0.venv\Scripts\python.exe"
+  if exist "%_TPV_ROOT%\.venv\Scripts\python.exe" (
+    set "_TPV_PYTHON=%_TPV_ROOT%\.venv\Scripts\python.exe"
   )
 )
 
@@ -38,7 +39,7 @@ if not defined _TPV_PYTHON (
   exit /b 9009
 )
 
-pushd "%~dp0"
+pushd "%_TPV_ROOT%"
 "%_TPV_PYTHON%" -m agent_runtime.server
 set "_RUNTIME_EXIT=%ERRORLEVEL%"
 popd

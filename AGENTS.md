@@ -4,8 +4,8 @@
 
 任何 AI 在进行架构、开发、测试或文档修改前，必须依次阅读：
 
-1. `TP_VOYAGER_CHARTER.md`
-2. `TP_VOYAGER_DIRECTORY_BASELINE.md`
+1. `docs/architecture/CHARTER.md`
+2. `docs/architecture/DIRECTORY_BASELINE.md`
 3. 本文件 `AGENTS.md`
 
 如果拟议修改与 Charter 或 Directory Baseline 冲突，必须先停止并报告冲突，不得自行“优化后继续”。
