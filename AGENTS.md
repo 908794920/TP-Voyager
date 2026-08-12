@@ -12,9 +12,9 @@
 
 ## 当前基线
 
-**TP-Voyager v1.0.5 — release candidate（基于 v1.0.4 stable）**
+**TP-Voyager v1.0.6 — Routable Model Catalog & Repository Cleanup**
 
-v1.0.4 已完成真实环境 Stable Gate。v1.0.5 在其六工具 Captain Surface、Model Policy、Worker Skill、Artifact Handoff 与 Durable Core 上继续收口完整开发流：Trusted Instruction、CrewOutcome、Apply Receipt/精确 Verification Subject、Large Research 分片、RunControl 资源账本以及 `run_id + step_key` 恢复。
+v1.0.6 在 v1.0.5 stable 基线上补齐 data-driven Routable Model Catalog，并收敛对外文档。Runtime 继续保持六工具 Captain Surface、显式 Crew/model/effort、Durable Core、Patch/Receipt/Verification 与 RunControl 边界不变。
 
 ```text
 Passenger → Captain AI → TP-Voyager → Crew
@@ -110,6 +110,24 @@ SQLite 内部结构
 ```
 
 大内容通过 Artifact 按需读取。
+
+### 模型目录事实所有权
+
+v1.0.6 的模型目录必须保持数据驱动：
+
+```text
+Provider live catalog           → availability/context/effort/reference multiplier
+dispatch_model_policy.json      → 能不能用（硬约束）
+model_routing_profiles.json     → 适合干什么（operator advisory metadata）
+Runtime Evidence                → 实际历史/Usage
+Captain                         → 最终选择
+```
+
+- 能力档位、推荐任务、风险边界不得硬编码进 Python；
+- `model_routing_profiles.json` 只提供建议，不能绕过 `dispatch_model_policy.json`；
+- `reference_multiplier` 永远是 reference-only，公共投影固定 `calculation_allowed=false`；
+- `crew_catalog` 可合并并投影事实，但必须保持 `selection_performed=false`、`dispatch_performed=false`；
+- Provider / policy / profile / history 互相不能篡改对方拥有的事实。
 
 ## Crew 安全边界
 

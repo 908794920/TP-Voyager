@@ -2,13 +2,13 @@
 name: tp-voyager-captain
 description: Route bounded work through TP-Voyager MCP.
 metadata:
-  version: "1.0.5"
+  version: "1.0.6"
   protocol: "tp-voyager-captain/v1"
 ---
 
 # TP-Voyager Captain Skill
 
-> Version: 1.0.5
+> Version: 1.0.6
 >
 > Role: Captain-side orchestration skill for TP-Voyager.
 >
@@ -109,6 +109,30 @@ different model.
 Model `billing` and `capabilities` metadata are descriptive/reference facts
 with explicit sources. They are not scores, bills, or routing instructions.
 Usage Evidence remains the only task-level resource-consumption truth source.
+
+In v1.0.6, prefer the normalized route facts returned by
+`crew_catalog(include_models=true)` instead of guessing model quality from an
+ID or display name.  For each candidate route, inspect at least:
+
+```text
+route_id
+available
+allowlist_status
+routable / routability_status
+reference_multiplier
+capability_profile
+reasoning
+history
+usage
+sources
+```
+
+`capability_profile` is operator-owned advisory metadata; it cannot authorize a
+model. `reference_multiplier` is reference-only and must never be converted
+into a bill. Only pass `reasoning_effort` when the current Backend route
+explicitly supports it; a profile suggestion is not transport capability. The
+Captain still explicitly chooses Crew, model and supported effort, and
+`task_dispatch` remains the only dispatch step.
 
 ### 2.2 Timeout presets
 

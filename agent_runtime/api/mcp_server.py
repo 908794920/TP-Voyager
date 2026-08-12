@@ -48,7 +48,7 @@ from agent_runtime.verification.artifacts import (
 from agent_runtime.verification.artifacts.normalizer import DeclaredArtifact
 from agent_runtime.verification import VerificationPlan, VerificationService
 from agent_runtime.persistence.database import Database
-from agent_runtime.persistence.runtime_paths import runtime_database_path
+from agent_runtime.persistence.runtime_paths import canonical_runtime_home, runtime_database_path
 from agent_runtime.persistence.errors import (
     LeaseLostError,
     RuntimePersistenceError,
@@ -99,7 +99,9 @@ from agent_runtime.application.plan_execution_service import (
 )
 from agent_runtime.application.outcome_service import assess_task_result
 from agent_runtime.application.crew import CrewProvider, CrewRegistryService
+from agent_runtime.application.crew.routing_profiles import ModelRoutingProfiles
 from agent_runtime.application.dispatch import CaptainDispatchService
+from agent_runtime.application.dispatch.policy import GlobalDispatchModelPolicy
 from agent_runtime.application.dispatch.profiles import (
     TrustedTextError,
     WorkerProfileError,
@@ -388,6 +390,12 @@ def _crew_registry_service() -> CrewRegistryService:
             ),
         },
         task_service=tasks,
+        model_policy_loader=lambda: GlobalDispatchModelPolicy.load(
+            canonical_runtime_home()
+        ),
+        routing_profiles_loader=lambda: ModelRoutingProfiles.load(
+            canonical_runtime_home()
+        ),
     )
 
 

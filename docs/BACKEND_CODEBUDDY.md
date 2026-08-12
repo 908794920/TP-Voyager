@@ -12,6 +12,7 @@
 ```text
 sdk_context_read_only
 sdk_patch
+sdk_verify
 ```
 
 ## 中国区环境
@@ -54,34 +55,37 @@ task_dispatch(
 
 `context_files` 仍作为 v1.0.1 兼容入口。TP-Voyager 会把统一 read scope 映射为 Context Manifest，再做 Hash/漂移校验和有界 Snapshot 渲染。
 
-## Health / Model Registry 语义
+## Model Catalog / Billing 语义
 
-`crew_health(codebuddy)` 将以下事实分开表达：
-
-- CLI / SDK 是否可用；
-- 认证是否真的执行过 probe；
-- 最近成功的显式模型；
-- 模型目录来源与当前账号 entitlement 是否已知。
-
-v1.0.3 的 CodeBuddy 模型目录来自：
+v1.0.6 不再把 CodeBuddy model catalog 描述成固定的 `--help` 清单。当前顺序是：
 
 ```text
-codebuddy --help
-  -> --model <model>
-  -> Currently supported: (...)
-```
-
-目录项标记：
-
-```text
+catalog-only ACP: initialize → session/new → close
+        ↓ 成功
+source=codebuddy_acp_account_live
+available=true
+reference multiplier (when provider returns it)
+        ↓ ACP 不可用
+codebuddy --help declaration fallback
 source=cli_declared
 available=null
 entitlement_status=unknown
 ```
 
-它只证明**当前安装的 CLI 声明支持这些 model id**，不证明当前账号实时拥有每个模型。解析失败时保持 unknown/空目录，不硬编码、不拿历史成功模型冒充当前目录。
+ACP 目录只做控制面读取：不发 Prompt、不开放 tool/terminal/permission 回调。任何异常 callback 都 fail-closed。
 
-CodeBuddy 官方 Credits 文档说明不同模型/任务可能消耗不同 Credits，但 TP-Voyager 当前没有可靠的逐模型固定费率真相源。因此 Registry 中 billing 保持 unknown；只有任务 SDK 实际回传的 token/credit/provider-reported cost 才进入 Usage Evidence。
+Provider 返回的 Credits 倍率投影为：
+
+```text
+reference_multiplier
+calculation_allowed=false
+```
+
+它可以帮助 Captain 比较相对消耗，但**不能**用于计算真实账单。真实任务消耗仍只来自 `tp-voyager.usage/v1` Evidence。
+
+`crew_catalog(include_models=true)` 还会把该实时目录与 operator policy、`model_routing_profiles.json`、Runtime history/Usage 合并成 routable route；CodeBuddy adapter 本身不理解 L0/L1/L2/L3，也不替 Captain 选模型。
+
+当前 CodeBuddy 受控 SDK Backend 声明 `supports_reasoning_effort=false`。因此 operator profile 可以保留模型级 `suggested_effort` 作为认知资料，但 Captain 不能把它当成当前 CodeBuddy route 已支持的实时参数；只有 Backend/Provider 明确支持后才可下发 `reasoning_effort`。
 
 ## `repository_research`
 

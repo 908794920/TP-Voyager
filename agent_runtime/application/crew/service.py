@@ -14,9 +14,12 @@ import time
 from typing import Any, Callable, Mapping
 
 from agent_runtime.domain.crew import CrewDescriptor, CrewHealthSnapshot, ModelDescriptor
+from agent_runtime.application.crew.routing_profiles import ModelRoutingProfiles
 
 Probe = Callable[[], dict[str, Any]]
 ModelCatalog = Callable[[], list[ModelDescriptor]]
+ModelPolicyLoader = Callable[[], Any]
+RoutingProfilesLoader = Callable[[], ModelRoutingProfiles]
 
 
 @dataclass(frozen=True)
@@ -41,13 +44,22 @@ _TERMINAL_HEALTH = frozenset({"completed", "failed", "lost", "orphaned"})
 class CrewRegistryService:
     """Normalized Crew capability/health/model-awareness view for Captain."""
 
-    def __init__(self, providers: Mapping[str, CrewProvider], *, task_service: Any | None = None) -> None:
+    def __init__(
+        self,
+        providers: Mapping[str, CrewProvider],
+        *,
+        task_service: Any | None = None,
+        model_policy_loader: ModelPolicyLoader | None = None,
+        routing_profiles_loader: RoutingProfilesLoader | None = None,
+    ) -> None:
         self._providers = {
             str(name).strip().lower(): provider
             for name, provider in providers.items()
             if str(name).strip()
         }
         self._task_service = task_service
+        self._model_policy_loader = model_policy_loader
+        self._routing_profiles_loader = routing_profiles_loader
 
     def catalog(self, *, probe: bool = False, include_models: bool = False) -> dict[str, Any]:
         crews: list[dict[str, Any]] = []
@@ -144,11 +156,12 @@ class CrewRegistryService:
             return []
 
     def model_catalog(self, backend: str) -> dict[str, Any]:
-        """Project provider catalog + durable model facts without new state."""
+        """Project provider + operator + durable facts without selecting a model."""
         name = backend.strip().lower()
         provider = self._providers.get(name)
         if provider is None:
             raise ValueError(f"Unknown crew backend: {backend}")
+
         models = self.models(name)
         statuses = {
             str(model.metadata.get("catalog_status") or "unknown")
@@ -168,50 +181,254 @@ class CrewRegistryService:
             if len(observed_sources) == 1
             else provider.descriptor.model_discovery
         )
-        projected: list[dict[str, Any]] = []
-        seen: set[str] = set()
+
+        policy, authorization = self._load_model_policy()
+        profiles, profiles_meta = self._load_routing_profiles()
+        explicit_allowed = getattr(policy, "allowed_models", None) if policy is not None else None
+        policy_route_ids = {
+            str(item) for item in (explicit_allowed or ())
+            if str(item).startswith(f"{name}:")
+        }
+        profile_route_ids = set(profiles.route_ids(name)) if profiles is not None else set()
+        historical_ids = set(self._historical_models(name))
+
+        provider_by_id: dict[str, ModelDescriptor] = {}
+        ordered_ids: list[str] = []
         for model in models:
-            seen.add(model.model_id)
-            projected.append({
-                **model.to_dict(),
-                "history": self.model_history(name, model.model_id),
-                "usage": self.model_usage_summary(name, model.model_id),
-            })
-        # Preserve models actually used in durable history even if the current
-        # CLI catalog is unknown/changed.  Historical presence never implies
-        # current availability.
-        for model_id in self._historical_models(name):
-            if model_id in seen:
+            if model.model_id in provider_by_id:
                 continue
-            projected.append({
-                **ModelDescriptor(
+            provider_by_id[model.model_id] = model
+            ordered_ids.append(model.model_id)
+        for route_id in sorted(policy_route_ids | profile_route_ids):
+            model_id = route_id.split(":", 1)[1]
+            if model_id not in ordered_ids:
+                ordered_ids.append(model_id)
+        for model_id in sorted(historical_ids):
+            if model_id not in ordered_ids:
+                ordered_ids.append(model_id)
+
+        projected: list[dict[str, Any]] = []
+        for model_id in ordered_ids:
+            observed = provider_by_id.get(model_id)
+            if observed is None:
+                model = ModelDescriptor(
                     backend=name,
                     model_id=model_id,
                     available=None,
                     disabled_reason=None,
-                    source="runtime_history",
+                    source=(
+                        "runtime_history" if model_id in historical_ids
+                        else "operator_projection"
+                    ),
                     metadata={
-                        "catalog_status": "historical_only",
+                        "catalog_status": (
+                            "historical_only" if model_id in historical_ids
+                            else "not_observed_in_provider_catalog"
+                        ),
                         "availability_status": "current_catalog_not_observed",
                         "billing": {"status": "unknown"},
                     },
-                ).to_dict(),
+                )
+            else:
+                model = observed
+            route_id = f"{name}:{model_id}"
+            profile = profiles.get(route_id) if profiles is not None else None
+            allowlist_status = self._allowlist_status(route_id, policy, authorization)
+            routable, routability_status = self._routability(
+                model.available, allowlist_status,
+                dispatch_ready=provider.descriptor.dispatch_ready,
+            )
+            billing = model.metadata.get("billing")
+            billing = billing if isinstance(billing, dict) else {}
+            public_metadata = dict(model.metadata)
+            public_billing = dict(billing)
+            # Catalog pricing metadata is never a task-cost formula.  Enforce
+            # the public safety bit even if an upstream adapter accidentally
+            # projects a permissive value.
+            public_billing["calculation_allowed"] = False
+            public_metadata["billing"] = public_billing
+            reference_multiplier = self._reference_multiplier(billing)
+            supported_efforts = self._supported_efforts(model.metadata)
+            suggested_effort = (
+                str(profile.get("suggested_effort") or "").strip()
+                if isinstance(profile, dict) else ""
+            ) or None
+            suggested_supported = (
+                suggested_effort in supported_efforts
+                if suggested_effort is not None and supported_efforts
+                else None
+            )
+            projected.append({
+                **model.to_dict(),
+                "metadata": public_metadata,
+                "route_id": route_id,
+                "allowlist_status": allowlist_status,
+                "policy_sha256": authorization.get("sha256"),
+                "routable": routable,
+                "routability_status": routability_status,
+                "reference_multiplier": reference_multiplier,
+                "calculation_allowed": False,
+                "context_window_tokens": self._context_window_tokens(model.metadata),
+                "capability_profile": profile,
+                "reasoning": {
+                    "supported_efforts": supported_efforts,
+                    "suggested_effort": suggested_effort,
+                    "suggested_effort_supported": suggested_supported,
+                },
                 "history": self.model_history(name, model_id),
                 "usage": self.model_usage_summary(name, model_id),
+                "sources": {
+                    "availability": model.source,
+                    "billing": str(billing.get("source") or model.source),
+                    "authorization": "operator_dispatch_policy" if policy is not None else "unavailable",
+                    "capability_profile": (
+                        "operator_model_routing_profiles" if profile is not None
+                        else ("unavailable" if profiles_meta.get("status") == "invalid" else "not_configured")
+                    ),
+                    "history": "runtime_task_history",
+                    "usage": "runtime_evidence",
+                },
             })
+
         return {
-            "schema": "tp-voyager.model_catalog/v1",
+            "schema": "tp-voyager.model_catalog/v2",
             "backend": name,
             "catalog": {
                 "status": status,
                 "source": catalog_source,
-                "model_count": len(models),
-                "historical_only_count": max(0, len(projected) - len(models)),
+                "provider_model_count": len(models),
+                "projected_model_count": len(projected),
+                "historical_only_count": sum(
+                    1 for item in projected
+                    if item.get("metadata", {}).get("catalog_status") == "historical_only"
+                ),
+                "authorization": authorization,
+                "routing_profiles": profiles_meta,
                 "selection_performed": False,
             },
             "models": projected,
+            "selection_performed": False,
+            "dispatch_performed": False,
             "observed_at": time.time(),
         }
+
+    def _load_model_policy(self) -> tuple[Any | None, dict[str, Any]]:
+        if self._model_policy_loader is None:
+            return None, {
+                "status": "unavailable",
+                "source": "operator_dispatch_policy",
+                "sha256": None,
+            }
+        try:
+            policy = self._model_policy_loader()
+        except Exception:
+            return None, {
+                "status": "invalid",
+                "source": "operator_dispatch_policy",
+                "sha256": None,
+            }
+        return policy, {
+            "status": "loaded",
+            "source": "operator_dispatch_policy",
+            "sha256": str(getattr(policy, "sha256", "") or "") or None,
+            "allowlist_configured": getattr(policy, "allowed_models", None) is not None,
+        }
+
+    def _load_routing_profiles(self) -> tuple[ModelRoutingProfiles | None, dict[str, Any]]:
+        if self._routing_profiles_loader is None:
+            profiles = ModelRoutingProfiles()
+            return profiles, profiles.metadata()
+        try:
+            profiles = self._routing_profiles_loader()
+        except Exception:
+            return None, {
+                "status": "invalid",
+                "source": "operator_model_routing_profiles",
+                "sha256": None,
+                "profile_count": 0,
+                "advisory_only": True,
+            }
+        return profiles, profiles.metadata()
+
+    @staticmethod
+    def _allowlist_status(route_id: str, policy: Any | None, authorization: Mapping[str, Any]) -> str:
+        if authorization.get("status") == "invalid":
+            return "policy_invalid"
+        if policy is None:
+            return "policy_unavailable"
+        allowed = getattr(policy, "allowed_models", None)
+        if allowed is None:
+            return "unrestricted"
+        return "allowed" if route_id in allowed else "denied"
+
+    @staticmethod
+    def _routability(
+        available: bool | None, allowlist_status: str, *, dispatch_ready: bool = True
+    ) -> tuple[bool | None, str]:
+        if not dispatch_ready:
+            return False, "crew_not_dispatch_ready"
+        if allowlist_status == "policy_invalid":
+            return False, "policy_invalid"
+        if allowlist_status == "denied":
+            return False, "denied_by_policy"
+        if allowlist_status == "policy_unavailable":
+            return None, "policy_unavailable"
+        if available is False:
+            return False, "provider_disabled"
+        if available is True:
+            return True, "confirmed"
+        return None, "availability_unconfirmed"
+
+    @staticmethod
+    def _reference_multiplier(billing: Mapping[str, Any]) -> float | None:
+        for key in ("multiplier", "price_factor"):
+            value = billing.get(key)
+            if isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0:
+                return float(value)
+        return None
+
+    @staticmethod
+    def _context_window_tokens(metadata: Mapping[str, Any]) -> int | None:
+        direct = metadata.get("context_window_tokens")
+        if isinstance(direct, int) and not isinstance(direct, bool) and direct > 0:
+            return direct
+        config = metadata.get("context_config")
+        if not isinstance(config, dict):
+            return None
+        values: list[int] = []
+        for item in config.values():
+            if not isinstance(item, dict):
+                continue
+            count = item.get("token_count")
+            if isinstance(count, int) and not isinstance(count, bool) and count > 0:
+                values.append(count)
+        return max(values) if values else None
+
+    @staticmethod
+    def _supported_efforts(metadata: Mapping[str, Any]) -> list[str]:
+        value = metadata.get("supported_efforts")
+        if isinstance(value, (list, tuple)):
+            output: list[str] = []
+            for item in value:
+                token = str(item or "").strip()
+                if token and token not in output:
+                    output.append(token)
+            return output[:16]
+        thinking = metadata.get("thinking_config")
+        if isinstance(thinking, dict):
+            for key in ("supported_efforts", "reasoning_efforts", "efforts"):
+                value = thinking.get(key)
+                if isinstance(value, list):
+                    return [str(item).strip() for item in value[:16] if str(item).strip()]
+            enabled = thinking.get("enabled")
+            if isinstance(enabled, dict):
+                efforts = enabled.get("efforts")
+                if isinstance(efforts, dict):
+                    return [
+                        str(key).strip() for key in list(efforts)[:16]
+                        if str(key).strip()
+                    ]
+        return []
 
     def model_history(self, backend: str, model: str) -> dict[str, Any]:
         name = backend.strip().lower()

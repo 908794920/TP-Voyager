@@ -41,7 +41,7 @@ Qoder Agent SDK: QoderSDKClient.get_available_models()  # preferred
 qodercli --list-models                               # compatibility fallback
 ```
 
-但 v1.0.3 明确区分**观测行**和**完整目录**。真实 Windows 环境曾观察到交互终端能显示完整列表，而 Python `stdout=PIPE` 只得到 `MODEL + 单行`。因此若捕获形态为疑似单行截断：
+TP-Voyager 明确区分**观测行**和**完整目录**。真实 Windows 环境曾观察到交互终端能显示完整列表，而 Python `stdout=PIPE` 只得到 `MODEL + 单行`。因此若捕获形态为疑似单行截断：
 
 ```text
 catalog_status=incomplete
@@ -57,6 +57,10 @@ official reference metadata
 ```
 
 它们不会形成模型评分，也不会用于推算某个 Task 的费用。任务真实 Token/Credit/Cost 仍以 `tp-voyager.usage/v1` Evidence 为准。
+
+v1.0.6 进一步从 SDK `context_config` 与 `thinking_config` 机械归一化 context / supported effort，并与 operator `model_routing_profiles.json`、dispatch policy、Runtime Evidence 合并。Operator 的 suggested effort 只做建议；Provider 未返回的实时能力保持 unknown。
+
+完整 route 字段见 `docs/MODEL_ROUTING.md`。
 
 ## 实测预算与模型基线
 

@@ -27,6 +27,7 @@ logs/
 *.sqlite
 *.sqlite3
 *.db
+*.patch
 
 # Secrets / local environment
 .env

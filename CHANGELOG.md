@@ -2,6 +2,19 @@
 
 本项目从 TP-Voyager 正式基线开始记录对外版本。
 
+## 1.0.6 — 2026-08-12
+
+Routable Model Catalog + public documentation cleanup。保持 Captain 显式决策和默认六工具 Surface，不新增自动选模器。
+
+- `crew_catalog(include_models=true)` 升级为 `tp-voyager.model_catalog/v2`：合并 Provider 实时目录、operator dispatch policy、operator routing profile 与 Runtime history/Usage；
+- 新增严格校验、operator-owned 的 `model_routing_profiles.json`，能力档位/推荐任务/风险边界/suggested effort 不再硬编码进 Python；
+- route 投影新增 `route_id`、`allowlist_status`、三态 `routable`、`routability_status`、reference multiplier、context、reasoning、capability profile 与明确 sources；
+- 显式 policy route / profile route / historical route 即使暂时未出现在 Provider catalog 也继续可见，但 `available=null`，不猜 entitlement；
+- Provider reference multiplier 永远保持 `calculation_allowed=false`，真实消耗仍只使用 `tp-voyager.usage/v1` Evidence；
+- Qoder SDK `context_config` / `thinking_config.enabled.efforts` 被机械归一化供 Captain 阅读，不把公开文档冒充实时 Provider 状态；
+- 根 README 从开发流水账收敛为产品入口；新增 `docs/README.md`、`docs/MODEL_ROUTING.md` 与可编辑的完整当前 route profile 示例；同步清理 CodeBuddy/Operations/Captain Skill 的过时说明；
+- 不做 Durable Core/Planner/Task Service 美容式大搬迁；不增加第二套路由、计费、Evidence 或 Task 系统。
+
 ## 1.0.5 — 2026-08-10
 
 基于 `v1.0.4 stable` 的 Full Development Flow Control 正式版本。默认 Captain MCP Surface 仍严格保持 6 tools；TP-Voyager 不计划、不自动推进阶段。

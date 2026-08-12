@@ -1,79 +1,125 @@
 # TP-Voyager Captain Skill
 
-这是 TP-Voyager 面向上层 **Captain AI（船长 AI）** 的唯一入口 Skill。
+Captain Skill 是上层 AI 使用 TP-Voyager 的操作规范。
 
-它不保存任务状态、不直接调用厂商 CLI，也不代替 Runtime 的验证、Evidence、隔离 worktree 或恢复机制。它只负责把“调查、审查、修复”等自然语言目标编排成 TP-Voyager 已支持的高层调用。
-
-## 当前版本
+它只教 Captain **怎么查事实、怎么选择、怎么显式派遣、怎么验收**；不保存任务状态、不直接绕过 Runtime 调供应商 CLI，也不把 TP-Voyager 变成第二个规划 AI。
 
 ```text
-Captain Skill 1.0.5
+Captain Skill 1.0.6
 ```
 
-v1.0.3 在 v1.0.2 stable 基础上新增：
-
-- `crew_catalog(include_models=true)` 的统一 Model Registry projection；
-- CodeBuddy `cli_declared` 模型目录与 Qoder 完整/疑似不完整目录语义；
-- `crew_health(..., model=...)` 的模型历史、Usage 与健康事实查询；
-- Qoder 官方能力/计费**参考元数据**，不做评分、费用估算或自动路由；
-- read-only 归属修复：不扫描既有 Git diff、不生成 patch、不暴露未授权旧改动；
-- `read_scope.max_files/max_bytes` 与嵌套状态目录保护；
-- `worker_profile_ref.allowed_models` 约束，但模型仍必须由 Captain 显式选择；
-- `repository_research`：受控获取一个明确公共 GitHub 仓库，静态只读研究并生成 Runtime-owned 报告 Artifact；
-- 继续保留 v1.0.2 的 Usage Evidence、model policy、profile hash、correlation_id 与宿主无关 Skill/manifest。
-
-## 默认 Captain 工具
-
-正常使用只需要理解：
+## Captain 只需要记住 6 个工具
 
 ```text
+voyager_overview
 crew_catalog
 crew_health
 crew_recommend
-voyager_overview
 task_dispatch
 task_result
 ```
 
-TP-Voyager 默认 MCP Surface 也只暴露这 6 个工具。
-
-历史 Task / Context / Planner / Artifact 等低层工具仍可通过显式诊断模式提供给维护者，但 Captain Skill 在常规航行中不得依赖它们。
+默认 MCP Surface 也只暴露这 6 个工具。低层 Task / Context / Planner / Artifact API 只属于显式 diagnostic surface。
 
 ## 标准流程
 
 ```text
-乘客目标
-  ↓
+Passenger 目标
+   ↓
 voyager_overview
-  ↓
-crew_catalog / crew_health / crew_recommend
-  ↓
-Captain 明确选择 Crew
-  ↓
+   ↓
+crew_catalog(include_models=true)
+   ↓
+必要时 crew_health / crew_recommend
+   ↓
+Captain 选择 Crew / Model / Effort
+   ↓
 task_dispatch
-  ↓
-voyager_overview
-  ↓
-task_result
-  ↓
-Captain 根据 Verification / Evidence / Budget 做决定
+   ↓
+task_result + Verification / Evidence
+   ↓
+Captain 接受 / 拒绝 / 决定下一步
 ```
 
-## 超时预设
+## v1.0.6 怎么选模型
 
-| 预设 | 典型任务 | timeout_seconds |
-|---|---|---:|
-| quick | 小范围查询 / 快速检查 | 180 |
-| investigation | 调研 / 代码理解 | 600 |
-| review | Code Review / 故障分析 | 600 |
-| patch | 受控 small_patch | 900 |
-| verify | 有界验证 | 300 |
+不要把模型名称写死在 Skill 里，也不要凭记忆猜“哪个更强”。
 
-超时预设不是自动重试策略。任务超时后由 Captain 决定是否以更大的显式预算重新派遣。
+`crew_catalog(include_models=true)` 会把四类信息合在 route 上：
+
+```text
+Provider live facts           # availability/context/effort/reference multiplier
+operator dispatch policy      # allow / deny
+operator routing profile      # tier/tasks/risks/suggested effort
+Runtime Evidence              # success/duration/usage
+```
+
+Captain 重点看：
+
+```text
+route_id
+available
+allowlist_status
+routable / routability_status
+reference_multiplier
+capability_profile
+reasoning
+history
+usage
+sources
+```
+
+解释规则：
+
+- `routable=true`：policy 允许且 Provider 明确可用；
+- `routable=false`：Crew route 未 dispatch-ready、policy 拒绝、Provider disabled 或 policy invalid；
+- `routable=null`：允许但实时 availability 未确认；
+- `capability_profile` 是 operator 维护的建议资料，不是 Runtime 模型评分；
+- `reference_multiplier` 只用于相对消耗比较，`calculation_allowed=false`；
+- `usage` 才是任务实际返回的 Usage Evidence；
+- `suggested_effort` 只是模型级建议；只有当前 Provider/Backend route 明确支持该 effort 时才传入 `task_dispatch`。当前 CodeBuddy 受控 SDK route 不接受 `reasoning_effort`，不要仅凭 profile 强行下发。
+
+真正下发必须继续写清：
+
+```text
+crew=...
+model=...
+reasoning_effort=...
+```
+
+TP-Voyager 不会替换失败模型，也不会自动 fallback。
+
+## `crew_recommend` 的边界
+
+`crew_recommend` 只帮助判断**哪个 Crew 的受控执行路线**与 task kind / capability 匹配，并结合有限历史健康事实排序。
+
+它不是模型自动路由器；模型选择仍看 `crew_catalog` 后由 Captain 决定。
+
+## 任务要保持有界
+
+委派时至少明确：
+
+```text
+GOAL
+SCOPE / read_scope
+CONSTRAINTS
+VALIDATION
+DELIVERABLE
+TIMEOUT
+```
+
+Patch 还必须明确：
+
+- allowed / forbidden paths；
+- verification command；
+- 文件数 / diff 预算；
+- Runtime-owned isolated worktree。
+
+不要为了“让任务成功”自动扩大边界。
 
 ## 统一 Read Scope
 
-新任务优先通过 `task_dispatch(read_scope=...)` 描述只读范围：
+推荐：
 
 ```json
 {
@@ -85,66 +131,53 @@ Captain 根据 Verification / Evidence / Budget 做决定
 }
 ```
 
-TP-Voyager 将同一 Captain Contract 解析为有界具体文件集合：
+TP-Voyager 会将同一逻辑范围映射到各 Crew 的受控读取机制，不允许供应商差异扩大权限。
+
+## 超时预设
+
+| 预设 | 典型任务 | timeout_seconds |
+|---|---|---:|
+| quick | 小范围查询 / 快速检查 | 180 |
+| investigation | 调研 / 代码理解 | 600 |
+| review | Code Review / 故障分析 | 600 |
+| patch | 受控 small_patch | 900 |
+| verify | 有界验证 | 300 |
+
+超时不是自动重试信号。Captain 看已消耗预算和 Evidence 后决定是否重新派遣。
+
+## Usage / Billing
+
+只相信 Provider 实际返回并被 Runtime 持久化的 `tp-voyager.usage/v1`。
+
+不要：
 
 ```text
-read_scope
-  ├─ CodeBuddy → Context Manifest → immutable snapshot
-  └─ Qoder     → ACP host allowed_paths
+reference multiplier × token = bill
+公开 API 单价 × token = TP-Voyager 账单
 ```
 
-转换必须 fail-closed，不得因为某个 Crew 的内部机制不同而扩大读取权限。
-`context_files` 仍保留给旧 CodeBuddy 调用兼容。
+Provider 没返回的消耗字段保持 unknown。
 
-## Model / Profile / Correlation
+## repository_research
 
-- `model_policy.allowed_models`：Passenger/Captain 允许池；选择仍由 Captain 显式完成。
-- `worker_profile_ref`：可信 Profile 的 `name/version/sha256`，可附带 `allowed_models` 作为校验约束；内容只进入瞬时 Prompt，不写入 Session metadata。
-- `correlation_id`：仅外部关联键，不建立第二任务系统。
+该 task kind 只做受控公共 GitHub 静态源码研究：Runtime 预检并 shallow clone，Crew 在明确 read scope 中只读，报告由 Runtime 作为 Artifact 返回。
 
-## Usage Evidence
-
-TP-Voyager 只记录 CLI/SDK/ACP 实际返回的使用事实，例如 input/output tokens、credits 或 provider-reported cost。不存在的字段保持未知，不按公开价格、倍率或 Token 公式推算。Qoder 在失败/超时前已经返回的 Usage 也会尽量绑定到当前 Attempt。
-
-## 受控外部源码研究
-
-`task_kind=repository_research` 是独立 Contract，仅接受 Captain 明确提供的公共 `https://github.com/<owner>/<repo>` URL、全新绝对目标目录、大小上限、Crew/model 和 read_scope。Runtime 负责固定 GitHub metadata 预检与 `--depth 1` clone，Crew 只读本地 `source/`，最终报告由 Runtime 写到指定 `reports/` 并作为 Artifact 返回。
-
-它明确禁止运行下载源码、安装依赖、build/start、修改源码、覆盖已有目录、任意网络爬取、自动换 Crew/model 或递归派工。Provider 自身传输仍需要网络，因此不要把它宣传成“物理断网执行”。
-
-## Patch
-
-Patch 仍由 Runtime 强制执行：
-
-```text
-隔离 Git worktree
-+ allowed / forbidden paths
-+ 精确 argv 命令白名单
-+ Verification
-+ Evidence
-```
-
-在派遣 Patch 前，Captain 必须已经从乘客目标中得到明确授权，或主动确认：
-
-- 可以修改哪些路径；
-- 使用哪些验证命令；
-- 最多修改多少文件 / diff；
-- 本次超时预算。
-
-Skill 不得为了“让任务成功”自动扩大这些边界。
+禁止把它当下载器、构建器、依赖安装器、任意 Web crawler 或递归 Agent 调度器。
 
 ## 安装
 
 把本目录中的 `SKILL.md` 加载到能够访问 TP-Voyager MCP Server 的上层 AI 环境即可。
 
-不同 AI 宿主的 Skill 安装方式不同，本项目不把 Captain Skill 绑定到 Codex、Claude、Qoder 或其他单一产品。
+本项目不绑定单一 Captain 宿主；只要宿主能使用 TP-Voyager MCP 六工具即可。
 
 ## 文件
 
 ```text
 tp-voyager-captain/
-├── SKILL.md                   # Captain AI 正式操作规范
-├── tp-voyager.manifest.json  # TP-Voyager 自有发现/启动契约
-├── worker-profiles/           # 可选：受哈希约束的 operator-owned Profile store
-└── README.md                  # 面向中文使用者的说明
+├── SKILL.md
+├── tp-voyager.manifest.json
+├── worker-profiles/
+└── README.md
 ```
+
+更详细的模型目录配置见仓库 `docs/MODEL_ROUTING.md`。

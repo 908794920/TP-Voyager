@@ -107,19 +107,26 @@ Crew terminal material
 
 ## Model Awareness
 
-v1.0.3 不增加新的 Captain MCP tool，而是在既有六工具中形成只读投影：
+v1.0.6 不增加新的 Captain MCP tool，而是把既有模型事实整理成 data-driven Routable Model Catalog：
 
 ```text
 Provider model catalog
++ dispatch_model_policy.json
++ model_routing_profiles.json
 + Durable Task/Session model history
 + Attempt-bound Usage Evidence
-+ sourced capability/billing reference metadata
         ↓
 crew_catalog(include_models=true)
 crew_health(backend, model=...)
 ```
 
-CodeBuddy 的 `cli_declared` 目录不等于账号 entitlement；Qoder 疑似不完整捕获会显式标记 incomplete。任何静态 Credit rate/能力标签都不能用于自动选模或费用推算。
+事实所有权保持分离：Provider 拥有实时 availability/context/effort/reference multiplier；dispatch policy 拥有授权；operator routing profile 拥有能力档位/推荐任务/风险边界；Runtime Evidence 拥有实际历史和 Usage；Captain 拥有最终选择。
+
+`routable` 使用三态语义：明确允许且 Provider 可用为 true；明确拒绝/disabled/policy invalid 为 false；允许但实时 availability 未确认时为 null。Provider 当前目录缺失的 policy/profile/history route 仍可投影，但绝不伪造 availability。
+
+`reference_multiplier` 永远保持 reference-only，公共 route projection 固定 `calculation_allowed=false`。TP-Voyager 不把模型资料转化成自动评分、自动选择、自动 fallback 或账单估算。
+
+完整配置与字段语义见 `docs/MODEL_ROUTING.md`。
 
 ## Controlled Repository Research
 

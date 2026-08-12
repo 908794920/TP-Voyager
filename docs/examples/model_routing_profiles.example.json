@@ -1,0 +1,446 @@
+{
+  "schema": "tp-voyager.model_routing_profiles/v1",
+  "updated_at": "2026-08-12",
+  "profiles": {
+    "codebuddy:hy3": {
+      "canonical_family": "hy3",
+      "capability_tier": "L1",
+      "recommended_tasks": [
+        "routine_coding",
+        "documentation",
+        "sql",
+        "medium_repo_analysis"
+      ],
+      "risk_boundaries": [
+        "escalate_long_horizon_work",
+        "architecture_requires_captain_review"
+      ],
+      "suggested_effort": "high",
+      "evidence_sources": [
+        "https://huggingface.co/tencent/Hy3"
+      ]
+    },
+    "codebuddy:glm-5.2": {
+      "canonical_family": "glm-5.2",
+      "capability_tier": "L2",
+      "recommended_tasks": [
+        "systems_engineering",
+        "complex_coding",
+        "long_horizon_tasks",
+        "multi_file_change"
+      ],
+      "risk_boundaries": [
+        "architecture_requires_captain_review"
+      ],
+      "suggested_effort": "high",
+      "evidence_sources": [
+        "https://docs.qoder.com/en/cli/model"
+      ]
+    },
+    "codebuddy:glm-5.1": {
+      "canonical_family": "glm-5.1",
+      "capability_tier": "L3",
+      "recommended_tasks": [
+        "complex_coding",
+        "long_horizon_planning",
+        "architecture",
+        "agentic_delivery"
+      ],
+      "risk_boundaries": [
+        "use_lower_tier_for_mechanical_work"
+      ],
+      "suggested_effort": "high",
+      "evidence_sources": [
+        "https://docs.z.ai/guides/llm/glm-5.1"
+      ]
+    },
+    "codebuddy:glm-5v-turbo": {
+      "canonical_family": "glm-5v-turbo",
+      "capability_tier": "L2",
+      "recommended_tasks": [
+        "multimodal_coding",
+        "visual_code_generation",
+        "frontend_analysis",
+        "agentic_workflows"
+      ],
+      "risk_boundaries": [
+        "vision_capability_depends_on_current_crew_transport",
+        "use_text_model_for_non_visual_mechanical_work"
+      ],
+      "evidence_sources": [
+        "https://docs.z.ai/guides/vlm/glm-5v-turbo"
+      ]
+    },
+    "codebuddy:minimax-m3-pay": {
+      "canonical_family": "minimax-m3",
+      "capability_tier": "L3",
+      "recommended_tasks": [
+        "complex_coding",
+        "agentic_engineering",
+        "long_context_work",
+        "multimodal_tasks"
+      ],
+      "risk_boundaries": [
+        "use_lower_tier_for_simple_edits"
+      ],
+      "evidence_sources": [
+        "https://www.minimax.io/models/text/m3"
+      ]
+    },
+    "codebuddy:minimax-m2.7": {
+      "canonical_family": "minimax-m2.7",
+      "capability_tier": "L2",
+      "recommended_tasks": [
+        "implementation",
+        "debugging",
+        "log_analysis",
+        "code_security",
+        "project_delivery"
+      ],
+      "risk_boundaries": [
+        "architecture_requires_captain_review"
+      ],
+      "evidence_sources": [
+        "https://www.minimax.io/models/text/m27"
+      ]
+    },
+    "codebuddy:kimi-k3-2": {
+      "canonical_family": "kimi-k3",
+      "capability_tier": "L3",
+      "recommended_tasks": [
+        "architecture",
+        "long_horizon_coding",
+        "deep_reasoning",
+        "end_to_end_knowledge_work"
+      ],
+      "risk_boundaries": [
+        "higher_context_and_effort_increase_consumption",
+        "use_lower_tier_for_routine_edits"
+      ],
+      "suggested_effort": "high",
+      "evidence_sources": [
+        "https://www.kimi.com/code/docs/en/kimi-code/models.html"
+      ]
+    },
+    "codebuddy:kimi-k2.7": {
+      "canonical_family": "kimi-k2.7-code",
+      "capability_tier": "L2",
+      "recommended_tasks": [
+        "routine_development",
+        "repository_coding",
+        "long_horizon_software_engineering",
+        "code_completion"
+      ],
+      "risk_boundaries": [
+        "prefer_k3_for_architecture_or_deep_reasoning"
+      ],
+      "evidence_sources": [
+        "https://www.kimi.com/resources/kimi-k2-7-code"
+      ]
+    },
+    "codebuddy:kimi-k2.6": {
+      "canonical_family": "kimi-k2.6",
+      "capability_tier": "L2",
+      "recommended_tasks": [
+        "general_reasoning",
+        "routine_coding",
+        "conversation",
+        "agent_tasks"
+      ],
+      "risk_boundaries": [
+        "prefer_k2.7_code_for_coding_focused_long_horizon_work"
+      ],
+      "evidence_sources": [
+        "https://www.kimi.com/code/docs/en/kimi-code/models.html"
+      ]
+    },
+    "codebuddy:deepseek-v4-pro": {
+      "canonical_family": "deepseek-v4-pro",
+      "capability_tier": "L3",
+      "recommended_tasks": [
+        "architecture",
+        "complex_reasoning",
+        "agentic_coding",
+        "difficult_debugging",
+        "long_context_work"
+      ],
+      "risk_boundaries": [
+        "higher_relative_consumption_than_flash",
+        "use_flash_for_cost_sensitive_execution"
+      ],
+      "suggested_effort": "high",
+      "evidence_sources": [
+        "https://api-docs.deepseek.com/news/news260424/"
+      ]
+    },
+    "codebuddy:deepseek-v4-flash": {
+      "canonical_family": "deepseek-v4-flash-0731",
+      "capability_tier": "L2",
+      "recommended_tasks": [
+        "repository_investigation",
+        "implementation",
+        "debugging",
+        "multi_file_change",
+        "test_fix_loop"
+      ],
+      "risk_boundaries": [
+        "architecture_requires_captain_review",
+        "no_multimodal_assumption"
+      ],
+      "suggested_effort": "high",
+      "evidence_sources": [
+        "https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash-0731"
+      ]
+    },
+    "qoder:auto": {
+      "canonical_family": "qoder-auto-tier",
+      "capability_tier": "DYNAMIC",
+      "recommended_tasks": [
+        "daily_development",
+        "provider_routed_balance"
+      ],
+      "risk_boundaries": [
+        "underlying_model_is_provider_selected",
+        "do_not_treat_as_fixed_model"
+      ],
+      "evidence_sources": [
+        "https://docs.qoder.com/en/cli/model"
+      ]
+    },
+    "qoder:ultimate": {
+      "canonical_family": "qoder-ultimate-tier",
+      "capability_tier": "L3",
+      "recommended_tasks": [
+        "complex_system_design",
+        "difficult_analysis",
+        "architecture",
+        "hard_debugging"
+      ],
+      "risk_boundaries": [
+        "underlying_model_can_change",
+        "high_relative_consumption"
+      ],
+      "suggested_effort": "high",
+      "evidence_sources": [
+        "https://docs.qoder.com/en/cli/model"
+      ]
+    },
+    "qoder:performance": {
+      "canonical_family": "qoder-performance-tier",
+      "capability_tier": "L2",
+      "recommended_tasks": [
+        "core_implementation",
+        "architecture_refactor",
+        "complex_coding",
+        "code_review"
+      ],
+      "risk_boundaries": [
+        "underlying_model_can_change"
+      ],
+      "suggested_effort": "high",
+      "evidence_sources": [
+        "https://docs.qoder.com/en/cli/model"
+      ]
+    },
+    "qoder:efficient": {
+      "canonical_family": "qoder-efficient-tier",
+      "capability_tier": "L1",
+      "recommended_tasks": [
+        "basic_code",
+        "unit_tests",
+        "documentation",
+        "daily_q_and_a"
+      ],
+      "risk_boundaries": [
+        "not_preferred_for_architecture_or_long_horizon_work",
+        "underlying_model_can_change"
+      ],
+      "suggested_effort": "low",
+      "evidence_sources": [
+        "https://docs.qoder.com/en/cli/model"
+      ]
+    },
+    "qoder:lite": {
+      "canonical_family": "qoder-lite-tier",
+      "capability_tier": "L0",
+      "recommended_tasks": [
+        "low_risk_search",
+        "summarization",
+        "simple_logic",
+        "quick_validation",
+        "mechanical_edits"
+      ],
+      "risk_boundaries": [
+        "not_final_authority_for_architecture",
+        "not_final_authority_for_complex_debugging",
+        "underlying_model_can_change"
+      ],
+      "evidence_sources": [
+        "https://docs.qoder.com/en/cli/model"
+      ]
+    },
+    "qoder:cmodel": {
+      "canonical_family": "qoder-cantus",
+      "capability_tier": "UNCLASSIFIED",
+      "recommended_tasks": [],
+      "risk_boundaries": [
+        "public_authoritative_capability_profile_not_pinned",
+        "operator_should_update_profile_when_verified"
+      ]
+    },
+    "qoder:qmodel_38max": {
+      "canonical_family": "qwen3.8-max",
+      "capability_tier": "L3",
+      "recommended_tasks": [
+        "architecture",
+        "complex_requirement_design",
+        "long_horizon_coding",
+        "complex_review",
+        "cross_module_work",
+        "multimodal_tasks"
+      ],
+      "risk_boundaries": [
+        "high_relative_consumption",
+        "avoid_for_mechanical_tasks"
+      ],
+      "suggested_effort": "medium",
+      "evidence_sources": [
+        "https://qwen.ai/blog?id=qwen3.8"
+      ]
+    },
+    "qoder:qmodel_latest": {
+      "canonical_family": "qwen3.7-max",
+      "capability_tier": "L3",
+      "recommended_tasks": [
+        "agentic_coding",
+        "long_horizon_reasoning",
+        "complex_implementation",
+        "code_review"
+      ],
+      "risk_boundaries": [
+        "use_lower_tier_for_mechanical_work"
+      ],
+      "evidence_sources": [
+        "https://docs.qoder.com/en/cli/model"
+      ]
+    },
+    "qoder:qmodel": {
+      "canonical_family": "qwen3.7-plus",
+      "capability_tier": "L2",
+      "recommended_tasks": [
+        "reasoning",
+        "routine_coding",
+        "multimodal_tasks",
+        "general_development"
+      ],
+      "risk_boundaries": [
+        "escalate_architecture_or_long_horizon_work"
+      ],
+      "evidence_sources": [
+        "https://docs.qoder.com/en/cli/model"
+      ]
+    },
+    "qoder:kmodel_latest": {
+      "canonical_family": "kimi-k3",
+      "capability_tier": "L3",
+      "recommended_tasks": [
+        "architecture",
+        "long_horizon_coding",
+        "deep_reasoning",
+        "end_to_end_knowledge_work"
+      ],
+      "risk_boundaries": [
+        "higher_context_and_effort_increase_consumption"
+      ],
+      "suggested_effort": "high",
+      "evidence_sources": [
+        "https://www.kimi.com/code/docs/en/kimi-code/models.html"
+      ]
+    },
+    "qoder:kmodel": {
+      "canonical_family": "kimi-k2.7-code",
+      "capability_tier": "L2",
+      "recommended_tasks": [
+        "routine_development",
+        "repository_coding",
+        "long_horizon_software_engineering",
+        "code_completion"
+      ],
+      "risk_boundaries": [
+        "prefer_k3_for_architecture_or_deep_reasoning"
+      ],
+      "evidence_sources": [
+        "https://www.kimi.com/resources/kimi-k2-7-code"
+      ]
+    },
+    "qoder:gm51model": {
+      "canonical_family": "glm-5.2",
+      "capability_tier": "L2",
+      "recommended_tasks": [
+        "systems_engineering",
+        "complex_coding",
+        "long_horizon_tasks",
+        "multi_file_change"
+      ],
+      "risk_boundaries": [
+        "architecture_requires_captain_review"
+      ],
+      "suggested_effort": "high",
+      "evidence_sources": [
+        "https://docs.qoder.com/en/cli/model"
+      ]
+    },
+    "qoder:dmodel": {
+      "canonical_family": "deepseek-v4-pro",
+      "capability_tier": "L3",
+      "recommended_tasks": [
+        "architecture",
+        "complex_reasoning",
+        "agentic_coding",
+        "difficult_debugging",
+        "long_context_work"
+      ],
+      "risk_boundaries": [
+        "higher_relative_consumption_than_flash"
+      ],
+      "suggested_effort": "high",
+      "evidence_sources": [
+        "https://api-docs.deepseek.com/news/news260424/"
+      ]
+    },
+    "qoder:dfmodel": {
+      "canonical_family": "deepseek-v4-flash-0731",
+      "capability_tier": "L2",
+      "recommended_tasks": [
+        "repository_investigation",
+        "implementation",
+        "debugging",
+        "multi_file_change",
+        "test_fix_loop"
+      ],
+      "risk_boundaries": [
+        "architecture_requires_captain_review"
+      ],
+      "suggested_effort": "high",
+      "evidence_sources": [
+        "https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash-0731"
+      ]
+    },
+    "qoder:mmodel": {
+      "canonical_family": "minimax-m3",
+      "capability_tier": "L3",
+      "recommended_tasks": [
+        "complex_coding",
+        "agentic_engineering",
+        "long_context_work",
+        "multimodal_tasks"
+      ],
+      "risk_boundaries": [
+        "use_lower_tier_for_simple_edits"
+      ],
+      "evidence_sources": [
+        "https://www.minimax.io/models/text/m3"
+      ]
+    }
+  }
+}

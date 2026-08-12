@@ -45,6 +45,26 @@ AGENT_RUNTIME_DB
 
 建议把 Runtime Home 放在 Git 仓库之外或保持 `.gitignore` 排除。
 
+### v1.0.6 operator 模型配置
+
+Runtime Home 同时承载两类模型配置：
+
+```text
+dispatch_model_policy.json
+    → 硬约束：哪些 backend-qualified model route 可以下发
+
+model_routing_profiles.json
+    → 建议资料：能力档位、推荐任务、风险边界、suggested effort
+```
+
+第二个文件不是授权策略。示例见：
+
+```text
+docs/examples/model_routing_profiles.example.json
+```
+
+模型认知变化时只更新 operator JSON，不需要修改 Runtime Python。完整语义见 `docs/MODEL_ROUTING.md`。
+
 ## CodeBuddy 中国区
 
 中国区账号使用：
@@ -108,14 +128,14 @@ verify         300s
 python -m agent_runtime.cli doctor --json
 ```
 
-`doctor --json` 保持只读：不发送 Prompt、不调用模型、不读取任务正文、不返回 Credential 或 Usage。v1.0.3 还会尝试做**无 Prompt 的控制面**模型目录诊断：CodeBuddy 仅解析 `--help` 声明，Qoder 优先通过官方 Python SDK `get_available_models()` 读取当前账号实时目录，SDK 控制面不可用时回退 `--list-models`；结果会保留 complete/incomplete/unknown 语义，并明确 `selection_performed=false`、`pricing_estimated=false`。
+`doctor --json` 保持只读：不发送 Prompt、不调用模型、不读取任务正文、不返回 Credential 或 Usage。模型目录控制面同样不发送模型 Prompt：CodeBuddy 优先使用 catalog-only ACP 获取账号态目录/参考倍率，ACP 不可用才回退 `--help` declaration；Qoder 优先通过官方 Python SDK `get_available_models()` 获取实时目录，SDK 不可用时回退 `--list-models`。目录 incomplete/unknown 必须原样保留，不能触发自动 fallback。
 
 `agent_runtime.cli` 继续提供 Runtime DB、任务和 Artifact 的只读诊断能力。
 
 历史 WorkBuddy Home 变量/路径仅用于旧数据迁移输入，不属于当前配置指南。
 
 
-## v1.0.3 repository_research 运维边界
+## repository_research 运维边界
 
 该 Contract 只接受公开 `https://github.com/<owner>/<repo>` URL。Captain 必须提供全新绝对目标目录且其父目录已存在；Runtime 不覆盖已有目录。获取阶段只执行固定 GitHub metadata 请求和 shallow clone，随后移除 clone 的 `origin`。Crew 只拿到 `source/` 下 read scope 允许的静态内容，报告由 Runtime 写入 `reports/`。
 
