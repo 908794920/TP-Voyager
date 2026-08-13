@@ -58,13 +58,19 @@ def installed_skill_path(codex_home: str | Path, *, platform: str | None = None)
     return str(Path(codex_home).expanduser() / "skills" / _SKILL_NAME)
 
 
-def _load_module(path: Path, name: str):
-    spec = importlib.util.spec_from_file_location(name, path)
-    if spec is None or spec.loader is None:
-        raise InstallError(f"unable to load installer dependency: {path.name}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+def _load_module(path: Path, name: str, *, write_bytecode: bool = True):
+    previous = sys.dont_write_bytecode
+    if not write_bytecode:
+        sys.dont_write_bytecode = True
+    try:
+        spec = importlib.util.spec_from_file_location(name, path)
+        if spec is None or spec.loader is None:
+            raise InstallError(f"unable to load installer dependency: {path.name}")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+    finally:
+        sys.dont_write_bytecode = previous
 
 
 def _managed_files(source_skill: Path) -> list[Path]:
@@ -98,6 +104,18 @@ def _read_binding_file(path: Path) -> dict[str, str]:
     return values
 
 
+def _repository_root_from_source(source_skill: Path) -> Path | None:
+    source = source_skill.expanduser().resolve()
+    if source.name != _SKILL_NAME or source.parent.name != "skills":
+        return None
+    root = source.parent.parent.resolve()
+    if source != (root / "skills" / _SKILL_NAME).resolve():
+        return None
+    if not (root / "pyproject.toml").is_file() or not (root / "agent_runtime").is_dir():
+        return None
+    return root
+
+
 def _binding_values(
     source_skill: Path,
     sync_module: Any,
@@ -109,7 +127,14 @@ def _binding_values(
     manifest = source_skill / "tp-voyager.manifest.json"
     names = sync_module.manifest_binding_names(manifest)
     values = dict(existing or {})
-    values["repository_root"] = str(source_skill.parent.parent.resolve())
+    repository_root = _repository_root_from_source(source_skill)
+    if repository_root is not None:
+        values["repository_root"] = str(repository_root)
+    elif not values.get("repository_root"):
+        raise InstallError(
+            "repository_root binding is unavailable; run installation/update from the "
+            "TP-Voyager repository or restore the installed bindings file"
+        )
     for name in names:
         if name == "repository_root":
             continue
@@ -174,7 +199,9 @@ def install(
     manifest = source / "tp-voyager.manifest.json"
     if not sync_script.is_file() or not manifest.is_file():
         raise InstallError("source Captain Skill is incomplete")
-    source_sync = _load_module(sync_script, "tp_voyager_source_sync")
+    source_sync = _load_module(
+        sync_script, "tp_voyager_source_sync", write_bytecode=not check_only
+    )
 
     target = Path(installed_skill_path(codex_home)).expanduser().resolve()
     binding_path = target / _BINDINGS_FILE
@@ -213,7 +240,9 @@ def install(
                     "config_sha256_after": _sha256(config_path.read_bytes()) if config_path.exists() else _sha256(b""),
                 }
             else:
-                target_sync = _load_module(target_sync_path, "tp_voyager_installed_sync_check")
+                target_sync = _load_module(
+                    target_sync_path, "tp_voyager_installed_sync_check", write_bytecode=False
+                )
                 mcp_result = target_sync.sync(
                     target_manifest,
                     config_path,

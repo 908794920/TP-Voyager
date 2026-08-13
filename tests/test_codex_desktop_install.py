@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from contextlib import redirect_stdout
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path, PureWindowsPath
@@ -98,6 +100,107 @@ class CodexDesktopInstallTests(unittest.TestCase):
         self.assertEqual(second["action"], "no-op")
         self.assertEqual(second["mcp_action"], "no-op")
         self.assertEqual(extra.read_text(encoding="utf-8"), "keep me")
+
+    def test_installed_skill_cli_check_uses_saved_repository_root_and_is_read_only(self) -> None:
+        installer = _module(INSTALLER, "tp_voyager_install")
+        codex_home = self.tempdir() / "codex-home"
+        codex_home.mkdir(parents=True)
+        config = codex_home / "config.toml"
+        unrelated = (
+            '# user comment\nmodel = "gpt-5.6"\n\n'
+            '[mcp_servers.other]\ncommand = "other-server"\n\n'
+            '[projects."E:\\\\work"]\ntrust_level = "trusted"\n\n'
+            '[plugins.example]\nenabled = true\n'
+        )
+        config.write_text(unrelated, encoding="utf-8")
+        codebuddy = str(self.tempdir() / "codebuddy-command")
+        installer.install(SKILL, codex_home, bindings={"CODEBUDDY_CODE_PATH": codebuddy})
+        target = codex_home / "skills" / "tp-voyager-captain"
+        installed = _module(target / "install_codex_desktop.py", "tp_voyager_installed_check")
+
+        bindings = json.loads((target / "tp-voyager.bindings.json").read_text(encoding="utf-8"))
+        self.assertEqual(bindings["values"]["repository_root"], str(ROOT.resolve()))
+        shutil.rmtree(target / "__pycache__", ignore_errors=True)
+        before_skill = {
+            path.relative_to(target).as_posix(): path.read_bytes()
+            for path in target.rglob("*")
+            if path.is_file()
+        }
+        before_config = config.read_bytes()
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            exit_code = installed.main(["--codex-home", str(codex_home), "--check"])
+        checked = json.loads(stdout.getvalue())
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(checked["ok"])
+        self.assertEqual(checked["action"], "check-ok")
+        self.assertFalse(checked["provider_invocation_performed"])
+        self.assertFalse(checked["task_dispatch_performed"])
+        after_skill = {
+            path.relative_to(target).as_posix(): path.read_bytes()
+            for path in target.rglob("*")
+            if path.is_file()
+        }
+        self.assertEqual(before_skill, after_skill)
+        self.assertEqual(before_config, config.read_bytes())
+        self.assertIn(unrelated, config.read_text(encoding="utf-8"))
+
+    def test_installed_skill_check_without_repository_root_fails_closed(self) -> None:
+        installer = _module(INSTALLER, "tp_voyager_install")
+        codex_home = self.tempdir() / "codex-home"
+        codebuddy = str(self.tempdir() / "codebuddy-command")
+        installer.install(SKILL, codex_home, bindings={"CODEBUDDY_CODE_PATH": codebuddy})
+        target = codex_home / "skills" / "tp-voyager-captain"
+        binding_path = target / "tp-voyager.bindings.json"
+        payload = json.loads(binding_path.read_text(encoding="utf-8"))
+        payload["values"].pop("repository_root")
+        binding_path.write_text(json.dumps(payload), encoding="utf-8")
+        before_binding = binding_path.read_bytes()
+        config = codex_home / "config.toml"
+        before_config = config.read_bytes()
+        installed = _module(target / "install_codex_desktop.py", "tp_voyager_installed_missing_root")
+
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            exit_code = installed.main(["--codex-home", str(codex_home), "--check"])
+        checked = json.loads(stdout.getvalue())
+
+        self.assertEqual(exit_code, 1)
+        self.assertFalse(checked["ok"])
+        self.assertIn("repository_root binding is unavailable", checked["error"])
+        self.assertEqual(before_binding, binding_path.read_bytes())
+        self.assertEqual(before_config, config.read_bytes())
+        self.assertNotIn(str(codex_home.resolve()), binding_path.read_text(encoding="utf-8"))
+
+    def test_installed_skill_check_missing_or_corrupt_bindings_fails_read_only(self) -> None:
+        for mode in ("missing", "corrupt"):
+            with self.subTest(mode=mode):
+                installer = _module(INSTALLER, f"tp_voyager_install_{mode}")
+                codex_home = self.tempdir() / f"codex-home-{mode}"
+                codebuddy = str(self.tempdir() / f"codebuddy-command-{mode}")
+                installer.install(SKILL, codex_home, bindings={"CODEBUDDY_CODE_PATH": codebuddy})
+                target = codex_home / "skills" / "tp-voyager-captain"
+                binding_path = target / "tp-voyager.bindings.json"
+                if mode == "missing":
+                    binding_path.unlink()
+                else:
+                    binding_path.write_text("{broken", encoding="utf-8")
+                before_binding = binding_path.read_bytes() if binding_path.exists() else None
+                config = codex_home / "config.toml"
+                before_config = config.read_bytes()
+                installed = _module(target / "install_codex_desktop.py", f"tp_voyager_installed_{mode}")
+
+                stdout = io.StringIO()
+                with redirect_stdout(stdout):
+                    exit_code = installed.main(["--codex-home", str(codex_home), "--check"])
+                checked = json.loads(stdout.getvalue())
+
+                self.assertEqual(exit_code, 1)
+                self.assertFalse(checked["ok"])
+                after_binding = binding_path.read_bytes() if binding_path.exists() else None
+                self.assertEqual(before_binding, after_binding)
+                self.assertEqual(before_config, config.read_bytes())
 
     def test_check_detects_skill_or_config_drift_without_writing(self) -> None:
         installer = _module(INSTALLER, "tp_voyager_install")
