@@ -13,10 +13,18 @@
       "-m",
       "agent_runtime.server"
     ],
-    "cwd": "E:\\updateProject\\TP_Voyager",
+    "cwd": {
+      "binding": "repository_root",
+      "required": true
+    },
     "env": {
-      "QODER_CLI_PATH": "~\\.agent-runtime\\bin\\qodercli-qoder-client.cmd",
-      "CODEBUDDY_CODE_PATH": "C:\\Program Files\\nodejs\\node_global\\codebuddy.cmd"
+      "QODER_CLI_PATH": {
+        "literal": "~\\.agent-runtime\\bin\\qodercli-qoder-client.cmd"
+      },
+      "CODEBUDDY_CODE_PATH": {
+        "binding": "CODEBUDDY_CODE_PATH",
+        "required": true
+      }
     },
     "required_captain_tools": [
       "voyager_overview",

@@ -26,6 +26,11 @@ class CodexDesktopSyncTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.sync = _module()
         cls.manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+        cls.bindings = {
+            "repository_root": str(ROOT.resolve()),
+            "CODEBUDDY_CODE_PATH": "codebuddy-command",
+        }
+        cls.resolved_manifest = cls.sync.load_manifest(MANIFEST, bindings=cls.bindings)[0]
 
     def temp_path(self, name: str) -> Path:
         root = Path(tempfile.mkdtemp(prefix="tp-codex-sync-"))
@@ -36,9 +41,11 @@ class CodexDesktopSyncTests(unittest.TestCase):
         mcp = self.manifest["mcp"]
         self.assertEqual(mcp["name"], "tp_voyager")
         self.assertEqual(mcp["command"], ["python", "-m", "agent_runtime.server"])
-        self.assertEqual(mcp["cwd"], r"E:\updateProject\TP_Voyager")
-        self.assertEqual(mcp["env"]["QODER_CLI_PATH"], r"~\.agent-runtime\bin\qodercli-qoder-client.cmd")
-        self.assertEqual(mcp["env"]["CODEBUDDY_CODE_PATH"], r"C:\Program Files\nodejs\node_global\codebuddy.cmd")
+        self.assertEqual(mcp["cwd"], {"binding": "repository_root", "required": True})
+        self.assertEqual(mcp["env"]["QODER_CLI_PATH"], {"literal": r"~\.agent-runtime\bin\qodercli-qoder-client.cmd"})
+        self.assertEqual(mcp["env"]["CODEBUDDY_CODE_PATH"], {"binding": "CODEBUDDY_CODE_PATH", "required": True})
+        self.assertEqual(self.resolved_manifest["cwd"], str(ROOT.resolve()))
+        self.assertEqual(self.resolved_manifest["env"]["CODEBUDDY_CODE_PATH"], "codebuddy-command")
         self.assertEqual(len(mcp["required_captain_tools"]), 6)
         source = SCRIPT.read_text(encoding="utf-8")
         self.assertNotIn("agent_runtime.server", source)
@@ -55,7 +62,7 @@ class CodexDesktopSyncTests(unittest.TestCase):
             '[plugins.example]\nenabled = true\n'
         )
         config.write_text(unrelated, encoding="utf-8")
-        result = self.sync.sync(MANIFEST, config)
+        result = self.sync.sync(MANIFEST, config, bindings=self.bindings)
         self.assertEqual(result["action"], "added")
         text = config.read_text(encoding="utf-8")
         self.assertIn(unrelated, text)
@@ -66,7 +73,7 @@ class CodexDesktopSyncTests(unittest.TestCase):
         self.assertFalse(result["secrets_returned"])
         self.assertEqual(result["entry"]["env_keys"], ["CODEBUDDY_CODE_PATH", "QODER_CLI_PATH"])
         serialized = json.dumps(result, ensure_ascii=False)
-        for value in self.manifest["mcp"]["env"].values():
+        for value in self.resolved_manifest["env"].values():
             self.assertNotIn(value, serialized)
 
     def test_existing_target_keeps_unknown_fields_and_comments_while_managed_fields_update(self) -> None:
@@ -86,7 +93,7 @@ class CodexDesktopSyncTests(unittest.TestCase):
             'CODEBUDDY_CODE_PATH = "old"\n',
             encoding="utf-8",
         )
-        result = self.sync.sync(MANIFEST, config)
+        result = self.sync.sync(MANIFEST, config, bindings=self.bindings)
         self.assertEqual(result["action"], "updated")
         text = config.read_text(encoding="utf-8")
         self.assertIn("# keep me", text)
@@ -94,12 +101,12 @@ class CodexDesktopSyncTests(unittest.TestCase):
         self.assertIn("# keep env comment", text)
         self.assertIn('CUSTOM_KEEP = "yes"', text)
         self.assertNotIn('command = "old-python"', text)
-        self.assertEqual(self.sync.check_text(text, self.sync.load_manifest(MANIFEST)[0]), [])
+        self.assertEqual(self.sync.check_text(text, self.resolved_manifest), [])
 
     def test_second_sync_is_noop_and_hash_is_unchanged(self) -> None:
         config = self.temp_path("config.toml")
-        first = self.sync.sync(MANIFEST, config)
-        second = self.sync.sync(MANIFEST, config)
+        first = self.sync.sync(MANIFEST, config, bindings=self.bindings)
+        second = self.sync.sync(MANIFEST, config, bindings=self.bindings)
         self.assertEqual(first["action"], "added")
         self.assertEqual(second["action"], "no-op")
         self.assertEqual(second["config_sha256_before"], second["config_sha256_after"])
@@ -108,13 +115,13 @@ class CodexDesktopSyncTests(unittest.TestCase):
     def test_manifest_change_updates_only_tp_voyager_managed_fields(self) -> None:
         config = self.temp_path("config.toml")
         config.write_text('# x\n[mcp_servers.other]\ncommand = "keep"\n', encoding="utf-8")
-        self.sync.sync(MANIFEST, config)
+        self.sync.sync(MANIFEST, config, bindings=self.bindings)
         before = config.read_text(encoding="utf-8")
         manifest_copy = self.temp_path("manifest.json")
         changed = json.loads(MANIFEST.read_text(encoding="utf-8"))
         changed["mcp"]["cwd"] = r"E:\updateProject\TP_Voyager_2"
         manifest_copy.write_text(json.dumps(changed, ensure_ascii=False), encoding="utf-8")
-        result = self.sync.sync(manifest_copy, config)
+        result = self.sync.sync(manifest_copy, config, bindings=self.bindings)
         self.assertEqual(result["action"], "updated")
         after = config.read_text(encoding="utf-8")
         self.assertIn('# x\n[mcp_servers.other]\ncommand = "keep"', after)
@@ -123,13 +130,13 @@ class CodexDesktopSyncTests(unittest.TestCase):
 
     def test_check_is_read_only_and_reports_missing_or_synced(self) -> None:
         config = self.temp_path("config.toml")
-        missing = self.sync.sync(MANIFEST, config, check_only=True)
+        missing = self.sync.sync(MANIFEST, config, check_only=True, bindings=self.bindings)
         self.assertFalse(missing["ok"])
         self.assertEqual(missing["action"], "check-failed")
         self.assertFalse(config.exists())
-        self.sync.sync(MANIFEST, config)
+        self.sync.sync(MANIFEST, config, bindings=self.bindings)
         before = config.read_bytes()
-        checked = self.sync.sync(MANIFEST, config, check_only=True)
+        checked = self.sync.sync(MANIFEST, config, check_only=True, bindings=self.bindings)
         self.assertTrue(checked["ok"])
         self.assertEqual(checked["action"], "check-ok")
         self.assertEqual(before, config.read_bytes())
@@ -139,7 +146,7 @@ class CodexDesktopSyncTests(unittest.TestCase):
         body = '[mcp_servers.tp_voyager]\ncommand="a"\n[mcp_servers.tp_voyager]\ncommand="b"\n'
         config.write_text(body, encoding="utf-8")
         with self.assertRaises(self.sync.SyncError):
-            self.sync.sync(MANIFEST, config)
+            self.sync.sync(MANIFEST, config, bindings=self.bindings)
         self.assertEqual(config.read_text(encoding="utf-8"), body)
 
 

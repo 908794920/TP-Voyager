@@ -21,6 +21,8 @@ from typing import Any, Iterable
 
 _SCHEMA = "tp-voyager.codex_mcp_sync/v1"
 _MANIFEST_SCHEMA = "tp-voyager.manifest/v1"
+_BINDINGS_SCHEMA = "tp-voyager.install_bindings/v1"
+_BINDINGS_FILE = "tp-voyager.bindings.json"
 _ALLOWED_SERVER = "tp_voyager"
 _ROOT_MANAGED_BEGIN = "# >>> TP-Voyager managed MCP fields >>>"
 _ROOT_MANAGED_END = "# <<< TP-Voyager managed MCP fields <<<"
@@ -68,7 +70,83 @@ def _absolute_runtime_cwd(value: object) -> str:
     return text
 
 
-def load_manifest(path: str | Path) -> tuple[dict[str, Any], bytes]:
+def _default_bindings_path(manifest_path: str | Path) -> Path:
+    return Path(manifest_path).expanduser().resolve().with_name(_BINDINGS_FILE)
+
+
+def _load_bindings(path: str | Path | None) -> dict[str, str]:
+    if path is None:
+        return {}
+    binding_path = Path(path).expanduser().resolve()
+    if not binding_path.exists():
+        return {}
+    try:
+        raw = json.loads(binding_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise SyncError("TP-Voyager install bindings are unreadable or invalid JSON") from exc
+    if not isinstance(raw, dict) or raw.get("schema") != _BINDINGS_SCHEMA:
+        raise SyncError("unsupported TP-Voyager install bindings schema")
+    values = raw.get("values")
+    if not isinstance(values, dict) or len(values) > 64:
+        raise SyncError("TP-Voyager install bindings values must be a bounded object")
+    output: dict[str, str] = {}
+    for key, value in values.items():
+        if not isinstance(key, str) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*|repository_root", key):
+            raise SyncError("TP-Voyager install bindings contain an invalid key")
+        if not isinstance(value, str) or not value.strip() or "\x00" in value or len(value) > 4096:
+            raise SyncError("TP-Voyager install bindings contain an invalid value")
+        output[key] = value
+    return output
+
+
+def _resolve_manifest_value(value: object, field: str, bindings: dict[str, str]) -> str:
+    # Plain strings remain accepted for backward compatibility with already-installed manifests.
+    if isinstance(value, str):
+        if not value.strip() or "\x00" in value:
+            raise SyncError(f"{field} must be a non-empty string")
+        return value
+    if not isinstance(value, dict) or set(value) - {"literal", "binding", "required"}:
+        raise SyncError(f"{field} must be a literal or install binding")
+    has_literal = "literal" in value
+    has_binding = "binding" in value
+    if has_literal == has_binding:
+        raise SyncError(f"{field} must declare exactly one of literal or binding")
+    if has_literal:
+        literal = value.get("literal")
+        if not isinstance(literal, str) or not literal.strip() or "\x00" in literal:
+            raise SyncError(f"{field}.literal must be a non-empty string")
+        return literal
+    binding = value.get("binding")
+    if not isinstance(binding, str) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*|repository_root", binding):
+        raise SyncError(f"{field}.binding is invalid")
+    resolved = bindings.get(binding)
+    if resolved is None:
+        if value.get("required", True):
+            raise SyncError(f"required install binding is missing: {binding}")
+        return ""
+    return resolved
+
+
+def manifest_binding_names(path: str | Path) -> tuple[str, ...]:
+    try:
+        raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise SyncError("TP-Voyager manifest is unreadable or invalid JSON") from exc
+    mcp = raw.get("mcp") if isinstance(raw, dict) else None
+    if not isinstance(mcp, dict):
+        raise SyncError("manifest mcp section is required")
+    names: list[str] = []
+    for value in [mcp.get("cwd"), *((mcp.get("env") or {}).values() if isinstance(mcp.get("env"), dict) else ())]:
+        if isinstance(value, dict) and isinstance(value.get("binding"), str):
+            name = value["binding"]
+            if name not in names:
+                names.append(name)
+    return tuple(names)
+
+
+def load_manifest(
+    path: str | Path, *, bindings_path: str | Path | None = None, bindings: dict[str, str] | None = None
+) -> tuple[dict[str, Any], bytes]:
     manifest_path = Path(path).expanduser().resolve()
     try:
         data = manifest_path.read_bytes()
@@ -80,6 +158,9 @@ def load_manifest(path: str | Path) -> tuple[dict[str, Any], bytes]:
     mcp = raw.get("mcp")
     if not isinstance(mcp, dict):
         raise SyncError("manifest mcp section is required")
+    effective_bindings = dict(bindings) if bindings is not None else _load_bindings(
+        bindings_path if bindings_path is not None else _default_bindings_path(manifest_path)
+    )
     name = str(mcp.get("name") or "").strip()
     if name != _ALLOWED_SERVER:
         raise SyncError("sync tool may only manage the tp_voyager MCP entry")
@@ -100,9 +181,9 @@ def load_manifest(path: str | Path) -> tuple[dict[str, Any], bytes]:
     for key, value in env.items():
         if not isinstance(key, str) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
             raise SyncError("manifest mcp.env contains an invalid key")
-        if not isinstance(value, str) or "\x00" in value or len(value) > 4096:
+        clean_env[key] = _resolve_manifest_value(value, f"manifest mcp.env.{key}", effective_bindings)
+        if len(clean_env[key]) > 4096:
             raise SyncError("manifest mcp.env contains an invalid value")
-        clean_env[key] = value
     tools = mcp.get("required_captain_tools")
     if (
         not isinstance(tools, list)
@@ -116,7 +197,7 @@ def load_manifest(path: str | Path) -> tuple[dict[str, Any], bytes]:
         "name": name,
         "transport": "stdio",
         "command": [item.strip() for item in command],
-        "cwd": _absolute_runtime_cwd(mcp.get("cwd")),
+        "cwd": _absolute_runtime_cwd(_resolve_manifest_value(mcp.get("cwd"), "manifest mcp.cwd", effective_bindings)),
         "env": clean_env,
         "required_captain_tools": list(tools),
     }
@@ -364,8 +445,15 @@ def _summary(
     }
 
 
-def sync(manifest_path: str | Path, config_path: str | Path, *, check_only: bool = False) -> dict[str, Any]:
-    manifest, manifest_bytes = load_manifest(manifest_path)
+def sync(
+    manifest_path: str | Path,
+    config_path: str | Path,
+    *,
+    check_only: bool = False,
+    bindings_path: str | Path | None = None,
+    bindings: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    manifest, manifest_bytes = load_manifest(manifest_path, bindings_path=bindings_path, bindings=bindings)
     target = Path(config_path).expanduser().resolve()
     before = target.read_bytes() if target.exists() else b""
     try:
@@ -425,6 +513,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Sync TP-Voyager MCP registration into Codex Desktop global config")
     parser.add_argument("--manifest", default=str(_default_manifest_path()))
     parser.add_argument("--config", default=str(_default_config_path()))
+    parser.add_argument("--bindings", default=str(_default_bindings_path(_default_manifest_path())))
     parser.add_argument("--check", action="store_true", help="Read-only validation; do not modify Codex config")
     return parser
 
@@ -432,7 +521,7 @@ def _build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     try:
-        result = sync(args.manifest, args.config, check_only=bool(args.check))
+        result = sync(args.manifest, args.config, check_only=bool(args.check), bindings_path=args.bindings)
     except (SyncError, OSError) as exc:
         print(json.dumps({"schema": _SCHEMA, "ok": False, "error": str(exc), "secrets_returned": False}, ensure_ascii=False, indent=2))
         return 1
