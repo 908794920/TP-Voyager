@@ -7,7 +7,9 @@
 Routable Model Catalog + public documentation cleanup。保持 Captain 显式决策和默认六工具 Surface，不新增自动选模器。
 
 - `crew_catalog(include_models=true)` 升级为 `tp-voyager.model_catalog/v2`：合并 Provider 实时目录、operator dispatch policy、operator routing profile 与 Runtime history/Usage；
-- 新增严格校验、operator-owned 的 `model_routing_profiles.json`，能力档位/推荐任务/风险边界/suggested effort 不再硬编码进 Python；
+- 新增严格校验、operator-owned 的 `model_routing_profiles.json`，能力档位/推荐任务/风险边界/suggested effort 不再硬编码进 Python；随包提供 reviewed 26-route baseline，operator 文件缺失时只读 fallback，并支持显式 `model-routing-init` materialize；
+- routing profile 增加独立 benchmark evidence、profile confidence 与受信本地 `root_alias/path/SHA-256` provenance；Evidence 漂移只影响能力资料可信状态，不改变 dispatch policy 授权；
+- Captain Skill 新增 manifest-driven Codex Desktop 全局 MCP 同步器：只维护 `mcp_servers.tp_voyager`，保留其他全局配置，并提供幂等同步与只读 `--check`；
 - route 投影新增 `route_id`、`allowlist_status`、三态 `routable`、`routability_status`、reference multiplier、context、reasoning、capability profile 与明确 sources；
 - 显式 policy route / profile route / historical route 即使暂时未出现在 Provider catalog 也继续可见，但 `available=null`，不猜 entitlement；
 - Provider reference multiplier 永远保持 `calculation_allowed=false`，真实消耗仍只使用 `tp-voyager.usage/v1` Evidence；

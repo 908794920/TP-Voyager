@@ -1,7 +1,8 @@
 """Local operational CLI for the durable Sub-Agent Runtime.
 
-The CLI is intentionally read-only except for writing an explicitly requested
-Markdown/JSON export file.  It does not import the MCP server and cannot start,
+The CLI is read-only for Runtime task state.  Its only configuration mutation
+is the explicit ``model-routing-init`` bootstrap, plus explicitly requested
+Markdown/JSON export files.  It does not import the MCP server and cannot start,
 cancel, retry, resume, or mutate a task.
 """
 
@@ -16,11 +17,17 @@ from pathlib import Path
 from typing import Any
 
 from agent_runtime.api.schemas import CAPTAIN_TOOL_NAMES
+from agent_runtime.application.crew.routing_profiles import (
+    ModelRoutingProfileError,
+    ModelRoutingProfiles,
+)
 from agent_runtime.backends.codebuddy.process import probe_codebuddy_cli
 from agent_runtime.backends.codebuddy.model_catalog import list_codebuddy_models
 from agent_runtime.backends.qoder.process import probe_qoder_cli
 from agent_runtime.backends.qoder.model_catalog import list_qoder_models
-from agent_runtime.persistence.runtime_paths import resolve_runtime_database, runtime_database_path
+from agent_runtime.persistence.runtime_paths import (
+    canonical_runtime_home, resolve_runtime_database, runtime_database_path,
+)
 
 from agent_runtime.runtime.diagnostics import (
     RuntimeDiagnosticsError,
@@ -68,6 +75,22 @@ def _safe_model_catalog(loader: Any) -> dict[str, Any]:
         "model_invocation_performed": False,
     }
 
+
+def _safe_routing_profiles() -> dict[str, Any]:
+    """Project routing-profile status without selecting or dispatching a route."""
+    try:
+        profiles = ModelRoutingProfiles.load(canonical_runtime_home())
+        metadata = profiles.metadata()
+        if metadata.get("status") in {"not_configured", "bundled_baseline"}:
+            metadata["materialize_command"] = "python -m agent_runtime.cli model-routing-init"
+        return metadata
+    except (ModelRoutingProfileError, OSError) as exc:
+        return {
+            "status": "invalid", "source": "operator_model_routing_profiles",
+            "profile_count": 0, "advisory_only": True, "error": type(exc).__name__,
+        }
+
+
 def _doctor_projection(overview: dict[str, Any]) -> dict[str, Any]:
     required = sorted(CAPTAIN_TOOL_NAMES)
     runtime_ok = bool(overview.get("schema_supported") and overview.get("integrity_ok"))
@@ -76,6 +99,7 @@ def _doctor_projection(overview: dict[str, Any]) -> dict[str, Any]:
     qoder = _safe_probe(probe_qoder_cli)
     codebuddy_models = _safe_model_catalog(list_codebuddy_models)
     qoder_models = _safe_model_catalog(list_qoder_models)
+    routing_profiles = _safe_routing_profiles()
     installation_ready = bool(
         runtime_ok
         and mcp_available
@@ -85,7 +109,7 @@ def _doctor_projection(overview: dict[str, Any]) -> dict[str, Any]:
     projection = dict(overview)
     projection.update({
         "schema": "tp-voyager.doctor/v1",
-        "version": "1.0.5",
+        "version": "1.0.6",
         "ok": installation_ready,
         "runtime": {
             "ok": runtime_ok,
@@ -114,6 +138,7 @@ def _doctor_projection(overview: dict[str, Any]) -> dict[str, Any]:
             "selection_performed": False,
             "pricing_estimated": False,
         },
+        "model_routing_profiles": routing_profiles,
         # Installation readiness is informational so doctor remains useful on
         # development hosts where one optional Crew CLI is intentionally absent.
         "installation_ready": installation_ready,
@@ -130,7 +155,7 @@ def _doctor_projection(overview: dict[str, Any]) -> dict[str, Any]:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="agent-runtime",
-        description="Read-only diagnostics for Agent Runtime.",
+        description="Local operations and read-only diagnostics for TP-Voyager Runtime.",
     )
     parser.add_argument(
         "--db",
@@ -144,6 +169,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--json",
         action="store_true",
         help="Emit the stable tp-voyager.doctor/v1 JSON contract",
+    )
+
+    subparsers.add_parser(
+        "model-routing-init",
+        help="Install the reviewed model-routing baseline into Runtime Home without overwrite",
     )
 
     audit_parser = subparsers.add_parser(
@@ -222,8 +252,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     resolution = resolve_runtime_database()
     path = Path(args.db).expanduser().resolve() if args.db else resolution.database
-    inspector = RuntimeInspector(path)
     try:
+        if args.command == "model-routing-init":
+            result = ModelRoutingProfiles.initialize(canonical_runtime_home())
+            _json_print(result)
+            return 0
+
+        inspector = RuntimeInspector(path)
         if args.command == "doctor":
             overview = inspector.overview().to_dict()
             path_info = resolution.to_dict()

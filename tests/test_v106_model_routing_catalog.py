@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -11,13 +12,16 @@ from agent_runtime.application.crew.routing_profiles import ModelRoutingProfile,
 
 
 class ModelRoutingProfilesTests(unittest.TestCase):
-    def test_missing_file_is_not_configured(self) -> None:
+    def test_missing_operator_file_uses_read_only_bundled_baseline(self) -> None:
         from agent_runtime.application.crew.routing_profiles import ModelRoutingProfiles
 
         profiles = ModelRoutingProfiles.load(Path(self._tmpdir()) / "runtime")
-        self.assertEqual(profiles.status, "not_configured")
-        self.assertEqual(profiles.profile_count, 0)
-        self.assertIsNone(profiles.sha256)
+        self.assertEqual(profiles.status, "bundled_baseline")
+        self.assertEqual(profiles.metadata()["source"], "bundled_model_routing_baseline")
+        self.assertEqual(profiles.profile_count, 26)
+        self.assertIsNotNone(profiles.sha256)
+        self.assertEqual(profiles.get("codebuddy:deepseek-v4-flash")["capability_tier"], "L3")
+        self.assertEqual(profiles.get("qoder:qmodel_38max")["capability_tier"], "L3")
 
     def test_valid_profile_is_strictly_loaded_and_projected(self) -> None:
         from agent_runtime.application.crew.routing_profiles import ModelRoutingProfiles
@@ -61,14 +65,14 @@ class ModelRoutingProfilesTests(unittest.TestCase):
         with self.assertRaises(ModelRoutingProfileError):
             ModelRoutingProfiles.load(root)
 
-    def test_repository_example_is_valid_and_covers_current_provider_route_ids(self) -> None:
+    def test_bundled_baseline_is_valid_and_covers_current_provider_route_ids(self) -> None:
         from agent_runtime.application.crew.routing_profiles import ModelRoutingProfiles
 
-        example = Path(__file__).resolve().parents[1] / "docs" / "examples" / "model_routing_profiles.example.json"
-        self.assertTrue(example.exists())
+        baseline = ModelRoutingProfiles.bundled_baseline_path()
+        self.assertTrue(baseline.exists())
         root = Path(self._tmpdir())
         root.mkdir(parents=True, exist_ok=True)
-        (root / "model_routing_profiles.json").write_bytes(example.read_bytes())
+        (root / "model_routing_profiles.json").write_bytes(baseline.read_bytes())
         profiles = ModelRoutingProfiles.load(root)
         expected = {
             "codebuddy:hy3", "codebuddy:glm-5.2", "codebuddy:glm-5.1",
@@ -82,9 +86,139 @@ class ModelRoutingProfilesTests(unittest.TestCase):
         }
         self.assertEqual(set(profiles.route_ids()), expected)
         self.assertEqual(profiles.get("qoder:lite")["capability_tier"], "L0")
-        self.assertEqual(profiles.get("codebuddy:deepseek-v4-flash")["capability_tier"], "L2")
-        self.assertEqual(profiles.get("qoder:qmodel_38max")["capability_tier"], "L3")
+        self.assertEqual(profiles.get("codebuddy:hy3")["capability_tier"], "L1")
+        deepseek = profiles.get("codebuddy:deepseek-v4-flash")
+        self.assertEqual(deepseek["canonical_family"], "deepseek-v4-flash-0731")
+        self.assertEqual(deepseek["provider_identity"], "operator_confirmed")
+        self.assertEqual(deepseek["capability_tier"], "L3")
+        self.assertEqual(deepseek["profile_confidence"], "high")
+        qwen = profiles.get("qoder:qmodel_38max")
+        self.assertEqual(qwen["canonical_family"], "qwen3.8-max")
+        self.assertEqual(qwen["provider_identity"], "operator_confirmed")
+        self.assertEqual(qwen["capability_tier"], "L3")
+        self.assertEqual(qwen["profile_confidence"], "medium-high")
         self.assertEqual(profiles.get("qoder:cmodel")["capability_tier"], "UNCLASSIFIED")
+
+    def test_repository_example_is_small_valid_and_covers_four_core_routes(self) -> None:
+        from agent_runtime.application.crew.routing_profiles import ModelRoutingProfiles
+
+        example = Path(__file__).resolve().parents[1] / "docs" / "examples" / "model_routing_profiles.example.json"
+        root = Path(self._tmpdir())
+        root.mkdir(parents=True, exist_ok=True)
+        (root / "model_routing_profiles.json").write_bytes(example.read_bytes())
+        profiles = ModelRoutingProfiles.load(root)
+        self.assertEqual(set(profiles.route_ids()), {
+            "qoder:lite", "codebuddy:hy3", "codebuddy:deepseek-v4-flash", "qoder:qmodel_38max"
+        })
+
+    def test_initialize_installs_bundled_baseline_without_overwriting_operator_file(self) -> None:
+        from agent_runtime.application.crew.routing_profiles import ModelRoutingProfileError, ModelRoutingProfiles
+
+        root = Path(self._tmpdir()) / "runtime"
+        result = ModelRoutingProfiles.initialize(root)
+        self.assertEqual(result["status"], "installed")
+        self.assertEqual(result["profile_count"], 26)
+        self.assertTrue((root / "model_routing_profiles.json").is_file())
+        self.assertIn("operator_model_research", result["required_evidence_root_aliases"])
+        with self.assertRaises(ModelRoutingProfileError):
+            ModelRoutingProfiles.initialize(root)
+
+    def test_trusted_local_evidence_is_verified_by_alias_relative_path_and_hash(self) -> None:
+        from agent_runtime.application.crew.routing_profiles import ModelRoutingProfiles
+
+        root = Path(self._tmpdir())
+        evidence_root = root / "research"
+        evidence_root.mkdir(parents=True)
+        evidence = evidence_root / "models.md"
+        evidence.write_text("operator model research\n", encoding="utf-8")
+        digest = hashlib.sha256(evidence.read_bytes()).hexdigest()
+        (root / "model_evidence_roots.json").write_text(
+            json.dumps({"operator_model_research": str(evidence_root.resolve())}), encoding="utf-8"
+        )
+        payload = {
+            "schema": "tp-voyager.model_routing_profiles/v1",
+            "profiles": {
+                "codebuddy:hy3": {
+                    "canonical_family": "hy3",
+                    "capability_tier": "L1",
+                    "profile_confidence": "medium-high",
+                    "specialties": ["routine_coding"],
+                    "benchmark_evidence": [{
+                        "source": "artificial_analysis",
+                        "tested_model": "Hy3",
+                        "model_match": "exact",
+                        "metrics": {"intelligence_index": 41},
+                        "url": "https://artificialanalysis.ai/models/hy3"
+                    }],
+                    "evidence_refs": [{
+                        "kind": "trusted_file",
+                        "root_alias": "operator_model_research",
+                        "path": "models.md",
+                        "sha256": digest
+                    }]
+                }
+            }
+        }
+        (root / "model_routing_profiles.json").write_text(json.dumps(payload), encoding="utf-8")
+        profiles = ModelRoutingProfiles.load(root)
+        profile = profiles.get("codebuddy:hy3")
+        self.assertEqual(profile["profile_confidence"], "medium-high")
+        self.assertEqual(profile["benchmark_evidence"][0]["metrics"]["intelligence_index"], 41)
+        self.assertEqual(profile["evidence_status"], "verified")
+        ref = profile["evidence_refs"][0]
+        self.assertEqual(ref["verification"], "verified")
+        self.assertEqual(ref["actual_sha256"], digest)
+        self.assertNotIn(str(evidence_root.resolve()), json.dumps(profile, ensure_ascii=False))
+
+    def test_evidence_hash_mismatch_marks_profile_stale_without_rejecting_profile(self) -> None:
+        from agent_runtime.application.crew.routing_profiles import ModelRoutingProfiles
+
+        root = Path(self._tmpdir())
+        evidence_root = root / "research"
+        evidence_root.mkdir(parents=True)
+        (evidence_root / "models.md").write_text("new content", encoding="utf-8")
+        (root / "model_evidence_roots.json").write_text(
+            json.dumps({"operator_model_research": str(evidence_root.resolve())}), encoding="utf-8"
+        )
+        payload = {
+            "schema": "tp-voyager.model_routing_profiles/v1",
+            "profiles": {
+                "qoder:qmodel_38max": {
+                    "capability_tier": "L3",
+                    "evidence_refs": [{
+                        "kind": "trusted_file",
+                        "root_alias": "operator_model_research",
+                        "path": "models.md",
+                        "sha256": "0" * 64
+                    }]
+                }
+            }
+        }
+        (root / "model_routing_profiles.json").write_text(json.dumps(payload), encoding="utf-8")
+        profile = ModelRoutingProfiles.load(root).get("qoder:qmodel_38max")
+        self.assertEqual(profile["capability_tier"], "L3")
+        self.assertEqual(profile["evidence_status"], "stale")
+        self.assertEqual(profile["evidence_refs"][0]["verification"], "hash_mismatch")
+
+    def test_trusted_file_evidence_rejects_unsafe_relative_paths(self) -> None:
+        from agent_runtime.application.crew.routing_profiles import ModelRoutingProfileError, ModelRoutingProfiles
+
+        root = Path(self._tmpdir())
+        root.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "schema": "tp-voyager.model_routing_profiles/v1",
+            "profiles": {
+                "codebuddy:hy3": {
+                    "evidence_refs": [{
+                        "kind": "trusted_file", "root_alias": "operator_model_research",
+                        "path": "../secret.md", "sha256": "0" * 64
+                    }]
+                }
+            }
+        }
+        (root / "model_routing_profiles.json").write_text(json.dumps(payload), encoding="utf-8")
+        with self.assertRaises(ModelRoutingProfileError):
+            ModelRoutingProfiles.load(root)
 
     def test_unknown_profile_field_and_invalid_route_id_are_rejected(self) -> None:
         from agent_runtime.application.crew.routing_profiles import ModelRoutingProfileError, ModelRoutingProfiles
@@ -158,7 +292,10 @@ class RoutableModelCatalogTests(unittest.TestCase):
             ModelRoutingProfile(
                 route_id="codebuddy:deepseek-v4-flash",
                 canonical_family="deepseek-v4-flash-0731",
-                capability_tier="L2",
+                provider_identity="operator_confirmed",
+                capability_tier="L3",
+                profile_confidence="high",
+                specialties=("coding_agent",),
                 recommended_tasks=("implementation", "debugging"),
                 risk_boundaries=("architecture decisions require Captain review",),
                 suggested_effort="high",
@@ -182,7 +319,9 @@ class RoutableModelCatalogTests(unittest.TestCase):
         self.assertEqual(route["routability_status"], "confirmed")
         self.assertEqual(route["reference_multiplier"], 0.05)
         self.assertFalse(route["calculation_allowed"])
-        self.assertEqual(route["capability_profile"]["capability_tier"], "L2")
+        self.assertEqual(route["capability_profile"]["capability_tier"], "L3")
+        self.assertEqual(route["capability_profile"]["profile_confidence"], "high")
+        self.assertEqual(route["profile_evidence_status"], "not_declared")
         self.assertEqual(route["reasoning"]["supported_efforts"], ["low", "high", "max"])
         self.assertEqual(route["reasoning"]["suggested_effort"], "high")
         self.assertTrue(route["reasoning"]["suggested_effort_supported"])
@@ -238,6 +377,28 @@ class RoutableModelCatalogTests(unittest.TestCase):
         self.assertEqual(route["reference_multiplier"], 0.0)
         self.assertFalse(route["calculation_allowed"])
         self.assertFalse(route["metadata"]["billing"]["calculation_allowed"])
+
+    def test_explicit_empty_supported_efforts_marks_profile_suggestion_unsupported(self) -> None:
+        model = ModelDescriptor(
+            "codebuddy", "deepseek-v4-flash", available=True,
+            metadata={
+                "catalog_status": "complete",
+                "supported_efforts": [],
+                "effort_support_status": "unsupported_by_controlled_backend",
+            },
+        )
+        profiles = self._profiles(ModelRoutingProfile(
+            route_id="codebuddy:deepseek-v4-flash", capability_tier="L3", suggested_effort="high"
+        ))
+        service = CrewRegistryService(
+            {"codebuddy": CrewProvider(_crew_descriptor("codebuddy"), models=lambda: [model])},
+            model_policy_loader=lambda: SimpleNamespace(allowed_models=None, sha256="baseline"),
+            routing_profiles_loader=lambda: profiles,
+        )
+        route = service.model_catalog("codebuddy")["models"][0]
+        self.assertEqual(route["reasoning"]["supported_efforts"], [])
+        self.assertEqual(route["reasoning"]["support_status"], "known")
+        self.assertFalse(route["reasoning"]["suggested_effort_supported"])
 
     def test_explicit_policy_denial_keeps_model_visible_but_not_routable(self) -> None:
         model = ModelDescriptor(

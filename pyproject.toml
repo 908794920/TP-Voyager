@@ -34,3 +34,6 @@ agent-runtime = "agent_runtime.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["agent_runtime*"]
+
+[tool.setuptools.package-data]
+"agent_runtime.application.crew" = ["*.json"]

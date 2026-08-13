@@ -249,14 +249,19 @@ class CrewRegistryService:
             public_metadata["billing"] = public_billing
             reference_multiplier = self._reference_multiplier(billing)
             supported_efforts = self._supported_efforts(model.metadata)
+            effort_support_known = self._effort_support_known(model.metadata)
             suggested_effort = (
                 str(profile.get("suggested_effort") or "").strip()
                 if isinstance(profile, dict) else ""
             ) or None
             suggested_supported = (
                 suggested_effort in supported_efforts
-                if suggested_effort is not None and supported_efforts
+                if suggested_effort is not None and effort_support_known
                 else None
+            )
+            profile_evidence_status = (
+                str(profile.get("evidence_status") or "not_declared")
+                if isinstance(profile, dict) else None
             )
             projected.append({
                 **model.to_dict(),
@@ -270,8 +275,12 @@ class CrewRegistryService:
                 "calculation_allowed": False,
                 "context_window_tokens": self._context_window_tokens(model.metadata),
                 "capability_profile": profile,
+                "profile_evidence_status": profile_evidence_status,
                 "reasoning": {
                     "supported_efforts": supported_efforts,
+                    "support_status": (
+                        "known" if effort_support_known else "unknown"
+                    ),
                     "suggested_effort": suggested_effort,
                     "suggested_effort_supported": suggested_supported,
                 },
@@ -282,7 +291,8 @@ class CrewRegistryService:
                     "billing": str(billing.get("source") or model.source),
                     "authorization": "operator_dispatch_policy" if policy is not None else "unavailable",
                     "capability_profile": (
-                        "operator_model_routing_profiles" if profile is not None
+                        str(profiles_meta.get("source") or "operator_model_routing_profiles")
+                        if profile is not None
                         else ("unavailable" if profiles_meta.get("status") == "invalid" else "not_configured")
                     ),
                     "history": "runtime_task_history",
@@ -429,6 +439,15 @@ class CrewRegistryService:
                         if str(key).strip()
                     ]
         return []
+
+    @staticmethod
+    def _effort_support_known(metadata: Mapping[str, Any]) -> bool:
+        """Whether the provider/controlled route made effort support explicit."""
+        return (
+            "supported_efforts" in metadata
+            or "effort_support_status" in metadata
+            or isinstance(metadata.get("thinking_config"), dict)
+        )
 
     def model_history(self, backend: str, model: str) -> dict[str, Any]:
         name = backend.strip().lower()

@@ -6,8 +6,18 @@
     "protocol": "tp-voyager-captain/v1"
   },
   "mcp": {
+    "name": "tp_voyager",
     "transport": "stdio",
-    "command": ["python", "-m", "agent_runtime.server"],
+    "command": [
+      "python",
+      "-m",
+      "agent_runtime.server"
+    ],
+    "cwd": "E:\\updateProject\\TP_Voyager",
+    "env": {
+      "QODER_CLI_PATH": "~\\.agent-runtime\\bin\\qodercli-qoder-client.cmd",
+      "CODEBUDDY_CODE_PATH": "C:\\Program Files\\nodejs\\node_global\\codebuddy.cmd"
+    },
     "required_captain_tools": [
       "voyager_overview",
       "crew_catalog",
@@ -18,7 +28,13 @@
     ]
   },
   "doctor": {
-    "command": ["python", "-m", "agent_runtime.cli", "doctor", "--json"],
+    "command": [
+      "python",
+      "-m",
+      "agent_runtime.cli",
+      "doctor",
+      "--json"
+    ],
     "schema": "tp-voyager.doctor/v1"
   }
 }

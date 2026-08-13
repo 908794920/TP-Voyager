@@ -1,9 +1,9 @@
-"""Operator-owned advisory model-routing metadata.
+"""Operator-owned advisory model-routing metadata and provenance.
 
-The file loaded here is deliberately *not* a dispatch policy.  It gives the
-Captain maintainable model knowledge (capability tier, suitable work, risk
-boundaries and an effort suggestion) while authorization remains owned by
-``dispatch_model_policy.json`` and explicit Captain dispatch.
+This module never scores or selects models.  It validates an operator-maintained
+routing profile file, verifies optional trusted local evidence by path/hash, and
+provides a deliberate bootstrap from the reviewed baseline shipped with
+TP-Voyager.  Dispatch authorization remains owned by ``dispatch_model_policy``.
 """
 
 from __future__ import annotations
@@ -11,31 +11,54 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
-from pathlib import Path
+import os
+from pathlib import Path, PurePosixPath
 import re
-from typing import Any
+from typing import Any, Mapping
 
 
 _SCHEMA = "tp-voyager.model_routing_profiles/v1"
 _FILE_NAME = "model_routing_profiles.json"
+_EVIDENCE_ROOTS_FILE = "model_evidence_roots.json"
+_BASELINE_FILE = "model_routing_profiles.baseline.json"
 _TOP_LEVEL_KEYS = frozenset({"schema", "updated_at", "profiles"})
 _PROFILE_KEYS = frozenset(
     {
         "canonical_family",
+        "provider_identity",
         "capability_tier",
+        "profile_confidence",
+        "specialties",
         "recommended_tasks",
         "risk_boundaries",
         "suggested_effort",
+        "benchmark_evidence",
+        "evidence_refs",
+        # v1.0.6-rc compatibility: URL-only evidence from the first draft.
         "evidence_sources",
+    }
+)
+_BENCHMARK_KEYS = frozenset(
+    {
+        "source", "release", "tested_model", "model_match", "metrics", "url",
+        "agent", "effort", "harness",
     }
 )
 _ROUTE_ID = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}:[A-Za-z0-9][A-Za-z0-9._:+/-]{0,159}$")
 _TOKEN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:+/-]{0,159}$")
+_SHORT_TOKEN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$")
 _EFFORT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$")
+_SHA256 = re.compile(r"^[0-9a-fA-F]{64}$")
+_CONFIDENCE = frozenset({"high", "medium-high", "medium", "medium-low", "low"})
+_MODEL_MATCH = frozenset({"exact", "near_exact", "family", "predecessor", "dynamic_tier", "missing"})
+_EVIDENCE_REF_KINDS = frozenset({"url", "trusted_file"})
 _MAX_PROFILES = 256
 _MAX_LIST_ITEMS = 32
-_MAX_TEXT_LENGTH = 240
-_MAX_SOURCE_LENGTH = 500
+_MAX_TEXT_LENGTH = 320
+_MAX_SOURCE_LENGTH = 800
+_MAX_BENCHMARKS = 24
+_MAX_METRICS = 32
+_MAX_EVIDENCE_FILE_BYTES = 16 * 1024 * 1024
 
 
 class ModelRoutingProfileError(ValueError):
@@ -63,6 +86,17 @@ def _optional_token(value: object, field: str, *, effort: bool = False) -> str |
     return normalized
 
 
+def _optional_short_text(value: object, field: str, *, limit: int = 160) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ModelRoutingProfileError(f"{field} must be a string")
+    text = value.strip()
+    if not text or len(text) > limit or "\x00" in text:
+        raise ModelRoutingProfileError(f"{field} contains an invalid value")
+    return text
+
+
 def _bounded_strings(value: object, field: str, *, source: bool = False) -> tuple[str, ...]:
     if value is None:
         return ()
@@ -82,23 +116,238 @@ def _bounded_strings(value: object, field: str, *, source: bool = False) -> tupl
     return tuple(output)
 
 
+def _relative_evidence_path(value: object, field: str) -> str:
+    if not isinstance(value, str):
+        raise ModelRoutingProfileError(f"{field} must be a relative path")
+    raw = value.strip().replace("\\", "/")
+    if not raw or len(raw) > 512 or raw.startswith(("/", "//")) or "\x00" in raw:
+        raise ModelRoutingProfileError(f"{field} must be a safe relative path")
+    if len(raw) >= 2 and raw[1] == ":":
+        raise ModelRoutingProfileError(f"{field} must be a safe relative path")
+    path = PurePosixPath(raw)
+    if any(part in {"", ".", ".."} for part in path.parts):
+        raise ModelRoutingProfileError(f"{field} must be a safe relative path")
+    return path.as_posix()
+
+
+def _metric_value(value: object, field: str) -> object:
+    if isinstance(value, bool):
+        raise ModelRoutingProfileError(f"{field} contains an invalid metric")
+    if isinstance(value, (int, float)):
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        if text and len(text) <= 120 and "\x00" not in text:
+            return text
+    if value is None:
+        return None
+    raise ModelRoutingProfileError(f"{field} contains an invalid metric")
+
+
+def _benchmark_evidence(value: object, field: str) -> tuple[dict[str, Any], ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, list) or len(value) > _MAX_BENCHMARKS:
+        raise ModelRoutingProfileError(f"{field} must be a bounded list")
+    output: list[dict[str, Any]] = []
+    for index, item in enumerate(value):
+        item_field = f"{field}[{index}]"
+        if not isinstance(item, dict) or set(item) - _BENCHMARK_KEYS:
+            raise ModelRoutingProfileError(f"{item_field} contains unsupported fields")
+        source = _optional_short_text(item.get("source"), f"{item_field}.source", limit=80)
+        tested_model = _optional_short_text(item.get("tested_model"), f"{item_field}.tested_model", limit=200)
+        model_match = _optional_short_text(item.get("model_match"), f"{item_field}.model_match", limit=32)
+        if source is None or not _SHORT_TOKEN.fullmatch(source):
+            raise ModelRoutingProfileError(f"{item_field}.source must be a short token")
+        if tested_model is None:
+            raise ModelRoutingProfileError(f"{item_field}.tested_model is required")
+        if model_match not in _MODEL_MATCH:
+            raise ModelRoutingProfileError(f"{item_field}.model_match is unsupported")
+        url = _optional_short_text(item.get("url"), f"{item_field}.url", limit=_MAX_SOURCE_LENGTH)
+        if url is not None and not url.startswith(("https://", "http://")):
+            raise ModelRoutingProfileError(f"{item_field}.url must be http(s)")
+        metrics = item.get("metrics", {})
+        if not isinstance(metrics, dict) or len(metrics) > _MAX_METRICS:
+            raise ModelRoutingProfileError(f"{item_field}.metrics must be a bounded object")
+        safe_metrics: dict[str, object] = {}
+        for key, metric in metrics.items():
+            if not isinstance(key, str) or not _SHORT_TOKEN.fullmatch(key):
+                raise ModelRoutingProfileError(f"{item_field}.metrics contains an invalid key")
+            safe_metrics[key] = _metric_value(metric, f"{item_field}.metrics.{key}")
+        normalized = {
+            "source": source,
+            "release": _optional_short_text(item.get("release"), f"{item_field}.release", limit=80),
+            "tested_model": tested_model,
+            "model_match": model_match,
+            "metrics": safe_metrics,
+            "url": url,
+            "agent": _optional_short_text(item.get("agent"), f"{item_field}.agent", limit=120),
+            "effort": _optional_short_text(item.get("effort"), f"{item_field}.effort", limit=80),
+            "harness": _optional_short_text(item.get("harness"), f"{item_field}.harness", limit=160),
+        }
+        output.append({key: val for key, val in normalized.items() if val is not None})
+    return tuple(output)
+
+
+def _declared_evidence_refs(value: object, field: str) -> tuple[dict[str, str], ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, list) or len(value) > _MAX_LIST_ITEMS:
+        raise ModelRoutingProfileError(f"{field} must be a bounded list")
+    output: list[dict[str, str]] = []
+    for index, item in enumerate(value):
+        item_field = f"{field}[{index}]"
+        if not isinstance(item, dict):
+            raise ModelRoutingProfileError(f"{item_field} must be an object")
+        kind = str(item.get("kind") or "").strip()
+        if kind not in _EVIDENCE_REF_KINDS:
+            raise ModelRoutingProfileError(f"{item_field}.kind is unsupported")
+        if kind == "url":
+            if set(item) != {"kind", "url"}:
+                raise ModelRoutingProfileError(f"{item_field} url evidence has unsupported fields")
+            url = str(item.get("url") or "").strip()
+            if not url.startswith(("https://", "http://")) or len(url) > _MAX_SOURCE_LENGTH:
+                raise ModelRoutingProfileError(f"{item_field}.url must be http(s)")
+            output.append({"kind": "url", "url": url})
+            continue
+        if set(item) != {"kind", "root_alias", "path", "sha256"}:
+            raise ModelRoutingProfileError(f"{item_field} trusted_file evidence has unsupported fields")
+        alias = str(item.get("root_alias") or "").strip()
+        digest = str(item.get("sha256") or "").strip().lower()
+        if not _SHORT_TOKEN.fullmatch(alias):
+            raise ModelRoutingProfileError(f"{item_field}.root_alias is invalid")
+        if not _SHA256.fullmatch(digest):
+            raise ModelRoutingProfileError(f"{item_field}.sha256 is invalid")
+        output.append({
+            "kind": "trusted_file",
+            "root_alias": alias,
+            "path": _relative_evidence_path(item.get("path"), f"{item_field}.path"),
+            "sha256": digest,
+        })
+    return tuple(output)
+
+
+def _load_evidence_roots(runtime_home: Path) -> tuple[dict[str, Path], dict[str, Any]]:
+    path = runtime_home / _EVIDENCE_ROOTS_FILE
+    if not path.exists():
+        return {}, {"status": "not_configured", "sha256": None, "root_count": 0}
+    try:
+        data = path.read_bytes()
+        raw = json.loads(data.decode("utf-8"), object_pairs_hook=_strict_object)
+        if not isinstance(raw, dict) or len(raw) > 64:
+            raise ModelRoutingProfileError("model evidence roots must be a bounded object")
+        roots: dict[str, Path] = {}
+        for alias, value in raw.items():
+            if not isinstance(alias, str) or not _SHORT_TOKEN.fullmatch(alias):
+                raise ModelRoutingProfileError("model evidence roots contain an invalid alias")
+            if not isinstance(value, str) or not value.strip():
+                raise ModelRoutingProfileError("model evidence roots contain an invalid path")
+            root = Path(value).expanduser()
+            if not root.is_absolute():
+                raise ModelRoutingProfileError("model evidence root paths must be absolute")
+            roots[alias] = root.resolve()
+        return roots, {
+            "status": "loaded",
+            "sha256": hashlib.sha256(data).hexdigest(),
+            "root_count": len(roots),
+        }
+    except Exception as exc:  # evidence trust config cannot authorize dispatch
+        return {}, {
+            "status": "invalid",
+            "sha256": None,
+            "root_count": 0,
+            "error": type(exc).__name__,
+        }
+
+
+def _verify_evidence_refs(
+    declared: tuple[dict[str, str], ...], roots: Mapping[str, Path]
+) -> tuple[tuple[dict[str, Any], ...], str]:
+    output: list[dict[str, Any]] = []
+    states: list[str] = []
+    for ref in declared:
+        if ref["kind"] == "url":
+            output.append({**ref, "verification": "declared"})
+            states.append("declared")
+            continue
+        alias = ref["root_alias"]
+        root = roots.get(alias)
+        if root is None:
+            output.append({**ref, "verification": "root_unavailable"})
+            states.append("root_unavailable")
+            continue
+        candidate = (root / Path(*PurePosixPath(ref["path"]).parts)).resolve()
+        try:
+            candidate.relative_to(root)
+        except ValueError:
+            output.append({**ref, "verification": "path_escape"})
+            states.append("path_escape")
+            continue
+        if not candidate.is_file():
+            output.append({**ref, "verification": "missing"})
+            states.append("missing")
+            continue
+        try:
+            size = candidate.stat().st_size
+            if size > _MAX_EVIDENCE_FILE_BYTES:
+                output.append({**ref, "verification": "too_large", "byte_size": size})
+                states.append("too_large")
+                continue
+            actual = hashlib.sha256(candidate.read_bytes()).hexdigest()
+        except OSError:
+            output.append({**ref, "verification": "unreadable"})
+            states.append("unreadable")
+            continue
+        verification = "verified" if actual == ref["sha256"] else "hash_mismatch"
+        output.append({
+            **ref,
+            "verification": verification,
+            "byte_size": size,
+            "actual_sha256": actual,
+        })
+        states.append(verification)
+    if not states:
+        return tuple(output), "not_declared"
+    if any(state in {"hash_mismatch", "missing"} for state in states):
+        return tuple(output), "stale"
+    if any(state in {"path_escape", "too_large", "unreadable"} for state in states):
+        return tuple(output), "rejected"
+    if any(state == "root_unavailable" for state in states):
+        return tuple(output), "unverified"
+    if any(state == "verified" for state in states):
+        return tuple(output), "verified"
+    return tuple(output), "declared"
+
+
 @dataclass(frozen=True)
 class ModelRoutingProfile:
     route_id: str
     canonical_family: str | None = None
+    provider_identity: str | None = None
     capability_tier: str | None = None
+    profile_confidence: str | None = None
+    specialties: tuple[str, ...] = ()
     recommended_tasks: tuple[str, ...] = ()
     risk_boundaries: tuple[str, ...] = ()
     suggested_effort: str | None = None
+    benchmark_evidence: tuple[dict[str, Any], ...] = ()
+    evidence_refs: tuple[dict[str, Any], ...] = ()
+    evidence_status: str = "not_declared"
     evidence_sources: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "canonical_family": self.canonical_family,
+            "provider_identity": self.provider_identity,
             "capability_tier": self.capability_tier,
+            "profile_confidence": self.profile_confidence,
+            "specialties": list(self.specialties),
             "recommended_tasks": list(self.recommended_tasks),
             "risk_boundaries": list(self.risk_boundaries),
             "suggested_effort": self.suggested_effort,
+            "benchmark_evidence": [dict(item) for item in self.benchmark_evidence],
+            "evidence_refs": [dict(item) for item in self.evidence_refs],
+            "evidence_status": self.evidence_status,
             "evidence_sources": list(self.evidence_sources),
         }
 
@@ -109,10 +358,59 @@ class ModelRoutingProfiles:
     status: str = "not_configured"
     sha256: str | None = None
     updated_at: str | None = None
+    evidence_roots: dict[str, Any] | None = None
+    source: str = "operator_model_routing_profiles"
 
     @property
     def profile_count(self) -> int:
         return len(self.profiles)
+
+    @classmethod
+    def bundled_baseline_path(cls) -> Path:
+        return Path(__file__).with_name(_BASELINE_FILE)
+
+    @classmethod
+    def initialize(cls, runtime_home: str | Path) -> dict[str, Any]:
+        """Install the reviewed baseline into Runtime Home without overwriting operator data."""
+        home = Path(runtime_home).expanduser().resolve()
+        target = home / _FILE_NAME
+        if target.exists():
+            raise ModelRoutingProfileError("model_routing_profiles.json already exists; refusing to overwrite operator data")
+        source = cls.bundled_baseline_path()
+        if not source.is_file():
+            raise ModelRoutingProfileError("bundled model routing baseline is unavailable")
+        data = source.read_bytes()
+        # Validate before writing.  Missing evidence roots are advisory only.
+        cls._from_bytes(data, home)
+        home.mkdir(parents=True, exist_ok=True)
+        temp = target.with_name(f".{target.name}.{os.getpid()}.tmp")
+        try:
+            temp.write_bytes(data)
+            os.replace(temp, target)
+        finally:
+            try:
+                temp.unlink(missing_ok=True)
+            except OSError:
+                pass
+        loaded = cls.load(home)
+        required_aliases = sorted({
+            str(ref.get("root_alias"))
+            for profile in loaded.profiles
+            for ref in profile.evidence_refs
+            if ref.get("kind") == "trusted_file" and ref.get("root_alias")
+        })
+        return {
+            "schema": _SCHEMA,
+            "status": "installed",
+            "target": str(target),
+            "sha256": loaded.sha256,
+            "profile_count": loaded.profile_count,
+            "updated_at": loaded.updated_at,
+            "evidence_roots_file": str(home / _EVIDENCE_ROOTS_FILE),
+            "required_evidence_root_aliases": required_aliases,
+            "selection_performed": False,
+            "dispatch_performed": False,
+        }
 
     def get(self, route_id: str) -> dict[str, Any] | None:
         for profile in self.profiles:
@@ -130,26 +428,53 @@ class ModelRoutingProfiles:
         )
 
     def metadata(self) -> dict[str, Any]:
+        evidence_counts: dict[str, int] = {}
+        for profile in self.profiles:
+            evidence_counts[profile.evidence_status] = evidence_counts.get(profile.evidence_status, 0) + 1
         return {
             "status": self.status,
-            "source": "operator_model_routing_profiles",
+            "source": self.source,
             "sha256": self.sha256,
             "updated_at": self.updated_at,
             "profile_count": self.profile_count,
             "advisory_only": True,
+            "evidence_roots": dict(self.evidence_roots or {}),
+            "evidence_profile_counts": evidence_counts,
         }
 
     @classmethod
     def load(cls, runtime_home: str | Path) -> "ModelRoutingProfiles":
-        path = Path(runtime_home) / _FILE_NAME
+        home = Path(runtime_home).expanduser().resolve()
+        path = home / _FILE_NAME
         if not path.exists():
-            return cls()
+            baseline = cls.bundled_baseline_path()
+            if not baseline.is_file():
+                return cls()
+            try:
+                return cls._from_bytes(
+                    baseline.read_bytes(), home,
+                    status="bundled_baseline", source="bundled_model_routing_baseline",
+                )
+            except OSError as exc:
+                raise ModelRoutingProfileError("bundled model routing baseline is invalid") from exc
         try:
             data = path.read_bytes()
+            return cls._from_bytes(data, home, status="loaded", source="operator_model_routing_profiles")
+        except ModelRoutingProfileError:
+            raise
+        except OSError as exc:
+            raise ModelRoutingProfileError("model routing profiles are invalid") from exc
+
+    @classmethod
+    def _from_bytes(
+        cls, data: bytes, runtime_home: Path, *,
+        status: str = "loaded", source: str = "operator_model_routing_profiles",
+    ) -> "ModelRoutingProfiles":
+        try:
             raw = json.loads(data.decode("utf-8"), object_pairs_hook=_strict_object)
         except ModelRoutingProfileError:
             raise
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise ModelRoutingProfileError("model routing profiles are invalid") from exc
         if not isinstance(raw, dict) or set(raw) - _TOP_LEVEL_KEYS:
             raise ModelRoutingProfileError("model routing profiles schema is invalid")
@@ -161,6 +486,8 @@ class ModelRoutingProfiles:
         raw_profiles = raw.get("profiles")
         if not isinstance(raw_profiles, dict) or len(raw_profiles) > _MAX_PROFILES:
             raise ModelRoutingProfileError("profiles must be a bounded object")
+
+        roots, roots_meta = _load_evidence_roots(runtime_home)
         profiles: list[ModelRoutingProfile] = []
         for route_id, value in raw_profiles.items():
             if not isinstance(route_id, str) or not _ROUTE_ID.fullmatch(route_id):
@@ -170,21 +497,40 @@ class ModelRoutingProfiles:
                 raise ModelRoutingProfileError("profile backend must be lowercase")
             if not isinstance(value, dict) or set(value) - _PROFILE_KEYS:
                 raise ModelRoutingProfileError(f"profile {route_id} contains unsupported fields")
+
+            confidence = value.get("profile_confidence")
+            if confidence is not None:
+                if not isinstance(confidence, str) or confidence.strip() not in _CONFIDENCE:
+                    raise ModelRoutingProfileError(f"{route_id}.profile_confidence is unsupported")
+                confidence = confidence.strip()
+            evidence_sources = _bounded_strings(value.get("evidence_sources"), f"{route_id}.evidence_sources", source=True)
+            declared_refs = list(_declared_evidence_refs(value.get("evidence_refs"), f"{route_id}.evidence_refs"))
+            declared_refs.extend({"kind": "url", "url": url} for url in evidence_sources)
+            verified_refs, evidence_status = _verify_evidence_refs(tuple(declared_refs), roots)
+
             profiles.append(
                 ModelRoutingProfile(
                     route_id=route_id,
                     canonical_family=_optional_token(value.get("canonical_family"), f"{route_id}.canonical_family"),
+                    provider_identity=_optional_token(value.get("provider_identity"), f"{route_id}.provider_identity"),
                     capability_tier=_optional_token(value.get("capability_tier"), f"{route_id}.capability_tier"),
+                    profile_confidence=confidence,
+                    specialties=_bounded_strings(value.get("specialties"), f"{route_id}.specialties"),
                     recommended_tasks=_bounded_strings(value.get("recommended_tasks"), f"{route_id}.recommended_tasks"),
                     risk_boundaries=_bounded_strings(value.get("risk_boundaries"), f"{route_id}.risk_boundaries"),
                     suggested_effort=_optional_token(value.get("suggested_effort"), f"{route_id}.suggested_effort", effort=True),
-                    evidence_sources=_bounded_strings(value.get("evidence_sources"), f"{route_id}.evidence_sources", source=True),
+                    benchmark_evidence=_benchmark_evidence(value.get("benchmark_evidence"), f"{route_id}.benchmark_evidence"),
+                    evidence_refs=verified_refs,
+                    evidence_status=evidence_status,
+                    evidence_sources=evidence_sources,
                 )
             )
         profiles.sort(key=lambda item: item.route_id)
         return cls(
             profiles=tuple(profiles),
-            status="loaded",
+            status=status,
             sha256=hashlib.sha256(data).hexdigest(),
             updated_at=updated_at.strip() if isinstance(updated_at, str) else None,
+            evidence_roots=roots_meta,
+            source=source,
         )

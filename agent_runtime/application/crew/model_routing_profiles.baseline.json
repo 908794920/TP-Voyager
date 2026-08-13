@@ -1,0 +1,1317 @@
+{
+  "schema": "tp-voyager.model_routing_profiles/v1",
+  "updated_at": "2026-08-13",
+  "profiles": {
+    "codebuddy:deepseek-v4-flash": {
+      "canonical_family": "deepseek-v4-flash-0731",
+      "provider_identity": "operator_confirmed",
+      "capability_tier": "L3",
+      "profile_confidence": "high",
+      "specialties": [
+        "coding_agent",
+        "cost_efficient_frontier_execution"
+      ],
+      "recommended_tasks": [
+        "complex implementation",
+        "repository investigation",
+        "multi-file change",
+        "difficult debugging",
+        "test-fix loop",
+        "long-horizon coding agent"
+      ],
+      "risk_boundaries": [
+        "text-only model",
+        "architecture/final technical decisions require Captain review",
+        "high-stakes factual conclusions require verification"
+      ],
+      "benchmark_evidence": [
+        {
+          "source": "artificial_analysis",
+          "release": "2026-07-31",
+          "tested_model": "DeepSeek V4 Flash 0731 Max",
+          "model_match": "exact",
+          "metrics": {
+            "intelligence_index": 50,
+            "gdpval_aa_v2_elo": 1559,
+            "omniscience_index": -16
+          },
+          "url": "https://artificialanalysis.ai/",
+          "effort": "max"
+        }
+      ],
+      "evidence_refs": [
+        {
+          "kind": "trusted_file",
+          "root_alias": "operator_model_research",
+          "path": "Codex外部模型CLI委派参考.md",
+          "sha256": "df278a0d4fe6d32316539feabc210742a349fc0f422f0d6553ace7f0601a1b82"
+        },
+        {
+          "kind": "url",
+          "url": "https://artificialanalysis.ai/"
+        }
+      ],
+      "suggested_effort": "high"
+    },
+    "codebuddy:deepseek-v4-pro": {
+      "canonical_family": "deepseek-v4-pro",
+      "provider_identity": "provider_declared",
+      "capability_tier": "L2",
+      "profile_confidence": "high",
+      "specialties": [
+        "reasoning",
+        "coding",
+        "engineering"
+      ],
+      "recommended_tasks": [
+        "advanced engineering",
+        "complex reasoning",
+        "difficult debugging",
+        "code review"
+      ],
+      "risk_boundaries": [
+        "independent agent evidence trails current K3/GLM-5.2",
+        "Captain retains architecture authority"
+      ],
+      "benchmark_evidence": [
+        {
+          "source": "livebench",
+          "release": "2026-06-25",
+          "tested_model": "DeepSeek V4 Pro",
+          "model_match": "exact",
+          "metrics": {
+            "overall": 71.6,
+            "coding": 70.0,
+            "agentic_coding": 42.6
+          },
+          "url": "https://livebench.ai/"
+        },
+        {
+          "source": "artificial_analysis",
+          "release": "2026-08-13",
+          "tested_model": "DeepSeek V4 Pro",
+          "model_match": "exact",
+          "metrics": {
+            "intelligence_index": 44
+          },
+          "url": "https://artificialanalysis.ai/"
+        },
+        {
+          "source": "arena_coding",
+          "release": "2026-08-13",
+          "tested_model": "DeepSeek V4 Pro",
+          "model_match": "exact",
+          "metrics": {
+            "arena_score": 1502,
+            "confidence_interval": 7
+          },
+          "url": "https://arena.ai/leaderboard/text/coding"
+        }
+      ],
+      "evidence_refs": [
+        {
+          "kind": "url",
+          "url": "https://livebench.ai/"
+        }
+      ],
+      "suggested_effort": "high"
+    },
+    "codebuddy:glm-5.1": {
+      "canonical_family": "glm-5.1",
+      "provider_identity": "provider_declared",
+      "capability_tier": "L2",
+      "profile_confidence": "high",
+      "specialties": [
+        "coding",
+        "long_horizon"
+      ],
+      "recommended_tasks": [
+        "advanced coding",
+        "complex review",
+        "long-context implementation"
+      ],
+      "risk_boundaries": [
+        "superseded by GLM-5.2",
+        "prefer newer model for new critical work"
+      ],
+      "benchmark_evidence": [
+        {
+          "source": "livebench",
+          "release": "2026-06-25",
+          "tested_model": "GLM-5.1",
+          "model_match": "exact",
+          "metrics": {
+            "overall": 70.18,
+            "coding": 75.37,
+            "agentic_coding": 55.0
+          },
+          "url": "https://livebench.ai/"
+        },
+        {
+          "source": "artificial_analysis",
+          "release": "2026-08-13",
+          "tested_model": "GLM-5.1",
+          "model_match": "exact",
+          "metrics": {
+            "intelligence_index": 40
+          },
+          "url": "https://artificialanalysis.ai/"
+        },
+        {
+          "source": "arena_coding",
+          "release": "2026-08-13",
+          "tested_model": "GLM-5.1",
+          "model_match": "exact",
+          "metrics": {
+            "arena_score": 1520,
+            "confidence_interval": 7
+          },
+          "url": "https://arena.ai/leaderboard/text/coding"
+        }
+      ],
+      "evidence_refs": [
+        {
+          "kind": "url",
+          "url": "https://livebench.ai/"
+        }
+      ],
+      "suggested_effort": "high"
+    },
+    "codebuddy:glm-5.2": {
+      "canonical_family": "glm-5.2",
+      "provider_identity": "provider_declared",
+      "capability_tier": "L3",
+      "profile_confidence": "high",
+      "specialties": [
+        "long_horizon_coding",
+        "systems_engineering"
+      ],
+      "recommended_tasks": [
+        "complex systems engineering",
+        "cross-module implementation",
+        "long-horizon coding",
+        "difficult review"
+      ],
+      "risk_boundaries": [
+        "Captain retains final architecture and release authority",
+        "avoid for trivial mechanical work"
+      ],
+      "benchmark_evidence": [
+        {
+          "source": "livebench",
+          "release": "2026-06-25",
+          "tested_model": "GLM-5.2",
+          "model_match": "exact",
+          "metrics": {
+            "overall": 73.2,
+            "coding": 79.7,
+            "agentic_coding": 51.9
+          },
+          "url": "https://livebench.ai/"
+        },
+        {
+          "source": "artificial_analysis",
+          "release": "2026-08-13",
+          "tested_model": "GLM-5.2 Max",
+          "model_match": "exact",
+          "metrics": {
+            "intelligence_index": 51
+          },
+          "url": "https://artificialanalysis.ai/"
+        }
+      ],
+      "evidence_refs": [
+        {
+          "kind": "url",
+          "url": "https://livebench.ai/"
+        },
+        {
+          "kind": "url",
+          "url": "https://artificialanalysis.ai/"
+        }
+      ],
+      "suggested_effort": "high"
+    },
+    "codebuddy:glm-5v-turbo": {
+      "canonical_family": "glm-5v-turbo",
+      "provider_identity": "provider_declared",
+      "capability_tier": "L1",
+      "profile_confidence": "medium",
+      "specialties": [
+        "multimodal_coding",
+        "ui_understanding",
+        "document_understanding"
+      ],
+      "recommended_tasks": [
+        "visual code understanding",
+        "UI debugging",
+        "document understanding",
+        "design-to-code assistance"
+      ],
+      "risk_boundaries": [
+        "weak general agentic benchmark relative to coding score",
+        "not a default long-horizon coding agent"
+      ],
+      "benchmark_evidence": [
+        {
+          "source": "livebench",
+          "release": "2026-06-25",
+          "tested_model": "GLM-5V-Turbo",
+          "model_match": "exact",
+          "metrics": {
+            "overall": 49.62,
+            "coding": 73.9,
+            "agentic_coding": 3.33
+          },
+          "url": "https://livebench.ai/"
+        },
+        {
+          "source": "arena_vision",
+          "release": "2026-08-13",
+          "tested_model": "GLM-5V-Turbo",
+          "model_match": "exact",
+          "metrics": {
+            "english_rank": 24,
+            "english_score": 1275,
+            "confidence_interval": 9
+          },
+          "url": "https://arena.ai/leaderboard/vision/english-no-style-control"
+        }
+      ],
+      "evidence_refs": [
+        {
+          "kind": "url",
+          "url": "https://arena.ai/leaderboard/vision"
+        }
+      ]
+    },
+    "codebuddy:hy3": {
+      "canonical_family": "hy3",
+      "provider_identity": "operator_confirmed",
+      "capability_tier": "L1",
+      "profile_confidence": "medium-high",
+      "specialties": [
+        "routine_coding",
+        "cost_sensitive_execution"
+      ],
+      "recommended_tasks": [
+        "routine coding",
+        "SQL",
+        "documentation",
+        "medium repository analysis",
+        "clear bounded multi-file work"
+      ],
+      "risk_boundaries": [
+        "long-horizon autonomous engineering should escalate",
+        "architecture decisions require Captain review"
+      ],
+      "benchmark_evidence": [
+        {
+          "source": "artificial_analysis",
+          "release": "2026-08-13",
+          "tested_model": "Hy3",
+          "model_match": "exact",
+          "metrics": {
+            "intelligence_index": 41
+          },
+          "url": "https://artificialanalysis.ai/models/hy3"
+        },
+        {
+          "source": "arena_coding",
+          "release": "2026-08-13",
+          "tested_model": "Hy3",
+          "model_match": "exact",
+          "metrics": {
+            "arena_score": 1503,
+            "confidence_interval": 19,
+            "sample_note": "smaller_sample"
+          },
+          "url": "https://arena.ai/leaderboard/text/coding"
+        }
+      ],
+      "evidence_refs": [
+        {
+          "kind": "trusted_file",
+          "root_alias": "operator_model_research",
+          "path": "Codex外部模型CLI委派参考.md",
+          "sha256": "df278a0d4fe6d32316539feabc210742a349fc0f422f0d6553ace7f0601a1b82"
+        }
+      ],
+      "suggested_effort": "high"
+    },
+    "codebuddy:kimi-k2.6": {
+      "canonical_family": "kimi-k2.6",
+      "provider_identity": "provider_declared",
+      "capability_tier": "L2",
+      "profile_confidence": "high",
+      "specialties": [
+        "coding",
+        "multimodal"
+      ],
+      "recommended_tasks": [
+        "strong coding",
+        "multimodal engineering",
+        "complex implementation"
+      ],
+      "risk_boundaries": [
+        "deprecated/superseded in current Kimi lineup",
+        "prefer K3 or K2.7 for new work when available"
+      ],
+      "benchmark_evidence": [
+        {
+          "source": "livebench",
+          "release": "2026-06-25",
+          "tested_model": "Kimi K2.6",
+          "model_match": "exact",
+          "metrics": {
+            "overall": 70.5,
+            "coding": 78.6,
+            "agentic_coding": 46.9
+          },
+          "url": "https://livebench.ai/"
+        },
+        {
+          "source": "artificial_analysis",
+          "release": "2026-08-13",
+          "tested_model": "Kimi K2.6",
+          "model_match": "exact",
+          "metrics": {
+            "intelligence_index": 44
+          },
+          "url": "https://artificialanalysis.ai/"
+        },
+        {
+          "source": "arena_coding",
+          "release": "2026-08-13",
+          "tested_model": "Kimi K2.6",
+          "model_match": "exact",
+          "metrics": {
+            "open_weight_rank": 4
+          },
+          "url": "https://arena.ai/leaderboard/text/coding"
+        }
+      ],
+      "evidence_refs": [
+        {
+          "kind": "url",
+          "url": "https://livebench.ai/"
+        }
+      ],
+      "suggested_effort": "high"
+    },
+    "codebuddy:kimi-k2.7": {
+      "canonical_family": "kimi-k2.7-code",
+      "provider_identity": "provider_declared",
+      "capability_tier": "L2",
+      "profile_confidence": "high",
+      "specialties": [
+        "coding",
+        "long_context"
+      ],
+      "recommended_tasks": [
+        "repository coding",
+        "long-context implementation",
+        "debugging",
+        "bounded agent loops"
+      ],
+      "risk_boundaries": [
+        "slower and more verbose than cost-focused routes",
+        "architecture requires Captain review"
+      ],
+      "benchmark_evidence": [
+        {
+          "source": "livebench",
+          "release": "2026-06-25",
+          "tested_model": "Kimi K2.7 Code",
+          "model_match": "exact",
+          "metrics": {
+            "overall": 68.4,
+            "coding": 74.0,
+            "agentic_coding": 45.7
+          },
+          "url": "https://livebench.ai/"
+        },
+        {
+          "source": "artificial_analysis",
+          "release": "2026-08-13",
+          "tested_model": "Kimi K2.7 Code",
+          "model_match": "exact",
+          "metrics": {
+            "intelligence_index": 42
+          },
+          "url": "https://artificialanalysis.ai/"
+        }
+      ],
+      "evidence_refs": [
+        {
+          "kind": "url",
+          "url": "https://livebench.ai/"
+        }
+      ],
+      "suggested_effort": "high"
+    },
+    "codebuddy:kimi-k3-2": {
+      "canonical_family": "kimi-k3",
+      "provider_identity": "provider_declared",
+      "capability_tier": "L3",
+      "profile_confidence": "high",
+      "specialties": [
+        "frontier_coding",
+        "long_horizon",
+        "reasoning"
+      ],
+      "recommended_tasks": [
+        "architecture",
+        "difficult coding",
+        "long-horizon agent work",
+        "high-value review"
+      ],
+      "risk_boundaries": [
+        "avoid for trivial work due to latency/verbosity/relative consumption",
+        "Captain owns irreversible decisions"
+      ],
+      "benchmark_evidence": [
+        {
+          "source": "livebench",
+          "release": "2026-06-25",
+          "tested_model": "Kimi K3",
+          "model_match": "exact",
+          "metrics": {
+            "overall": 78.5,
+            "coding": 81.4,
+            "agentic_coding": 57.6
+          },
+          "url": "https://livebench.ai/"
+        },
+        {
+          "source": "artificial_analysis",
+          "release": "2026-08-13",
+          "tested_model": "Kimi K3 Max",
+          "model_match": "exact",
+          "metrics": {
+            "intelligence_index": 57
+          },
+          "url": "https://artificialanalysis.ai/"
+        },
+        {
+          "source": "arena_coding",
+          "release": "2026-08-13",
+          "tested_model": "Kimi K3",
+          "model_match": "exact",
+          "metrics": {
+            "open_weight_rank": 1
+          },
+          "url": "https://arena.ai/leaderboard/text/coding"
+        }
+      ],
+      "evidence_refs": [
+        {
+          "kind": "url",
+          "url": "https://livebench.ai/"
+        },
+        {
+          "kind": "url",
+          "url": "https://arena.ai/leaderboard/text/coding"
+        }
+      ],
+      "suggested_effort": "high"
+    },
+    "codebuddy:minimax-m2.7": {
+      "canonical_family": "minimax-m2.7",
+      "provider_identity": "provider_declared",
+      "capability_tier": "L1",
+      "profile_confidence": "medium",
+      "specialties": [
+        "routine_coding",
+        "agent"
+      ],
+      "recommended_tasks": [
+        "routine implementation",
+        "analysis",
+        "bounded tool use"
+      ],
+      "risk_boundaries": [
+        "superseded by MiniMax M3",
+        "avoid as default for large refactors"
+      ],
+      "benchmark_evidence": [
+        {
+          "source": "livebench",
+          "release": "2026-06-25",
+          "tested_model": "MiniMax M2.7",
+          "model_match": "exact",
+          "metrics": {
+            "overall": 63.49,
+            "coding": 54.9,
+            "agentic_coding": 50.0
+          },
+          "url": "https://livebench.ai/"
+        },
+        {
+          "source": "artificial_analysis",
+          "release": "2026-08-13",
+          "tested_model": "MiniMax M2.7",
+          "model_match": "exact",
+          "metrics": {
+            "intelligence_index": 38
+          },
+          "url": "https://artificialanalysis.ai/"
+        }
+      ],
+      "evidence_refs": [
+        {
+          "kind": "url",
+          "url": "https://livebench.ai/"
+        }
+      ]
+    },
+    "codebuddy:minimax-m3-pay": {
+      "canonical_family": "minimax-m3",
+      "provider_identity": "provider_declared",
+      "capability_tier": "L2",
+      "profile_confidence": "high",
+      "specialties": [
+        "coding",
+        "multimodal",
+        "agent"
+      ],
+      "recommended_tasks": [
+        "multi-file implementation",
+        "multimodal coding",
+        "general agent work",
+        "debugging"
+      ],
+      "risk_boundaries": [
+        "Captain review required for architecture",
+        "not the strongest long-horizon option in current independent results"
+      ],
+      "benchmark_evidence": [
+        {
+          "source": "livebench",
+          "release": "2026-06-25",
+          "tested_model": "MiniMax M3",
+          "model_match": "exact",
+          "metrics": {
+            "overall": 67.3,
+            "coding": 68.2,
+            "agentic_coding": 40.7
+          },
+          "url": "https://livebench.ai/"
+        },
+        {
+          "source": "artificial_analysis",
+          "release": "2026-08-13",
+          "tested_model": "MiniMax M3",
+          "model_match": "exact",
+          "metrics": {
+            "intelligence_index": 44
+          },
+          "url": "https://artificialanalysis.ai/"
+        },
+        {
+          "source": "arena_coding",
+          "release": "2026-08-13",
+          "tested_model": "MiniMax M3",
+          "model_match": "exact",
+          "metrics": {
+            "arena_score": 1498,
+            "confidence_interval": 8
+          },
+          "url": "https://arena.ai/leaderboard/text/coding"
+        }
+      ],
+      "evidence_refs": [
+        {
+          "kind": "url",
+          "url": "https://livebench.ai/"
+        }
+      ],
+      "suggested_effort": "high"
+    },
+    "qoder:auto": {
+      "canonical_family": "qoder-auto-tier",
+      "provider_identity": "dynamic_tier",
+      "capability_tier": "DYNAMIC",
+      "profile_confidence": "low",
+      "specialties": [
+        "dynamic_model_pool"
+      ],
+      "recommended_tasks": [
+        "provider-routed general work when Captain accepts dynamic model choice"
+      ],
+      "risk_boundaries": [
+        "underlying model may change between requests",
+        "do not attribute a fixed benchmark score"
+      ],
+      "benchmark_evidence": [],
+      "evidence_refs": [
+        {
+          "kind": "url",
+          "url": "https://docs.qoder.com/en/cli/model"
+        }
+      ]
+    },
+    "qoder:cmodel": {
+      "canonical_family": "cantus",
+      "provider_identity": "provider_declared",
+      "capability_tier": "UNCLASSIFIED",
+      "profile_confidence": "low",
+      "specialties": [
+        "unknown"
+      ],
+      "recommended_tasks": [
+        "manual evaluation",
+        "high-difficulty comparison only"
+      ],
+      "risk_boundaries": [
+        "independent public capability evidence is insufficient",
+        "high provider reference multiplier is not capability evidence",
+        "do not use as default route"
+      ],
+      "benchmark_evidence": [
+        {
+          "source": "independent_benchmark_search",
+          "release": "2026-08-13",
+          "tested_model": "Cantus",
+          "model_match": "missing",
+          "metrics": {
+            "status": "not_found"
+          },
+          "url": "https://arena.ai/leaderboard/"
+        }
+      ],
+      "evidence_refs": [
+        {
+          "kind": "url",
+          "url": "https://docs.qoder.com/en/cli/model"
+        }
+      ]
+    },
+    "qoder:dfmodel": {
+      "canonical_family": "deepseek-v4-flash-0731",
+      "provider_identity": "operator_confirmed",
+      "capability_tier": "L3",
+      "profile_confidence": "high",
+      "specialties": [
+        "coding_agent",
+        "cost_efficient_frontier_execution"
+      ],
+      "recommended_tasks": [
+        "complex implementation",
+        "repository investigation",
+        "multi-file change",
+        "difficult debugging",
+        "test-fix loop",
+        "long-horizon coding agent"
+      ],
+      "risk_boundaries": [
+        "text-only model",
+        "architecture/final technical decisions require Captain review",
+        "high-stakes factual conclusions require verification"
+      ],
+      "benchmark_evidence": [
+        {
+          "source": "artificial_analysis",
+          "release": "2026-07-31",
+          "tested_model": "DeepSeek V4 Flash 0731 Max",
+          "model_match": "exact",
+          "metrics": {
+            "intelligence_index": 50,
+            "gdpval_aa_v2_elo": 1559,
+            "omniscience_index": -16
+          },
+          "url": "https://artificialanalysis.ai/",
+          "effort": "max"
+        }
+      ],
+      "evidence_refs": [
+        {
+          "kind": "trusted_file",
+          "root_alias": "operator_model_research",
+          "path": "Codex外部模型CLI委派参考.md",
+          "sha256": "df278a0d4fe6d32316539feabc210742a349fc0f422f0d6553ace7f0601a1b82"
+        },
+        {
+          "kind": "url",
+          "url": "https://artificialanalysis.ai/"
+        }
+      ],
+      "suggested_effort": "high"
+    },
+    "qoder:dmodel": {
+      "canonical_family": "deepseek-v4-pro",
+      "provider_identity": "provider_declared",
+      "capability_tier": "L2",
+      "profile_confidence": "high",
+      "specialties": [
+        "reasoning",
+        "coding",
+        "engineering"
+      ],
+      "recommended_tasks": [
+        "advanced engineering",
+        "complex reasoning",
+        "difficult debugging",
+        "code review"
+      ],
+      "risk_boundaries": [
+        "independent agent evidence trails current K3/GLM-5.2",
+        "Captain retains architecture authority"
+      ],
+      "benchmark_evidence": [
+        {
+          "source": "livebench",
+          "release": "2026-06-25",
+          "tested_model": "DeepSeek V4 Pro",
+          "model_match": "exact",
+          "metrics": {
+            "overall": 71.6,
+            "coding": 70.0,
+            "agentic_coding": 42.6
+          },
+          "url": "https://livebench.ai/"
+        },
+        {
+          "source": "artificial_analysis",
+          "release": "2026-08-13",
+          "tested_model": "DeepSeek V4 Pro",
+          "model_match": "exact",
+          "metrics": {
+            "intelligence_index": 44
+          },
+          "url": "https://artificialanalysis.ai/"
+        },
+        {
+          "source": "arena_coding",
+          "release": "2026-08-13",
+          "tested_model": "DeepSeek V4 Pro",
+          "model_match": "exact",
+          "metrics": {
+            "arena_score": 1502,
+            "confidence_interval": 7
+          },
+          "url": "https://arena.ai/leaderboard/text/coding"
+        }
+      ],
+      "evidence_refs": [
+        {
+          "kind": "url",
+          "url": "https://livebench.ai/"
+        }
+      ],
+      "suggested_effort": "high"
+    },
+    "qoder:efficient": {
+      "canonical_family": "qoder-efficient-tier",
+      "provider_identity": "dynamic_tier",
+      "capability_tier": "L1",
+      "profile_confidence": "medium",
+      "specialties": [
+        "credit_efficiency"
+      ],
+      "recommended_tasks": [
+        "routine coding",
+        "unit tests",
+        "documentation",
+        "daily engineering"
+      ],
+      "risk_boundaries": [
+        "underlying model is provider-selected",
+        "not preferred for architecture"
+      ],
+      "benchmark_evidence": [],
+      "evidence_refs": [
+        {
+          "kind": "url",
+          "url": "https://docs.qoder.com/en/cli/model"
+        }
+      ]
+    },
+    "qoder:gm51model": {
+      "canonical_family": "glm-5.2",
+      "provider_identity": "provider_declared",
+      "capability_tier": "L3",
+      "profile_confidence": "high",
+      "specialties": [
+        "long_horizon_coding",
+        "systems_engineering"
+      ],
+      "recommended_tasks": [
+        "complex systems engineering",
+        "cross-module implementation",
+        "long-horizon coding",
+        "difficult review"
+      ],
+      "risk_boundaries": [
+        "Captain retains final architecture and release authority",
+        "avoid for trivial mechanical work"
+      ],
+      "benchmark_evidence": [
+        {
+          "source": "livebench",
+          "release": "2026-06-25",
+          "tested_model": "GLM-5.2",
+          "model_match": "exact",
+          "metrics": {
+            "overall": 73.2,
+            "coding": 79.7,
+            "agentic_coding": 51.9
+          },
+          "url": "https://livebench.ai/"
+        },
+        {
+          "source": "artificial_analysis",
+          "release": "2026-08-13",
+          "tested_model": "GLM-5.2 Max",
+          "model_match": "exact",
+          "metrics": {
+            "intelligence_index": 51
+          },
+          "url": "https://artificialanalysis.ai/"
+        }
+      ],
+      "evidence_refs": [
+        {
+          "kind": "url",
+          "url": "https://livebench.ai/"
+        },
+        {
+          "kind": "url",
+          "url": "https://artificialanalysis.ai/"
+        }
+      ],
+      "suggested_effort": "high"
+    },
+    "qoder:kmodel": {
+      "canonical_family": "kimi-k2.7-code",
+      "provider_identity": "provider_declared",
+      "capability_tier": "L2",
+      "profile_confidence": "high",
+      "specialties": [
+        "coding",
+        "long_context"
+      ],
+      "recommended_tasks": [
+        "repository coding",
+        "long-context implementation",
+        "debugging",
+        "bounded agent loops"
+      ],
+      "risk_boundaries": [
+        "slower and more verbose than cost-focused routes",
+        "architecture requires Captain review"
+      ],
+      "benchmark_evidence": [
+        {
+          "source": "livebench",
+          "release": "2026-06-25",
+          "tested_model": "Kimi K2.7 Code",
+          "model_match": "exact",
+          "metrics": {
+            "overall": 68.4,
+            "coding": 74.0,
+            "agentic_coding": 45.7
+          },
+          "url": "https://livebench.ai/"
+        },
+        {
+          "source": "artificial_analysis",
+          "release": "2026-08-13",
+          "tested_model": "Kimi K2.7 Code",
+          "model_match": "exact",
+          "metrics": {
+            "intelligence_index": 42
+          },
+          "url": "https://artificialanalysis.ai/"
+        }
+      ],
+      "evidence_refs": [
+        {
+          "kind": "url",
+          "url": "https://livebench.ai/"
+        }
+      ],
+      "suggested_effort": "high"
+    },
+    "qoder:kmodel_latest": {
+      "canonical_family": "kimi-k3",
+      "provider_identity": "provider_declared",
+      "capability_tier": "L3",
+      "profile_confidence": "high",
+      "specialties": [
+        "frontier_coding",
+        "long_horizon",
+        "reasoning"
+      ],
+      "recommended_tasks": [
+        "architecture",
+        "difficult coding",
+        "long-horizon agent work",
+        "high-value review"
+      ],
+      "risk_boundaries": [
+        "avoid for trivial work due to latency/verbosity/relative consumption",
+        "Captain owns irreversible decisions"
+      ],
+      "benchmark_evidence": [
+        {
+          "source": "livebench",
+          "release": "2026-06-25",
+          "tested_model": "Kimi K3",
+          "model_match": "exact",
+          "metrics": {
+            "overall": 78.5,
+            "coding": 81.4,
+            "agentic_coding": 57.6
+          },
+          "url": "https://livebench.ai/"
+        },
+        {
+          "source": "artificial_analysis",
+          "release": "2026-08-13",
+          "tested_model": "Kimi K3 Max",
+          "model_match": "exact",
+          "metrics": {
+            "intelligence_index": 57
+          },
+          "url": "https://artificialanalysis.ai/"
+        },
+        {
+          "source": "arena_coding",
+          "release": "2026-08-13",
+          "tested_model": "Kimi K3",
+          "model_match": "exact",
+          "metrics": {
+            "open_weight_rank": 1
+          },
+          "url": "https://arena.ai/leaderboard/text/coding"
+        }
+      ],
+      "evidence_refs": [
+        {
+          "kind": "url",
+          "url": "https://livebench.ai/"
+        },
+        {
+          "kind": "url",
+          "url": "https://arena.ai/leaderboard/text/coding"
+        }
+      ],
+      "suggested_effort": "high"
+    },
+    "qoder:lite": {
+      "canonical_family": "qoder-lite-tier",
+      "provider_identity": "dynamic_tier",
+      "capability_tier": "L0",
+      "profile_confidence": "medium",
+      "specialties": [
+        "free_basic_tier"
+      ],
+      "recommended_tasks": [
+        "code search",
+        "summarization",
+        "mechanical edits",
+        "simple logic",
+        "quick validation"
+      ],
+      "risk_boundaries": [
+        "fixed bottom model is undisclosed",
+        "do not use as final authority for architecture",
+        "do not use as sole model for difficult debugging"
+      ],
+      "benchmark_evidence": [],
+      "evidence_refs": [
+        {
+          "kind": "trusted_file",
+          "root_alias": "operator_model_research",
+          "path": "Codex外部模型CLI委派参考.md",
+          "sha256": "df278a0d4fe6d32316539feabc210742a349fc0f422f0d6553ace7f0601a1b82"
+        },
+        {
+          "kind": "url",
+          "url": "https://docs.qoder.com/en/cli/model"
+        }
+      ]
+    },
+    "qoder:mmodel": {
+      "canonical_family": "minimax-m3",
+      "provider_identity": "provider_declared",
+      "capability_tier": "L2",
+      "profile_confidence": "high",
+      "specialties": [
+        "coding",
+        "multimodal",
+        "agent"
+      ],
+      "recommended_tasks": [
+        "multi-file implementation",
+        "multimodal coding",
+        "general agent work",
+        "debugging"
+      ],
+      "risk_boundaries": [
+        "Captain review required for architecture",
+        "not the strongest long-horizon option in current independent results"
+      ],
+      "benchmark_evidence": [
+        {
+          "source": "livebench",
+          "release": "2026-06-25",
+          "tested_model": "MiniMax M3",
+          "model_match": "exact",
+          "metrics": {
+            "overall": 67.3,
+            "coding": 68.2,
+            "agentic_coding": 40.7
+          },
+          "url": "https://livebench.ai/"
+        },
+        {
+          "source": "artificial_analysis",
+          "release": "2026-08-13",
+          "tested_model": "MiniMax M3",
+          "model_match": "exact",
+          "metrics": {
+            "intelligence_index": 44
+          },
+          "url": "https://artificialanalysis.ai/"
+        },
+        {
+          "source": "arena_coding",
+          "release": "2026-08-13",
+          "tested_model": "MiniMax M3",
+          "model_match": "exact",
+          "metrics": {
+            "arena_score": 1498,
+            "confidence_interval": 8
+          },
+          "url": "https://arena.ai/leaderboard/text/coding"
+        }
+      ],
+      "evidence_refs": [
+        {
+          "kind": "url",
+          "url": "https://livebench.ai/"
+        }
+      ],
+      "suggested_effort": "high"
+    },
+    "qoder:performance": {
+      "canonical_family": "qoder-performance-tier",
+      "provider_identity": "dynamic_tier",
+      "capability_tier": "L2",
+      "profile_confidence": "medium",
+      "specialties": [
+        "performance_priority"
+      ],
+      "recommended_tasks": [
+        "core implementation",
+        "advanced reasoning",
+        "refactoring"
+      ],
+      "risk_boundaries": [
+        "underlying model is provider-selected",
+        "Captain must verify high-risk decisions"
+      ],
+      "benchmark_evidence": [],
+      "evidence_refs": [
+        {
+          "kind": "url",
+          "url": "https://docs.qoder.com/en/cli/model"
+        }
+      ]
+    },
+    "qoder:qmodel": {
+      "canonical_family": "qwen3.7-plus",
+      "provider_identity": "provider_declared",
+      "capability_tier": "L1",
+      "profile_confidence": "medium-high",
+      "specialties": [
+        "multimodal",
+        "routine_reasoning"
+      ],
+      "recommended_tasks": [
+        "routine professional work",
+        "multimodal analysis",
+        "documentation",
+        "ordinary coding"
+      ],
+      "risk_boundaries": [
+        "not preferred as sole architecture authority",
+        "escalate long-horizon coding"
+      ],
+      "benchmark_evidence": [
+        {
+          "source": "artificial_analysis",
+          "release": "2026-08-13",
+          "tested_model": "Qwen3.7 Plus",
+          "model_match": "exact",
+          "metrics": {
+            "intelligence_index": 39
+          },
+          "url": "https://artificialanalysis.ai/"
+        },
+        {
+          "source": "arena_vision",
+          "release": "2026-08-13",
+          "tested_model": "Qwen3.7 Plus",
+          "model_match": "exact",
+          "metrics": {
+            "document_rank": 22
+          },
+          "url": "https://arena.ai/leaderboard/vision"
+        }
+      ],
+      "evidence_refs": [
+        {
+          "kind": "url",
+          "url": "https://artificialanalysis.ai/"
+        }
+      ],
+      "suggested_effort": "high"
+    },
+    "qoder:qmodel_38max": {
+      "canonical_family": "qwen3.8-max",
+      "provider_identity": "operator_confirmed",
+      "capability_tier": "L3",
+      "profile_confidence": "medium-high",
+      "specialties": [
+        "frontier_reasoning",
+        "long_horizon",
+        "multimodal",
+        "coding_agent"
+      ],
+      "recommended_tasks": [
+        "architecture",
+        "complex requirement design",
+        "long-horizon agent work",
+        "cross-module or cross-repository work",
+        "difficult review",
+        "multimodal and visual UI validation"
+      ],
+      "risk_boundaries": [
+        "Arena evidence is still preliminary",
+        "verbose/relatively expensive route",
+        "Captain retains final high-risk decisions"
+      ],
+      "benchmark_evidence": [
+        {
+          "source": "arena_text",
+          "release": "2026-08-03",
+          "tested_model": "Qwen3.8-Max",
+          "model_match": "exact",
+          "metrics": {
+            "positioning": "highest_ranked_chinese_text_model",
+            "status": "preliminary"
+          },
+          "url": "https://arena.ai/leaderboard/text"
+        },
+        {
+          "source": "arena_vision",
+          "release": "2026-08-03",
+          "tested_model": "Qwen3.8-Max",
+          "model_match": "exact",
+          "metrics": {
+            "overall_rank": 2,
+            "status": "preliminary"
+          },
+          "url": "https://arena.ai/leaderboard/vision"
+        }
+      ],
+      "evidence_refs": [
+        {
+          "kind": "trusted_file",
+          "root_alias": "operator_model_research",
+          "path": "Codex外部模型CLI委派参考.md",
+          "sha256": "df278a0d4fe6d32316539feabc210742a349fc0f422f0d6553ace7f0601a1b82"
+        },
+        {
+          "kind": "url",
+          "url": "https://arena.ai/leaderboard/text"
+        },
+        {
+          "kind": "url",
+          "url": "https://arena.ai/leaderboard/vision"
+        }
+      ],
+      "suggested_effort": "medium"
+    },
+    "qoder:qmodel_latest": {
+      "canonical_family": "qwen3.7-max",
+      "provider_identity": "provider_declared",
+      "capability_tier": "L3",
+      "profile_confidence": "high",
+      "specialties": [
+        "reasoning",
+        "long_context",
+        "coding_agent"
+      ],
+      "recommended_tasks": [
+        "complex reasoning",
+        "cross-module work",
+        "long-context analysis",
+        "expert review"
+      ],
+      "risk_boundaries": [
+        "higher relative consumption than routine routes",
+        "Captain owns release-critical decisions"
+      ],
+      "benchmark_evidence": [
+        {
+          "source": "livebench",
+          "release": "2026-06-25",
+          "tested_model": "Qwen3.7 Max",
+          "model_match": "exact",
+          "metrics": {
+            "overall": 73.1,
+            "coding": 74.2,
+            "agentic_coding": 43.6
+          },
+          "url": "https://livebench.ai/"
+        },
+        {
+          "source": "artificial_analysis",
+          "release": "2026-08-13",
+          "tested_model": "Qwen3.7 Max",
+          "model_match": "exact",
+          "metrics": {
+            "intelligence_index": 46
+          },
+          "url": "https://artificialanalysis.ai/"
+        }
+      ],
+      "evidence_refs": [
+        {
+          "kind": "url",
+          "url": "https://livebench.ai/"
+        }
+      ],
+      "suggested_effort": "high"
+    },
+    "qoder:ultimate": {
+      "canonical_family": "qoder-ultimate-tier",
+      "provider_identity": "dynamic_tier",
+      "capability_tier": "L3",
+      "profile_confidence": "medium",
+      "specialties": [
+        "quality_priority"
+      ],
+      "recommended_tasks": [
+        "complex system design",
+        "hard reasoning",
+        "expert review"
+      ],
+      "risk_boundaries": [
+        "underlying model is provider-selected",
+        "benchmark scores are not attributable to the tier"
+      ],
+      "benchmark_evidence": [],
+      "evidence_refs": [
+        {
+          "kind": "url",
+          "url": "https://docs.qoder.com/en/cli/model"
+        }
+      ]
+    }
+  }
+}

@@ -8,18 +8,11 @@ Captain Skill 是上层 AI 使用 TP-Voyager 的操作规范。
 Captain Skill 1.0.6
 ```
 
-## Captain 只需要记住 6 个工具
+## Captain MCP 合约
 
-```text
-voyager_overview
-crew_catalog
-crew_health
-crew_recommend
-task_dispatch
-task_result
-```
+`tp-voyager.manifest.json` 中的 `mcp.required_captain_tools` 是 Captain 默认工具 allow-list 的唯一配置事实；本文不维护第二份启动命令或工具清单。
 
-默认 MCP Surface 也只暴露这 6 个工具。低层 Task / Context / Planner / Artifact API 只属于显式 diagnostic surface。
+默认 MCP Surface 必须与 manifest 一致。低层 Task / Context / Planner / Artifact API 只属于显式 diagnostic surface。
 
 ## 标准流程
 
@@ -88,6 +81,16 @@ reasoning_effort=...
 ```
 
 TP-Voyager 不会替换失败模型，也不会自动 fallback。
+
+`capability_profile` 还会携带 `profile_confidence`、`benchmark_evidence`、
+`recommended_tasks`、`risk_boundaries` 和可选的 `evidence_refs`。这些资料帮助
+Captain 理解模型的能力形状，但**不得把 benchmark 分数变成自动路由优先级**。
+
+如果 `profile_evidence_status` 为 `stale` / `unverified` / `rejected`，应把
+该能力画像视为需要复核的 operator 资料；它不会改变 dispatch policy 的
+allowed/denied。模型授权与能力认知始终是两套不同事实。
+
+本地 Evidence 只按受信 root alias、相对路径和 SHA-256 校验，不自动进入 Crew Prompt。
 
 ## `crew_recommend` 的边界
 
@@ -166,15 +169,26 @@ Provider 没返回的消耗字段保持 unknown。
 
 ## 安装
 
-把本目录中的 `SKILL.md` 加载到能够访问 TP-Voyager MCP Server 的上层 AI 环境即可。
+`tp-voyager.manifest.json` 是 Skill 的 MCP 启动事实来源。安装或更新 Skill 后，宿主仍需完成自己的 MCP 注册。
 
-本项目不绑定单一 Captain 宿主；只要宿主能使用 TP-Voyager MCP 六工具即可。
+Codex Desktop 使用明确、幂等的全局同步入口：
+
+```powershell
+python "$HOME\.codex\skills\tp-voyager-captain\sync_codex_desktop.py"
+python "$HOME\.codex\skills\tp-voyager-captain\sync_codex_desktop.py" --check
+```
+
+同步器只维护全局 Codex 配置里的 `mcp_servers.tp_voyager`，不会删除项目级 `.codex/config.toml`。配置变化后必须完全重启 Codex Desktop 或新建任务；已有任务不会热加载 MCP。
+
+完整说明和验收命令见 [`CODEX_DESKTOP.md`](CODEX_DESKTOP.md)。其他 Captain 宿主可按同一 manifest 注册自己的 MCP transport。
 
 ## 文件
 
 ```text
 tp-voyager-captain/
 ├── SKILL.md
+├── CODEX_DESKTOP.md
+├── sync_codex_desktop.py
 ├── tp-voyager.manifest.json
 ├── worker-profiles/
 └── README.md

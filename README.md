@@ -147,11 +147,21 @@ AGENT_RUNTIME_HOME
     → 模型能力资料：只读建议，不参与授权
 ```
 
-仓库提供当前 CodeBuddy / Qoder 路由 ID 的可编辑示例：
+TP-Voyager 随包提供一份经过审阅的 **26-route baseline**。如果 Runtime Home 尚未存在 operator 文件，MCP 会**只读使用 bundled baseline**，因此升级后无需额外复制就能看到能力资料。
+
+如果希望把 baseline materialize 到 Runtime Home 并自行维护，显式执行：
+
+```powershell
+.\.venv\Scripts\python.exe -m agent_runtime.cli model-routing-init
+```
+
+该命令只在 `model_routing_profiles.json` 不存在时写入 Runtime Home，**绝不覆盖 operator 已维护的文件**。一旦 operator 文件存在，它会覆盖 bundled baseline。
+
+四条核心 route 的精简示例仍保留在：
 
 [docs/examples/model_routing_profiles.example.json](docs/examples/model_routing_profiles.example.json)
 
-复制到 Runtime Home 后即可按自己的模型认知持续更新，无需改 TP-Voyager Python 代码。
+独立 benchmark、profile confidence 和受信任本地 Evidence 的配置见 [模型路由目录](docs/MODEL_ROUTING.md)。
 
 ## Captain 怎么用
 

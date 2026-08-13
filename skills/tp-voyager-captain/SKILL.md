@@ -48,27 +48,19 @@ TP-Voyager executes reliably.
 
 Use this skill only when TP-Voyager MCP tools are available.
 
+The sibling `tp-voyager.manifest.json` is the canonical MCP launch and
+Captain-tool allow-list contract. Do not maintain a second startup command or
+tool list in this Skill.
+
 ## Quickstart
 
-Start with the six-tool Captain contract only: call `voyager_overview`, inspect
-`crew_catalog`, choose a Crew and an explicit model, then call
-`task_dispatch`; read the bounded result with `task_result`.  The default
-surface is exactly `voyager_overview`, `crew_catalog`, `crew_health`,
-`crew_recommend`, `task_dispatch`, and `task_result`.  Diagnostic tools are
-not part of this contract and require the separate diagnostic surface.
+Use the tools declared by the sibling manifest. In normal work, inspect voyage
+and Crew/model facts, explicitly choose Crew/model/supported effort, dispatch
+the bounded task, and consume the bounded result. Diagnostic tools are not part
+of the normal Captain contract.
 
-Before delegating, verify that the following Captain-facing capabilities are discoverable:
-
-```text
-crew_catalog
-crew_health
-crew_recommend
-voyager_overview
-task_dispatch
-task_result
-```
-
-The default MCP surface intentionally exposes only those six Captain tools.
+Before delegating, verify that the host-discovered tool set matches the
+manifest `mcp.required_captain_tools` set exactly.
 Legacy lifecycle/context/artifact tools may still exist on the explicit
 ``diagnostic`` MCP surface for maintenance, but the Captain must not depend on
 them during normal operation.
@@ -121,6 +113,7 @@ allowlist_status
 routable / routability_status
 reference_multiplier
 capability_profile
+profile_evidence_status
 reasoning
 history
 usage
@@ -129,8 +122,18 @@ sources
 
 `capability_profile` is operator-owned advisory metadata; it cannot authorize a
 model. `reference_multiplier` is reference-only and must never be converted
-into a bill. Only pass `reasoning_effort` when the current Backend route
-explicitly supports it; a profile suggestion is not transport capability. The
+into a bill. Within a capability profile, treat `capability_tier`,
+`profile_confidence`, `benchmark_evidence`, `recommended_tasks`, and
+`risk_boundaries` as **decision evidence**, not as an automatic ranking.
+`benchmark_evidence.model_match` distinguishes exact/family/predecessor/dynamic
+tier/missing evidence and must be interpreted literally.
+
+`profile_evidence_status=stale|unverified|rejected` means the operator's local
+provenance needs attention; it does not grant or revoke dispatch permission.
+Hard authorization continues to come only from the effective dispatch policy.
+
+Only pass `reasoning_effort` when the current Backend route explicitly supports
+it; a profile suggestion is not transport capability. The
 Captain still explicitly chooses Crew, model and supported effort, and
 `task_dispatch` remains the only dispatch step.
 
