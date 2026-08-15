@@ -22,8 +22,14 @@ class ModelRoutingProfilesTests(unittest.TestCase):
         self.assertEqual(profiles.metadata()["source"], "bundled_model_routing_baseline")
         self.assertEqual(profiles.profile_count, 26)
         self.assertIsNotNone(profiles.sha256)
-        self.assertEqual(profiles.get("codebuddy:deepseek-v4-flash")["capability_tier"], "L3")
-        self.assertEqual(profiles.get("qoder:qmodel_38max")["capability_tier"], "L3")
+        deepseek = profiles.get("codebuddy:deepseek-v4-flash")
+        self.assertEqual(deepseek["capability_tier"], "UNCLASSIFIED")
+        self.assertEqual(deepseek["legacy_capability_tier"], "L3")
+        self.assertEqual(deepseek["tier_authority"], "standard_v1")
+        qwen = profiles.get("qoder:qmodel_38max")
+        self.assertEqual(qwen["capability_tier"], "UNCLASSIFIED")
+        self.assertEqual(qwen["legacy_capability_tier"], "L3")
+        self.assertEqual(qwen["tier_authority"], "standard_v1")
 
     def test_valid_profile_is_strictly_loaded_and_projected(self) -> None:
         from agent_runtime.application.crew.routing_profiles import ModelRoutingProfiles
@@ -50,7 +56,10 @@ class ModelRoutingProfilesTests(unittest.TestCase):
         self.assertEqual(profiles.status, "loaded")
         self.assertEqual(profiles.profile_count, 1)
         self.assertIsNotNone(profiles.sha256)
-        self.assertEqual(profile["capability_tier"], "L2")
+        self.assertEqual(profile["capability_tier"], "UNCLASSIFIED")
+        self.assertEqual(profile["legacy_capability_tier"], "L2")
+        self.assertEqual(profile["tier_authority"], "standard_v1_uncalibrated")
+        self.assertIsNone(profile["scorecard"])
         self.assertEqual(profile["suggested_effort"], "high")
         self.assertEqual(profile["recommended_tasks"], ["implementation", "debugging"])
         self.assertEqual(profiles.route_ids("codebuddy"), ("codebuddy:deepseek-v4-flash",))
@@ -80,24 +89,32 @@ class ModelRoutingProfilesTests(unittest.TestCase):
             "codebuddy:hy3", "codebuddy:glm-5.2", "codebuddy:glm-5.1",
             "codebuddy:glm-5v-turbo", "codebuddy:minimax-m3-pay", "codebuddy:minimax-m2.7",
             "codebuddy:kimi-k3-2", "codebuddy:kimi-k2.7", "codebuddy:kimi-k2.6",
-            "codebuddy:deepseek-v4-pro", "codebuddy:deepseek-v4-flash",
-            "qoder:auto", "qoder:ultimate", "qoder:performance", "qoder:efficient",
+            "codebuddy:deepseek-v4-pro", "codebuddy:deepseek-v4-flash", "codebuddy:glm-5.3",
+            "qoder:ultimate", "qoder:performance", "qoder:efficient",
             "qoder:Lite", "qoder:cmodel", "qoder:qmodel_38max", "qoder:qmodel_latest",
             "qoder:qmodel", "qoder:kmodel_latest", "qoder:kmodel", "qoder:gm51model",
             "qoder:dmodel", "qoder:dfmodel", "qoder:mmodel",
         }
         self.assertEqual(set(profiles.route_ids()), expected)
-        self.assertEqual(profiles.get("qoder:Lite")["capability_tier"], "L0")
-        self.assertEqual(profiles.get("codebuddy:hy3")["capability_tier"], "L1")
+        lite = profiles.get("qoder:Lite")
+        self.assertEqual(lite["capability_tier"], "DYNAMIC")
+        self.assertEqual(lite["provider_tier_label"], "Lite")
+        self.assertEqual(lite["tier_authority"], "provider_dynamic")
+        self.assertIsNone(lite["scorecard"])
+        hy3 = profiles.get("codebuddy:hy3")
+        self.assertEqual(hy3["capability_tier"], "UNCLASSIFIED")
+        self.assertEqual(hy3["legacy_capability_tier"], "L1")
         deepseek = profiles.get("codebuddy:deepseek-v4-flash")
-        self.assertEqual(deepseek["canonical_family"], "deepseek-v4-flash-0731")
+        self.assertEqual(deepseek["canonical_family"], "deepseek-v4-flash")
         self.assertEqual(deepseek["provider_identity"], "operator_confirmed")
-        self.assertEqual(deepseek["capability_tier"], "L3")
+        self.assertEqual(deepseek["capability_tier"], "UNCLASSIFIED")
+        self.assertEqual(deepseek["legacy_capability_tier"], "L3")
         self.assertEqual(deepseek["profile_confidence"], "high")
         qwen = profiles.get("qoder:qmodel_38max")
         self.assertEqual(qwen["canonical_family"], "qwen3.8-max")
         self.assertEqual(qwen["provider_identity"], "operator_confirmed")
-        self.assertEqual(qwen["capability_tier"], "L3")
+        self.assertEqual(qwen["capability_tier"], "UNCLASSIFIED")
+        self.assertEqual(qwen["legacy_capability_tier"], "L3")
         self.assertEqual(qwen["profile_confidence"], "medium-high")
         self.assertEqual(profiles.get("qoder:cmodel")["capability_tier"], "UNCLASSIFIED")
 
@@ -198,7 +215,9 @@ class ModelRoutingProfilesTests(unittest.TestCase):
         }
         (root / "model_routing_profiles.json").write_text(json.dumps(payload), encoding="utf-8")
         profile = ModelRoutingProfiles.load(root).get("qoder:qmodel_38max")
-        self.assertEqual(profile["capability_tier"], "L3")
+        self.assertEqual(profile["capability_tier"], "UNCLASSIFIED")
+        self.assertEqual(profile["legacy_capability_tier"], "L3")
+        self.assertEqual(profile["tier_authority"], "standard_v1_uncalibrated")
         self.assertEqual(profile["evidence_status"], "stale")
         self.assertEqual(profile["evidence_refs"][0]["verification"], "hash_mismatch")
 

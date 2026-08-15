@@ -19,6 +19,9 @@ from agent_runtime.domain.dispatch import (
     ModelPolicy, ReadScope, RepositoryResearchSpec, WorkerProfileRef,
 )
 from agent_runtime.domain.enums import EvidenceType, TaskRoute
+from agent_runtime.domain.crew import CrewDescriptor, ModelDescriptor
+from agent_runtime.application.crew.service import CrewProvider, CrewRegistryService
+from agent_runtime.application.crew.routing_profiles import ModelRoutingProfiles
 from agent_runtime.domain.session import Session
 from agent_runtime.domain.task import Task
 from agent_runtime.persistence.database import Database
@@ -252,6 +255,54 @@ class CaptainPolicyEvidenceTests(unittest.TestCase):
         bad = WorkerProfileRef.from_dict({"name": "java-review", "version": "1.0", "sha256": "0" * 64})
         with self.assertRaises(WorkerProfileError):
             WorkerProfileResolver(store).resolve(bad)
+
+
+    def test_captain_model_projection_exposes_standard_tier_authority_without_selecting(self) -> None:
+        def crew(name: str) -> CrewDescriptor:
+            return CrewDescriptor(
+                backend=name,
+                display_name=name,
+                maturity="official",
+                official_sources=("https://example.invalid",),
+                capabilities=("analyze_context",),
+                controlled_capabilities=("analyze_context",),
+                dispatch_ready=True,
+                model_discovery="provider_live",
+            )
+
+        profiles = ModelRoutingProfiles.load(self.root / "no-operator-profiles")
+        fixed_service = CrewRegistryService(
+            {"codebuddy": CrewProvider(
+                crew("codebuddy"),
+                models=lambda: [ModelDescriptor("codebuddy", "deepseek-v4-pro", available=True, source="test_live")],
+            )},
+            model_policy_loader=lambda: SimpleNamespace(
+                allowed_models=frozenset({"codebuddy:deepseek-v4-pro"}), sha256="policy"
+            ),
+            routing_profiles_loader=lambda: profiles,
+        )
+        fixed = fixed_service.model_catalog("codebuddy")["models"][0]["capability_profile"]
+        self.assertEqual(fixed["capability_tier"], "L2")
+        self.assertEqual(fixed["tier_authority"], "standard_v1")
+        self.assertEqual(fixed["scorecard"]["tier"], "L2")
+        self.assertEqual(fixed["legacy_capability_tier"], "L2")
+
+        dynamic_service = CrewRegistryService(
+            {"qoder": CrewProvider(
+                crew("qoder"),
+                models=lambda: [ModelDescriptor("qoder", "Lite", available=True, source="test_live")],
+            )},
+            model_policy_loader=lambda: SimpleNamespace(
+                allowed_models=frozenset({"qoder:Lite"}), sha256="policy"
+            ),
+            routing_profiles_loader=lambda: profiles,
+        )
+        dynamic = dynamic_service.model_catalog("qoder")["models"][0]["capability_profile"]
+        self.assertEqual(dynamic["capability_tier"], "DYNAMIC")
+        self.assertEqual(dynamic["tier_authority"], "provider_dynamic")
+        self.assertEqual(dynamic["provider_tier_label"], "Lite")
+        self.assertIsNone(dynamic["scorecard"])
+
 
 
 if __name__ == "__main__":

@@ -1,11 +1,13 @@
 {
-  "schema": "tp-voyager.model_routing_profiles/v1",
-  "updated_at": "2026-08-13",
+  "schema": "tp-voyager.model_routing_profiles/v2",
+  "updated_at": "2026-08-15",
+  "evaluation_standard": "tp-voyager.model_evaluation/v1",
+  "tier_rules_status": "calibrated",
   "profiles": {
     "qoder:Lite": {
       "canonical_family": "qoder-lite-tier",
       "provider_identity": "dynamic_tier",
-      "capability_tier": "L0",
+      "capability_tier": "DYNAMIC",
       "profile_confidence": "medium",
       "specialties": [
         "free_basic_tier"
@@ -34,12 +36,17 @@
           "kind": "url",
           "url": "https://docs.qoder.com/en/cli/model"
         }
-      ]
+      ],
+      "legacy_capability_tier": "L0",
+      "tier_authority": "provider_dynamic",
+      "provider_tier_label": "Lite",
+      "scorecard": null,
+      "standard_evidence": []
     },
     "codebuddy:hy3": {
       "canonical_family": "hy3",
       "provider_identity": "operator_confirmed",
-      "capability_tier": "L1",
+      "capability_tier": "UNCLASSIFIED",
       "profile_confidence": "medium-high",
       "specialties": [
         "routine_coding",
@@ -58,6 +65,7 @@
       ],
       "benchmark_evidence": [
         {
+          "evidence_schema": "legacy_v1",
           "source": "artificial_analysis",
           "release": "2026-08-13",
           "tested_model": "Hy3",
@@ -68,6 +76,7 @@
           "url": "https://artificialanalysis.ai/models/hy3"
         },
         {
+          "evidence_schema": "legacy_v1",
           "source": "arena_coding",
           "release": "2026-08-13",
           "tested_model": "Hy3",
@@ -88,12 +97,138 @@
           "sha256": "df278a0d4fe6d32316539feabc210742a349fc0f422f0d6553ace7f0601a1b82"
         }
       ],
-      "suggested_effort": "high"
+      "suggested_effort": "high",
+      "legacy_capability_tier": "L1",
+      "standard_evidence": [
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "aa-ii-v4.1-hy3",
+          "source_id": "artificial_analysis_model",
+          "source_role": "supplemental",
+          "subject_type": "model_only",
+          "model": {
+            "tested_model": "Hy3",
+            "canonical_family": "hy3",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "artificial-analysis-intelligence-index",
+            "version": "v4.1",
+            "task_count": null
+          },
+          "execution": {
+            "agent": null,
+            "agent_version": null,
+            "harness": null,
+            "harness_version": null,
+            "reasoning_effort": null,
+            "attempts_per_task": null
+          },
+          "result": {
+            "metric": "intelligence_index",
+            "value": 41,
+            "scale": "index"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://artificialanalysis.ai/models/hy3/",
+            "methodology_url": "https://artificialanalysis.ai/methodology",
+            "primary_approved_by": null,
+            "primary_approved_at": null,
+            "approval_basis_url": null
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "provider-card-hy3-20260706",
+          "source_id": "provider_official",
+          "source_role": "provider",
+          "subject_type": "provider_claim",
+          "model": {
+            "tested_model": "Hy3",
+            "canonical_family": "hy3",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "provider-model-card",
+            "version": "2026-07-06",
+            "task_count": null
+          },
+          "execution": {
+            "agent": null,
+            "agent_version": null,
+            "harness": null,
+            "harness_version": null,
+            "reasoning_effort": null,
+            "attempts_per_task": null
+          },
+          "result": {
+            "metric": "release_status",
+            "value": "documented",
+            "scale": "text"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": "2026-07-06",
+            "url": "https://www.tencent.com/tencent-hunyuan-officially-releases-hy3-advancing-agent-capabilities-and-deeper-product-integration/",
+            "methodology_url": null,
+            "primary_approved_by": null,
+            "primary_approved_at": null,
+            "approval_basis_url": null
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        }
+      ],
+      "scorecard": {
+        "schema": "tp-voyager.model_scorecard/v1",
+        "rules_version": "tp-voyager.model_tier_rules/v1",
+        "rules_status": "calibrated",
+        "evaluated_at": "2026-08-15",
+        "dimensions": {
+          "repository_engineering": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "terminal_agentic": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "codebase_understanding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "general_coding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "multimodal_coding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          }
+        },
+        "coverage": "low",
+        "confidence": "low",
+        "tier": "UNCLASSIFIED"
+      },
+      "tier_authority": "standard_v1"
     },
     "codebuddy:deepseek-v4-flash": {
-      "canonical_family": "deepseek-v4-flash-0731",
+      "canonical_family": "deepseek-v4-flash",
       "provider_identity": "operator_confirmed",
-      "capability_tier": "L3",
+      "capability_tier": "UNCLASSIFIED",
       "profile_confidence": "high",
       "specialties": [
         "coding_agent",
@@ -114,6 +249,7 @@
       ],
       "benchmark_evidence": [
         {
+          "evidence_schema": "legacy_v1",
           "source": "artificial_analysis",
           "release": "2026-07-31",
           "tested_model": "DeepSeek V4 Flash 0731 Max",
@@ -139,12 +275,138 @@
           "url": "https://artificialanalysis.ai/"
         }
       ],
-      "suggested_effort": "high"
+      "suggested_effort": "high",
+      "legacy_capability_tier": "L3",
+      "standard_evidence": [
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "aa-ii-v4.1-deepseek-v4-flash",
+          "source_id": "artificial_analysis_model",
+          "source_role": "supplemental",
+          "subject_type": "model_only",
+          "model": {
+            "tested_model": "DeepSeek V4 Flash (Reasoning, Max Effort)",
+            "canonical_family": "deepseek-v4-flash",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "artificial-analysis-intelligence-index",
+            "version": "v4.1",
+            "task_count": null
+          },
+          "execution": {
+            "agent": null,
+            "agent_version": null,
+            "harness": null,
+            "harness_version": null,
+            "reasoning_effort": null,
+            "attempts_per_task": null
+          },
+          "result": {
+            "metric": "intelligence_index",
+            "value": 40,
+            "scale": "index"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://artificialanalysis.ai/models/deepseek-v4-flash/",
+            "methodology_url": "https://artificialanalysis.ai/methodology",
+            "primary_approved_by": null,
+            "primary_approved_at": null,
+            "approval_basis_url": null
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "provider-card-deepseek-v4-flash-20260424",
+          "source_id": "provider_official",
+          "source_role": "provider",
+          "subject_type": "provider_claim",
+          "model": {
+            "tested_model": "DeepSeek V4 Flash",
+            "canonical_family": "deepseek-v4-flash",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "provider-model-card",
+            "version": "2026-04-24",
+            "task_count": null
+          },
+          "execution": {
+            "agent": null,
+            "agent_version": null,
+            "harness": null,
+            "harness_version": null,
+            "reasoning_effort": null,
+            "attempts_per_task": null
+          },
+          "result": {
+            "metric": "release_status",
+            "value": "documented",
+            "scale": "text"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": "2026-04-24",
+            "url": "https://api-docs.deepseek.com/news/news260424/",
+            "methodology_url": null,
+            "primary_approved_by": null,
+            "primary_approved_at": null,
+            "approval_basis_url": null
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        }
+      ],
+      "scorecard": {
+        "schema": "tp-voyager.model_scorecard/v1",
+        "rules_version": "tp-voyager.model_tier_rules/v1",
+        "rules_status": "calibrated",
+        "evaluated_at": "2026-08-15",
+        "dimensions": {
+          "repository_engineering": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "terminal_agentic": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "codebase_understanding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "general_coding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "multimodal_coding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          }
+        },
+        "coverage": "low",
+        "confidence": "low",
+        "tier": "UNCLASSIFIED"
+      },
+      "tier_authority": "standard_v1"
     },
     "qoder:qmodel_38max": {
       "canonical_family": "qwen3.8-max",
       "provider_identity": "operator_confirmed",
-      "capability_tier": "L3",
+      "capability_tier": "UNCLASSIFIED",
       "profile_confidence": "medium-high",
       "specialties": [
         "frontier_reasoning",
@@ -167,6 +429,7 @@
       ],
       "benchmark_evidence": [
         {
+          "evidence_schema": "legacy_v1",
           "source": "arena_text",
           "release": "2026-08-03",
           "tested_model": "Qwen3.8-Max",
@@ -178,6 +441,7 @@
           "url": "https://arena.ai/leaderboard/text"
         },
         {
+          "evidence_schema": "legacy_v1",
           "source": "arena_vision",
           "release": "2026-08-03",
           "tested_model": "Qwen3.8-Max",
@@ -205,7 +469,46 @@
           "url": "https://arena.ai/leaderboard/vision"
         }
       ],
-      "suggested_effort": "medium"
+      "suggested_effort": "medium",
+      "legacy_capability_tier": "L3",
+      "standard_evidence": [],
+      "scorecard": {
+        "schema": "tp-voyager.model_scorecard/v1",
+        "rules_version": "tp-voyager.model_tier_rules/v1",
+        "rules_status": "calibrated",
+        "evaluated_at": "2026-08-15",
+        "dimensions": {
+          "repository_engineering": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "terminal_agentic": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "codebase_understanding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "general_coding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "multimodal_coding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          }
+        },
+        "coverage": "low",
+        "confidence": "low",
+        "tier": "UNCLASSIFIED"
+      },
+      "tier_authority": "standard_v1"
     }
   }
 }

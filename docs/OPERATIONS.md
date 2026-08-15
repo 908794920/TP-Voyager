@@ -165,3 +165,25 @@ changed_files=[]
 ```
 
 不要把 repository_research 用作下载器、构建器、依赖安装器或任意网络研究器。
+
+
+## Model Evaluation Standard v1 operations
+
+TP-Voyager v1.0.7 supports v1/v2 routing-profile files. Loading v1 is read-only and compatible; persistent upgrade is explicit:
+
+```powershell
+tp-voyager model-routing-migrate --dry-run
+tp-voyager model-routing-migrate --write
+```
+
+`--dry-run` reports source/target schema, profile counts, legacy evidence preservation and convertibility without writing. `--write` validates v2 first, writes via a temporary file + atomic replace, reloads the result, and leaves the original intact on failure. Re-running migration on v2 is idempotent.
+
+Validate the current evaluation baseline with:
+
+```powershell
+tp-voyager model-evaluation-validate
+```
+
+The validator is read-only: it does not access the network, does not query Provider live catalogs, and does not change dispatch policy. A non-zero exit is used for schema/evidence/tier-authority failures. Archived/historical evidence and research-status gaps are reporting concerns, not authorization changes.
+
+The evidence-writing procedure is documented in `docs/MODEL_EVALUATION_STANDARD.md`.

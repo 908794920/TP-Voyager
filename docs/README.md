@@ -36,3 +36,5 @@ CHANGELOG/records  → 过去发生过什么
 ```
 
 不要把发布历史、Live Gate 明细或内部开发日志重新堆回根 README。
+
+- [`MODEL_EVALUATION_STANDARD.md`](MODEL_EVALUATION_STANDARD.md) — standardized model evidence, Scorecard, Tier authority, migration, and manual update rules.

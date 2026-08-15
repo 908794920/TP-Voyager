@@ -2,6 +2,15 @@
 
 本项目从 TP-Voyager 正式基线开始记录对外版本。
 
+### Model Evaluation Standard v1 (v1.0.7 baseline maintenance)
+
+- Added versioned Source Registry, immutable Standard Evidence records, persisted Scorecards, and calibrated Tier Rules.
+- Routing-profile loader now accepts v1/v2; v1 reads are non-mutating and explicit `model-routing-migrate` provides atomic/idempotent persistence.
+- Fixed-model Tier authority is `Scorecard.tier`; legacy static Tier is historical only.
+- Qoder dynamic tiers are `DYNAMIC`; local `qoder:auto` route is retired.
+- Added current model identity/research/provider/calibration records and read-only `model-evaluation-validate`.
+- Preserved all existing non-retired legacy benchmark raw values; new standardized evidence is appended.
+
 ## 1.0.7 — 2026-08-15
 
 Unified User Configuration + TP-Voyager Home。把用户机器相关配置从散落环境变量/独立 JSON 收敛到 `~/.tp-voyager/config.json`，不引入旧 Home 迁移兼容。

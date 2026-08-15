@@ -1,11 +1,13 @@
 {
-  "schema": "tp-voyager.model_routing_profiles/v1",
-  "updated_at": "2026-08-13",
+  "schema": "tp-voyager.model_routing_profiles/v2",
+  "updated_at": "2026-08-15",
+  "evaluation_standard": "tp-voyager.model_evaluation/v1",
+  "tier_rules_status": "calibrated",
   "profiles": {
     "codebuddy:deepseek-v4-flash": {
-      "canonical_family": "deepseek-v4-flash-0731",
+      "canonical_family": "deepseek-v4-flash",
       "provider_identity": "operator_confirmed",
-      "capability_tier": "L3",
+      "capability_tier": "UNCLASSIFIED",
       "profile_confidence": "high",
       "specialties": [
         "coding_agent",
@@ -22,10 +24,12 @@
       "risk_boundaries": [
         "text-only model",
         "architecture/final technical decisions require Captain review",
-        "high-stakes factual conclusions require verification"
+        "high-stakes factual conclusions require verification",
+        "formal Standard v1 tier is UNCLASSIFIED because compatible Primary evidence is insufficient"
       ],
       "benchmark_evidence": [
         {
+          "evidence_schema": "legacy_v1",
           "source": "artificial_analysis",
           "release": "2026-07-31",
           "tested_model": "DeepSeek V4 Flash 0731 Max",
@@ -51,7 +55,133 @@
           "url": "https://artificialanalysis.ai/"
         }
       ],
-      "suggested_effort": "high"
+      "suggested_effort": "high",
+      "legacy_capability_tier": "L3",
+      "standard_evidence": [
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "aa-ii-v4.1-deepseek-v4-flash",
+          "source_id": "artificial_analysis_model",
+          "source_role": "supplemental",
+          "subject_type": "model_only",
+          "model": {
+            "tested_model": "DeepSeek V4 Flash (Reasoning, Max Effort)",
+            "canonical_family": "deepseek-v4-flash",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "artificial-analysis-intelligence-index",
+            "version": "v4.1",
+            "task_count": null
+          },
+          "execution": {
+            "agent": null,
+            "agent_version": null,
+            "harness": null,
+            "harness_version": null,
+            "reasoning_effort": null,
+            "attempts_per_task": null
+          },
+          "result": {
+            "metric": "intelligence_index",
+            "value": 40,
+            "scale": "index"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://artificialanalysis.ai/models/deepseek-v4-flash/",
+            "methodology_url": "https://artificialanalysis.ai/methodology",
+            "primary_approved_by": null,
+            "primary_approved_at": null,
+            "approval_basis_url": null
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "provider-card-deepseek-v4-flash-20260424",
+          "source_id": "provider_official",
+          "source_role": "provider",
+          "subject_type": "provider_claim",
+          "model": {
+            "tested_model": "DeepSeek V4 Flash",
+            "canonical_family": "deepseek-v4-flash",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "provider-model-card",
+            "version": "2026-04-24",
+            "task_count": null
+          },
+          "execution": {
+            "agent": null,
+            "agent_version": null,
+            "harness": null,
+            "harness_version": null,
+            "reasoning_effort": null,
+            "attempts_per_task": null
+          },
+          "result": {
+            "metric": "release_status",
+            "value": "documented",
+            "scale": "text"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": "2026-04-24",
+            "url": "https://api-docs.deepseek.com/news/news260424/",
+            "methodology_url": null,
+            "primary_approved_by": null,
+            "primary_approved_at": null,
+            "approval_basis_url": null
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        }
+      ],
+      "scorecard": {
+        "schema": "tp-voyager.model_scorecard/v1",
+        "rules_version": "tp-voyager.model_tier_rules/v1",
+        "rules_status": "calibrated",
+        "evaluated_at": "2026-08-15",
+        "dimensions": {
+          "repository_engineering": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "terminal_agentic": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "codebase_understanding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "general_coding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "multimodal_coding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          }
+        },
+        "coverage": "low",
+        "confidence": "low",
+        "tier": "UNCLASSIFIED"
+      },
+      "tier_authority": "standard_v1"
     },
     "codebuddy:deepseek-v4-pro": {
       "canonical_family": "deepseek-v4-pro",
@@ -75,6 +205,7 @@
       ],
       "benchmark_evidence": [
         {
+          "evidence_schema": "legacy_v1",
           "source": "livebench",
           "release": "2026-06-25",
           "tested_model": "DeepSeek V4 Pro",
@@ -87,6 +218,7 @@
           "url": "https://livebench.ai/"
         },
         {
+          "evidence_schema": "legacy_v1",
           "source": "artificial_analysis",
           "release": "2026-08-13",
           "tested_model": "DeepSeek V4 Pro",
@@ -97,6 +229,7 @@
           "url": "https://artificialanalysis.ai/"
         },
         {
+          "evidence_schema": "legacy_v1",
           "source": "arena_coding",
           "release": "2026-08-13",
           "tested_model": "DeepSeek V4 Pro",
@@ -114,7 +247,310 @@
           "url": "https://livebench.ai/"
         }
       ],
-      "suggested_effort": "high"
+      "suggested_effort": "high",
+      "legacy_capability_tier": "L2",
+      "standard_evidence": [
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "aa-cai-v1.3-deepseek-v4-pro-repository",
+          "source_id": "artificial_analysis_coding_agent",
+          "source_role": "primary",
+          "subject_type": "model_agent",
+          "model": {
+            "tested_model": "DeepSeek V4 Pro (high)",
+            "canonical_family": "deepseek-v4-pro",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "deep-swe",
+            "version": "AA-CAI-v1.3",
+            "task_count": 113
+          },
+          "execution": {
+            "agent": "Claude Code",
+            "agent_version": null,
+            "harness": "Claude Code",
+            "harness_version": "AA-CAI-v1.3",
+            "reasoning_effort": "high",
+            "attempts_per_task": 3
+          },
+          "result": {
+            "metric": "pass@1",
+            "value": 9.0,
+            "scale": "percent"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli",
+            "methodology_url": "https://artificialanalysis.ai/methodology/coding-agents-benchmarking",
+            "primary_approved_by": "research-review:openai-gpt-5.6-sol-2026-08-15",
+            "primary_approved_at": "2026-08-15T09:00:00Z",
+            "approval_basis_url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli"
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "aa-cai-v1.3-deepseek-v4-pro-terminal",
+          "source_id": "artificial_analysis_coding_agent",
+          "source_role": "primary",
+          "subject_type": "model_agent",
+          "model": {
+            "tested_model": "DeepSeek V4 Pro (high)",
+            "canonical_family": "deepseek-v4-pro",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "terminal-bench",
+            "version": "AA-CAI-v1.3",
+            "task_count": 84
+          },
+          "execution": {
+            "agent": "Claude Code",
+            "agent_version": null,
+            "harness": "Claude Code",
+            "harness_version": "AA-CAI-v1.3",
+            "reasoning_effort": "high",
+            "attempts_per_task": 3
+          },
+          "result": {
+            "metric": "pass@1",
+            "value": 66.0,
+            "scale": "percent"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli",
+            "methodology_url": "https://artificialanalysis.ai/methodology/coding-agents-benchmarking",
+            "primary_approved_by": "research-review:openai-gpt-5.6-sol-2026-08-15",
+            "primary_approved_at": "2026-08-15T09:00:00Z",
+            "approval_basis_url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli"
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "aa-cai-v1.3-deepseek-v4-pro-qna",
+          "source_id": "artificial_analysis_coding_agent",
+          "source_role": "primary",
+          "subject_type": "model_agent",
+          "model": {
+            "tested_model": "DeepSeek V4 Pro (high)",
+            "canonical_family": "deepseek-v4-pro",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "swe-atlas-qna",
+            "version": "AA-CAI-v1.3",
+            "task_count": 124
+          },
+          "execution": {
+            "agent": "Claude Code",
+            "agent_version": null,
+            "harness": "Claude Code",
+            "harness_version": "AA-CAI-v1.3",
+            "reasoning_effort": "high",
+            "attempts_per_task": 3
+          },
+          "result": {
+            "metric": "pass@1",
+            "value": 20.0,
+            "scale": "percent"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli",
+            "methodology_url": "https://artificialanalysis.ai/methodology/coding-agents-benchmarking",
+            "primary_approved_by": "research-review:openai-gpt-5.6-sol-2026-08-15",
+            "primary_approved_at": "2026-08-15T09:00:00Z",
+            "approval_basis_url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli"
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "aa-ii-v4.1-deepseek-v4-pro",
+          "source_id": "artificial_analysis_model",
+          "source_role": "supplemental",
+          "subject_type": "model_only",
+          "model": {
+            "tested_model": "DeepSeek V4 Pro (Reasoning, Max Effort)",
+            "canonical_family": "deepseek-v4-pro",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "artificial-analysis-intelligence-index",
+            "version": "v4.1",
+            "task_count": null
+          },
+          "execution": {
+            "agent": null,
+            "agent_version": null,
+            "harness": null,
+            "harness_version": null,
+            "reasoning_effort": null,
+            "attempts_per_task": null
+          },
+          "result": {
+            "metric": "intelligence_index",
+            "value": 44,
+            "scale": "index"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://artificialanalysis.ai/models/deepseek-v4-pro/",
+            "methodology_url": "https://artificialanalysis.ai/methodology",
+            "primary_approved_by": null,
+            "primary_approved_at": null,
+            "approval_basis_url": null
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "provider-card-deepseek-v4-pro-20260424",
+          "source_id": "provider_official",
+          "source_role": "provider",
+          "subject_type": "provider_claim",
+          "model": {
+            "tested_model": "DeepSeek V4 Pro",
+            "canonical_family": "deepseek-v4-pro",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "provider-model-card",
+            "version": "2026-04-24",
+            "task_count": null
+          },
+          "execution": {
+            "agent": null,
+            "agent_version": null,
+            "harness": null,
+            "harness_version": null,
+            "reasoning_effort": null,
+            "attempts_per_task": null
+          },
+          "result": {
+            "metric": "release_status",
+            "value": "documented",
+            "scale": "text"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": "2026-04-24",
+            "url": "https://api-docs.deepseek.com/news/news260424/",
+            "methodology_url": null,
+            "primary_approved_by": null,
+            "primary_approved_at": null,
+            "approval_basis_url": null
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        }
+      ],
+      "scorecard": {
+        "schema": "tp-voyager.model_scorecard/v1",
+        "rules_version": "tp-voyager.model_tier_rules/v1",
+        "rules_status": "calibrated",
+        "evaluated_at": "2026-08-15",
+        "dimensions": {
+          "repository_engineering": {
+            "status": "measured",
+            "evidence_ids": [
+              "aa-cai-v1.3-deepseek-v4-pro-repository"
+            ],
+            "measurements": [
+              {
+                "evidence_id": "aa-cai-v1.3-deepseek-v4-pro-repository",
+                "source_id": "artificial_analysis_coding_agent",
+                "source_role": "primary",
+                "benchmark_id": "deep-swe",
+                "benchmark_version": "AA-CAI-v1.3",
+                "metric": "pass@1",
+                "value": 9.0,
+                "scale": "percent",
+                "numeric_percent": 9.0,
+                "calibration_compatible": true,
+                "primary": true
+              }
+            ]
+          },
+          "terminal_agentic": {
+            "status": "measured",
+            "evidence_ids": [
+              "aa-cai-v1.3-deepseek-v4-pro-terminal"
+            ],
+            "measurements": [
+              {
+                "evidence_id": "aa-cai-v1.3-deepseek-v4-pro-terminal",
+                "source_id": "artificial_analysis_coding_agent",
+                "source_role": "primary",
+                "benchmark_id": "terminal-bench",
+                "benchmark_version": "AA-CAI-v1.3",
+                "metric": "pass@1",
+                "value": 66.0,
+                "scale": "percent",
+                "numeric_percent": 66.0,
+                "calibration_compatible": true,
+                "primary": true
+              }
+            ]
+          },
+          "codebase_understanding": {
+            "status": "measured",
+            "evidence_ids": [
+              "aa-cai-v1.3-deepseek-v4-pro-qna"
+            ],
+            "measurements": [
+              {
+                "evidence_id": "aa-cai-v1.3-deepseek-v4-pro-qna",
+                "source_id": "artificial_analysis_coding_agent",
+                "source_role": "primary",
+                "benchmark_id": "swe-atlas-qna",
+                "benchmark_version": "AA-CAI-v1.3",
+                "metric": "pass@1",
+                "value": 20.0,
+                "scale": "percent",
+                "numeric_percent": 20.0,
+                "calibration_compatible": true,
+                "primary": true
+              }
+            ]
+          },
+          "general_coding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "multimodal_coding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          }
+        },
+        "coverage": "high",
+        "confidence": "high",
+        "tier": "L2"
+      },
+      "tier_authority": "standard_v1"
     },
     "codebuddy:glm-5.1": {
       "canonical_family": "glm-5.1",
@@ -136,6 +572,7 @@
       ],
       "benchmark_evidence": [
         {
+          "evidence_schema": "legacy_v1",
           "source": "livebench",
           "release": "2026-06-25",
           "tested_model": "GLM-5.1",
@@ -148,6 +585,7 @@
           "url": "https://livebench.ai/"
         },
         {
+          "evidence_schema": "legacy_v1",
           "source": "artificial_analysis",
           "release": "2026-08-13",
           "tested_model": "GLM-5.1",
@@ -158,6 +596,7 @@
           "url": "https://artificialanalysis.ai/"
         },
         {
+          "evidence_schema": "legacy_v1",
           "source": "arena_coding",
           "release": "2026-08-13",
           "tested_model": "GLM-5.1",
@@ -175,12 +614,358 @@
           "url": "https://livebench.ai/"
         }
       ],
-      "suggested_effort": "high"
+      "suggested_effort": "high",
+      "legacy_capability_tier": "L2",
+      "standard_evidence": [
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "aa-cai-v1.3-glm-5.1-repository",
+          "source_id": "artificial_analysis_coding_agent",
+          "source_role": "primary",
+          "subject_type": "model_agent",
+          "model": {
+            "tested_model": "GLM-5.1",
+            "canonical_family": "glm-5.1",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "deep-swe",
+            "version": "AA-CAI-v1.3",
+            "task_count": 113
+          },
+          "execution": {
+            "agent": "Claude Code",
+            "agent_version": null,
+            "harness": "Claude Code",
+            "harness_version": "AA-CAI-v1.3",
+            "reasoning_effort": null,
+            "attempts_per_task": 3
+          },
+          "result": {
+            "metric": "pass@1",
+            "value": 19.0,
+            "scale": "percent"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli",
+            "methodology_url": "https://artificialanalysis.ai/methodology/coding-agents-benchmarking",
+            "primary_approved_by": "research-review:openai-gpt-5.6-sol-2026-08-15",
+            "primary_approved_at": "2026-08-15T09:00:00Z",
+            "approval_basis_url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli"
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "aa-cai-v1.3-glm-5.1-terminal",
+          "source_id": "artificial_analysis_coding_agent",
+          "source_role": "primary",
+          "subject_type": "model_agent",
+          "model": {
+            "tested_model": "GLM-5.1",
+            "canonical_family": "glm-5.1",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "terminal-bench",
+            "version": "AA-CAI-v1.3",
+            "task_count": 84
+          },
+          "execution": {
+            "agent": "Claude Code",
+            "agent_version": null,
+            "harness": "Claude Code",
+            "harness_version": "AA-CAI-v1.3",
+            "reasoning_effort": null,
+            "attempts_per_task": 3
+          },
+          "result": {
+            "metric": "pass@1",
+            "value": 65.0,
+            "scale": "percent"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli",
+            "methodology_url": "https://artificialanalysis.ai/methodology/coding-agents-benchmarking",
+            "primary_approved_by": "research-review:openai-gpt-5.6-sol-2026-08-15",
+            "primary_approved_at": "2026-08-15T09:00:00Z",
+            "approval_basis_url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli"
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "aa-cai-v1.3-glm-5.1-qna",
+          "source_id": "artificial_analysis_coding_agent",
+          "source_role": "primary",
+          "subject_type": "model_agent",
+          "model": {
+            "tested_model": "GLM-5.1",
+            "canonical_family": "glm-5.1",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "swe-atlas-qna",
+            "version": "AA-CAI-v1.3",
+            "task_count": 124
+          },
+          "execution": {
+            "agent": "Claude Code",
+            "agent_version": null,
+            "harness": "Claude Code",
+            "harness_version": "AA-CAI-v1.3",
+            "reasoning_effort": null,
+            "attempts_per_task": 3
+          },
+          "result": {
+            "metric": "pass@1",
+            "value": 25.0,
+            "scale": "percent"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli",
+            "methodology_url": "https://artificialanalysis.ai/methodology/coding-agents-benchmarking",
+            "primary_approved_by": "research-review:openai-gpt-5.6-sol-2026-08-15",
+            "primary_approved_at": "2026-08-15T09:00:00Z",
+            "approval_basis_url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli"
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "aa-ii-v4.1-glm-5.1",
+          "source_id": "artificial_analysis_model",
+          "source_role": "supplemental",
+          "subject_type": "model_only",
+          "model": {
+            "tested_model": "GLM-5.1 (Reasoning)",
+            "canonical_family": "glm-5.1",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "artificial-analysis-intelligence-index",
+            "version": "v4.1",
+            "task_count": null
+          },
+          "execution": {
+            "agent": null,
+            "agent_version": null,
+            "harness": null,
+            "harness_version": null,
+            "reasoning_effort": null,
+            "attempts_per_task": null
+          },
+          "result": {
+            "metric": "intelligence_index",
+            "value": 40,
+            "scale": "index"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://artificialanalysis.ai/models/glm-5-1/",
+            "methodology_url": "https://artificialanalysis.ai/methodology",
+            "primary_approved_by": null,
+            "primary_approved_at": null,
+            "approval_basis_url": null
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "provider-card-glm-5.1-202604",
+          "source_id": "provider_official",
+          "source_role": "provider",
+          "subject_type": "provider_claim",
+          "model": {
+            "tested_model": "GLM-5.1",
+            "canonical_family": "glm-5.1",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "provider-model-card",
+            "version": "2026-04",
+            "task_count": null
+          },
+          "execution": {
+            "agent": null,
+            "agent_version": null,
+            "harness": null,
+            "harness_version": null,
+            "reasoning_effort": null,
+            "attempts_per_task": null
+          },
+          "result": {
+            "metric": "release_status",
+            "value": "documented",
+            "scale": "text"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": "2026-04",
+            "url": "https://docs.z.ai/guides/llm/glm-5.1",
+            "methodology_url": null,
+            "primary_approved_by": null,
+            "primary_approved_at": null,
+            "approval_basis_url": null
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "provider-claim-glm-5.1-swe-bench-pro-provider-2026-04",
+          "source_id": "provider_official",
+          "source_role": "provider",
+          "subject_type": "provider_claim",
+          "model": {
+            "tested_model": "GLM-5.1",
+            "canonical_family": "glm-5.1",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "swe-bench-pro",
+            "version": "provider-2026-04",
+            "task_count": null
+          },
+          "execution": {
+            "agent": null,
+            "agent_version": null,
+            "harness": null,
+            "harness_version": null,
+            "reasoning_effort": null,
+            "attempts_per_task": null
+          },
+          "result": {
+            "metric": "resolve_rate",
+            "value": 58.4,
+            "scale": "percent"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://docs.z.ai/guides/llm/glm-5.1",
+            "methodology_url": null,
+            "primary_approved_by": null,
+            "primary_approved_at": null,
+            "approval_basis_url": null
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        }
+      ],
+      "scorecard": {
+        "schema": "tp-voyager.model_scorecard/v1",
+        "rules_version": "tp-voyager.model_tier_rules/v1",
+        "rules_status": "calibrated",
+        "evaluated_at": "2026-08-15",
+        "dimensions": {
+          "repository_engineering": {
+            "status": "measured",
+            "evidence_ids": [
+              "aa-cai-v1.3-glm-5.1-repository"
+            ],
+            "measurements": [
+              {
+                "evidence_id": "aa-cai-v1.3-glm-5.1-repository",
+                "source_id": "artificial_analysis_coding_agent",
+                "source_role": "primary",
+                "benchmark_id": "deep-swe",
+                "benchmark_version": "AA-CAI-v1.3",
+                "metric": "pass@1",
+                "value": 19.0,
+                "scale": "percent",
+                "numeric_percent": 19.0,
+                "calibration_compatible": true,
+                "primary": true
+              }
+            ]
+          },
+          "terminal_agentic": {
+            "status": "measured",
+            "evidence_ids": [
+              "aa-cai-v1.3-glm-5.1-terminal"
+            ],
+            "measurements": [
+              {
+                "evidence_id": "aa-cai-v1.3-glm-5.1-terminal",
+                "source_id": "artificial_analysis_coding_agent",
+                "source_role": "primary",
+                "benchmark_id": "terminal-bench",
+                "benchmark_version": "AA-CAI-v1.3",
+                "metric": "pass@1",
+                "value": 65.0,
+                "scale": "percent",
+                "numeric_percent": 65.0,
+                "calibration_compatible": true,
+                "primary": true
+              }
+            ]
+          },
+          "codebase_understanding": {
+            "status": "measured",
+            "evidence_ids": [
+              "aa-cai-v1.3-glm-5.1-qna"
+            ],
+            "measurements": [
+              {
+                "evidence_id": "aa-cai-v1.3-glm-5.1-qna",
+                "source_id": "artificial_analysis_coding_agent",
+                "source_role": "primary",
+                "benchmark_id": "swe-atlas-qna",
+                "benchmark_version": "AA-CAI-v1.3",
+                "metric": "pass@1",
+                "value": 25.0,
+                "scale": "percent",
+                "numeric_percent": 25.0,
+                "calibration_compatible": true,
+                "primary": true
+              }
+            ]
+          },
+          "general_coding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "multimodal_coding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          }
+        },
+        "coverage": "high",
+        "confidence": "high",
+        "tier": "L2"
+      },
+      "tier_authority": "standard_v1"
     },
     "codebuddy:glm-5.2": {
       "canonical_family": "glm-5.2",
       "provider_identity": "provider_declared",
-      "capability_tier": "L3",
+      "capability_tier": "L2",
       "profile_confidence": "high",
       "specialties": [
         "long_horizon_coding",
@@ -198,6 +983,7 @@
       ],
       "benchmark_evidence": [
         {
+          "evidence_schema": "legacy_v1",
           "source": "livebench",
           "release": "2026-06-25",
           "tested_model": "GLM-5.2",
@@ -210,6 +996,7 @@
           "url": "https://livebench.ai/"
         },
         {
+          "evidence_schema": "legacy_v1",
           "source": "artificial_analysis",
           "release": "2026-08-13",
           "tested_model": "GLM-5.2 Max",
@@ -230,12 +1017,374 @@
           "url": "https://artificialanalysis.ai/"
         }
       ],
-      "suggested_effort": "high"
+      "suggested_effort": "high",
+      "legacy_capability_tier": "L3",
+      "standard_evidence": [
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "aa-cai-v1.3-glm-5.2-repository",
+          "source_id": "artificial_analysis_coding_agent",
+          "source_role": "primary",
+          "subject_type": "model_agent",
+          "model": {
+            "tested_model": "GLM-5.2",
+            "canonical_family": "glm-5.2",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "deep-swe",
+            "version": "AA-CAI-v1.3",
+            "task_count": 113
+          },
+          "execution": {
+            "agent": "Claude Code",
+            "agent_version": null,
+            "harness": "Claude Code",
+            "harness_version": "AA-CAI-v1.3",
+            "reasoning_effort": null,
+            "attempts_per_task": 3
+          },
+          "result": {
+            "metric": "pass@1",
+            "value": 29.0,
+            "scale": "percent"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli",
+            "methodology_url": "https://artificialanalysis.ai/methodology/coding-agents-benchmarking",
+            "primary_approved_by": "research-review:openai-gpt-5.6-sol-2026-08-15",
+            "primary_approved_at": "2026-08-15T09:00:00Z",
+            "approval_basis_url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli"
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "aa-cai-v1.3-glm-5.2-terminal",
+          "source_id": "artificial_analysis_coding_agent",
+          "source_role": "primary",
+          "subject_type": "model_agent",
+          "model": {
+            "tested_model": "GLM-5.2",
+            "canonical_family": "glm-5.2",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "terminal-bench",
+            "version": "AA-CAI-v1.3",
+            "task_count": 84
+          },
+          "execution": {
+            "agent": "Claude Code",
+            "agent_version": null,
+            "harness": "Claude Code",
+            "harness_version": "AA-CAI-v1.3",
+            "reasoning_effort": null,
+            "attempts_per_task": 3
+          },
+          "result": {
+            "metric": "pass@1",
+            "value": 72.0,
+            "scale": "percent"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli",
+            "methodology_url": "https://artificialanalysis.ai/methodology/coding-agents-benchmarking",
+            "primary_approved_by": "research-review:openai-gpt-5.6-sol-2026-08-15",
+            "primary_approved_at": "2026-08-15T09:00:00Z",
+            "approval_basis_url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli"
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "aa-cai-v1.3-glm-5.2-qna",
+          "source_id": "artificial_analysis_coding_agent",
+          "source_role": "primary",
+          "subject_type": "model_agent",
+          "model": {
+            "tested_model": "GLM-5.2",
+            "canonical_family": "glm-5.2",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "swe-atlas-qna",
+            "version": "AA-CAI-v1.3",
+            "task_count": 124
+          },
+          "execution": {
+            "agent": "Claude Code",
+            "agent_version": null,
+            "harness": "Claude Code",
+            "harness_version": "AA-CAI-v1.3",
+            "reasoning_effort": null,
+            "attempts_per_task": 3
+          },
+          "result": {
+            "metric": "pass@1",
+            "value": 29.0,
+            "scale": "percent"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli",
+            "methodology_url": "https://artificialanalysis.ai/methodology/coding-agents-benchmarking",
+            "primary_approved_by": "research-review:openai-gpt-5.6-sol-2026-08-15",
+            "primary_approved_at": "2026-08-15T09:00:00Z",
+            "approval_basis_url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli"
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "aa-ii-v4.1-glm-5.2",
+          "source_id": "artificial_analysis_model",
+          "source_role": "supplemental",
+          "subject_type": "model_only",
+          "model": {
+            "tested_model": "GLM-5.2 (max)",
+            "canonical_family": "glm-5.2",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "artificial-analysis-intelligence-index",
+            "version": "v4.1",
+            "task_count": null
+          },
+          "execution": {
+            "agent": null,
+            "agent_version": null,
+            "harness": null,
+            "harness_version": null,
+            "reasoning_effort": null,
+            "attempts_per_task": null
+          },
+          "result": {
+            "metric": "intelligence_index",
+            "value": 51,
+            "scale": "index"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://artificialanalysis.ai/models/glm-5-2/",
+            "methodology_url": "https://artificialanalysis.ai/methodology",
+            "primary_approved_by": null,
+            "primary_approved_at": null,
+            "approval_basis_url": null
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "provider-card-glm-5.2-20260616",
+          "source_id": "provider_official",
+          "source_role": "provider",
+          "subject_type": "provider_claim",
+          "model": {
+            "tested_model": "GLM-5.2",
+            "canonical_family": "glm-5.2",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "provider-model-card",
+            "version": "2026-06-16",
+            "task_count": null
+          },
+          "execution": {
+            "agent": null,
+            "agent_version": null,
+            "harness": null,
+            "harness_version": null,
+            "reasoning_effort": null,
+            "attempts_per_task": null
+          },
+          "result": {
+            "metric": "release_status",
+            "value": "documented",
+            "scale": "text"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": "2026-06-16",
+            "url": "https://z.ai/blog/glm-5.2",
+            "methodology_url": null,
+            "primary_approved_by": null,
+            "primary_approved_at": null,
+            "approval_basis_url": null
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        }
+      ],
+      "scorecard": {
+        "schema": "tp-voyager.model_scorecard/v1",
+        "rules_version": "tp-voyager.model_tier_rules/v1",
+        "rules_status": "calibrated",
+        "evaluated_at": "2026-08-15",
+        "dimensions": {
+          "repository_engineering": {
+            "status": "measured",
+            "evidence_ids": [
+              "aa-cai-v1.3-glm-5.2-repository"
+            ],
+            "measurements": [
+              {
+                "evidence_id": "aa-cai-v1.3-glm-5.2-repository",
+                "source_id": "artificial_analysis_coding_agent",
+                "source_role": "primary",
+                "benchmark_id": "deep-swe",
+                "benchmark_version": "AA-CAI-v1.3",
+                "metric": "pass@1",
+                "value": 29.0,
+                "scale": "percent",
+                "numeric_percent": 29.0,
+                "calibration_compatible": true,
+                "primary": true
+              }
+            ]
+          },
+          "terminal_agentic": {
+            "status": "measured",
+            "evidence_ids": [
+              "aa-cai-v1.3-glm-5.2-terminal"
+            ],
+            "measurements": [
+              {
+                "evidence_id": "aa-cai-v1.3-glm-5.2-terminal",
+                "source_id": "artificial_analysis_coding_agent",
+                "source_role": "primary",
+                "benchmark_id": "terminal-bench",
+                "benchmark_version": "AA-CAI-v1.3",
+                "metric": "pass@1",
+                "value": 72.0,
+                "scale": "percent",
+                "numeric_percent": 72.0,
+                "calibration_compatible": true,
+                "primary": true
+              }
+            ]
+          },
+          "codebase_understanding": {
+            "status": "measured",
+            "evidence_ids": [
+              "aa-cai-v1.3-glm-5.2-qna"
+            ],
+            "measurements": [
+              {
+                "evidence_id": "aa-cai-v1.3-glm-5.2-qna",
+                "source_id": "artificial_analysis_coding_agent",
+                "source_role": "primary",
+                "benchmark_id": "swe-atlas-qna",
+                "benchmark_version": "AA-CAI-v1.3",
+                "metric": "pass@1",
+                "value": 29.0,
+                "scale": "percent",
+                "numeric_percent": 29.0,
+                "calibration_compatible": true,
+                "primary": true
+              }
+            ]
+          },
+          "general_coding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "multimodal_coding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          }
+        },
+        "coverage": "high",
+        "confidence": "high",
+        "tier": "L2"
+      },
+      "tier_authority": "standard_v1"
+    },
+    "codebuddy:glm-5.3": {
+      "canonical_family": "glm-5.3",
+      "provider_identity": "provider_declared",
+      "capability_tier": "UNCLASSIFIED",
+      "profile_confidence": "low",
+      "specialties": [
+        "current_backend_visible",
+        "evidence_pending"
+      ],
+      "recommended_tasks": [
+        "manual model evaluation",
+        "bounded implementation with strong verification"
+      ],
+      "risk_boundaries": [
+        "current CodeBuddy account visibility is confirmed but public exact-model evidence was not captured in this refresh",
+        "do not inherit GLM-5.2 scores",
+        "formal Standard v1 tier is UNCLASSIFIED because compatible Primary evidence is insufficient"
+      ],
+      "benchmark_evidence": [],
+      "evidence_refs": [],
+      "standard_evidence": [],
+      "scorecard": {
+        "schema": "tp-voyager.model_scorecard/v1",
+        "rules_version": "tp-voyager.model_tier_rules/v1",
+        "rules_status": "calibrated",
+        "evaluated_at": "2026-08-15",
+        "dimensions": {
+          "repository_engineering": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "terminal_agentic": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "codebase_understanding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "general_coding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "multimodal_coding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          }
+        },
+        "coverage": "low",
+        "confidence": "low",
+        "tier": "UNCLASSIFIED"
+      },
+      "tier_authority": "standard_v1"
     },
     "codebuddy:glm-5v-turbo": {
       "canonical_family": "glm-5v-turbo",
       "provider_identity": "provider_declared",
-      "capability_tier": "L1",
+      "capability_tier": "UNCLASSIFIED",
       "profile_confidence": "medium",
       "specialties": [
         "multimodal_coding",
@@ -250,10 +1399,12 @@
       ],
       "risk_boundaries": [
         "weak general agentic benchmark relative to coding score",
-        "not a default long-horizon coding agent"
+        "not a default long-horizon coding agent",
+        "formal Standard v1 tier is UNCLASSIFIED because compatible Primary evidence is insufficient"
       ],
       "benchmark_evidence": [
         {
+          "evidence_schema": "legacy_v1",
           "source": "livebench",
           "release": "2026-06-25",
           "tested_model": "GLM-5V-Turbo",
@@ -266,6 +1417,7 @@
           "url": "https://livebench.ai/"
         },
         {
+          "evidence_schema": "legacy_v1",
           "source": "arena_vision",
           "release": "2026-08-13",
           "tested_model": "GLM-5V-Turbo",
@@ -283,12 +1435,95 @@
           "kind": "url",
           "url": "https://arena.ai/leaderboard/vision"
         }
-      ]
+      ],
+      "legacy_capability_tier": "L1",
+      "standard_evidence": [
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "provider-card-glm-5v-turbo-202604",
+          "source_id": "provider_official",
+          "source_role": "provider",
+          "subject_type": "provider_claim",
+          "model": {
+            "tested_model": "GLM-5V-Turbo",
+            "canonical_family": "glm-5v-turbo",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "provider-model-card",
+            "version": "2026-04",
+            "task_count": null
+          },
+          "execution": {
+            "agent": null,
+            "agent_version": null,
+            "harness": null,
+            "harness_version": null,
+            "reasoning_effort": null,
+            "attempts_per_task": null
+          },
+          "result": {
+            "metric": "release_status",
+            "value": "documented",
+            "scale": "text"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": "2026-04",
+            "url": "https://docs.z.ai/guides/vlm/glm-5v-turbo",
+            "methodology_url": null,
+            "primary_approved_by": null,
+            "primary_approved_at": null,
+            "approval_basis_url": null
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        }
+      ],
+      "scorecard": {
+        "schema": "tp-voyager.model_scorecard/v1",
+        "rules_version": "tp-voyager.model_tier_rules/v1",
+        "rules_status": "calibrated",
+        "evaluated_at": "2026-08-15",
+        "dimensions": {
+          "repository_engineering": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "terminal_agentic": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "codebase_understanding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "general_coding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "multimodal_coding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          }
+        },
+        "coverage": "low",
+        "confidence": "low",
+        "tier": "UNCLASSIFIED"
+      },
+      "tier_authority": "standard_v1"
     },
     "codebuddy:hy3": {
       "canonical_family": "hy3",
       "provider_identity": "operator_confirmed",
-      "capability_tier": "L1",
+      "capability_tier": "UNCLASSIFIED",
       "profile_confidence": "medium-high",
       "specialties": [
         "routine_coding",
@@ -303,10 +1538,12 @@
       ],
       "risk_boundaries": [
         "long-horizon autonomous engineering should escalate",
-        "architecture decisions require Captain review"
+        "architecture decisions require Captain review",
+        "formal Standard v1 tier is UNCLASSIFIED because compatible Primary evidence is insufficient"
       ],
       "benchmark_evidence": [
         {
+          "evidence_schema": "legacy_v1",
           "source": "artificial_analysis",
           "release": "2026-08-13",
           "tested_model": "Hy3",
@@ -317,6 +1554,7 @@
           "url": "https://artificialanalysis.ai/models/hy3"
         },
         {
+          "evidence_schema": "legacy_v1",
           "source": "arena_coding",
           "release": "2026-08-13",
           "tested_model": "Hy3",
@@ -337,12 +1575,138 @@
           "sha256": "df278a0d4fe6d32316539feabc210742a349fc0f422f0d6553ace7f0601a1b82"
         }
       ],
-      "suggested_effort": "high"
+      "suggested_effort": "high",
+      "legacy_capability_tier": "L1",
+      "standard_evidence": [
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "aa-ii-v4.1-hy3",
+          "source_id": "artificial_analysis_model",
+          "source_role": "supplemental",
+          "subject_type": "model_only",
+          "model": {
+            "tested_model": "Hy3",
+            "canonical_family": "hy3",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "artificial-analysis-intelligence-index",
+            "version": "v4.1",
+            "task_count": null
+          },
+          "execution": {
+            "agent": null,
+            "agent_version": null,
+            "harness": null,
+            "harness_version": null,
+            "reasoning_effort": null,
+            "attempts_per_task": null
+          },
+          "result": {
+            "metric": "intelligence_index",
+            "value": 41,
+            "scale": "index"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://artificialanalysis.ai/models/hy3/",
+            "methodology_url": "https://artificialanalysis.ai/methodology",
+            "primary_approved_by": null,
+            "primary_approved_at": null,
+            "approval_basis_url": null
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "provider-card-hy3-20260706",
+          "source_id": "provider_official",
+          "source_role": "provider",
+          "subject_type": "provider_claim",
+          "model": {
+            "tested_model": "Hy3",
+            "canonical_family": "hy3",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "provider-model-card",
+            "version": "2026-07-06",
+            "task_count": null
+          },
+          "execution": {
+            "agent": null,
+            "agent_version": null,
+            "harness": null,
+            "harness_version": null,
+            "reasoning_effort": null,
+            "attempts_per_task": null
+          },
+          "result": {
+            "metric": "release_status",
+            "value": "documented",
+            "scale": "text"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": "2026-07-06",
+            "url": "https://www.tencent.com/tencent-hunyuan-officially-releases-hy3-advancing-agent-capabilities-and-deeper-product-integration/",
+            "methodology_url": null,
+            "primary_approved_by": null,
+            "primary_approved_at": null,
+            "approval_basis_url": null
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        }
+      ],
+      "scorecard": {
+        "schema": "tp-voyager.model_scorecard/v1",
+        "rules_version": "tp-voyager.model_tier_rules/v1",
+        "rules_status": "calibrated",
+        "evaluated_at": "2026-08-15",
+        "dimensions": {
+          "repository_engineering": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "terminal_agentic": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "codebase_understanding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "general_coding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "multimodal_coding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          }
+        },
+        "coverage": "low",
+        "confidence": "low",
+        "tier": "UNCLASSIFIED"
+      },
+      "tier_authority": "standard_v1"
     },
     "codebuddy:kimi-k2.6": {
       "canonical_family": "kimi-k2.6",
       "provider_identity": "provider_declared",
-      "capability_tier": "L2",
+      "capability_tier": "L1",
       "profile_confidence": "high",
       "specialties": [
         "coding",
@@ -359,6 +1723,7 @@
       ],
       "benchmark_evidence": [
         {
+          "evidence_schema": "legacy_v1",
           "source": "livebench",
           "release": "2026-06-25",
           "tested_model": "Kimi K2.6",
@@ -371,6 +1736,7 @@
           "url": "https://livebench.ai/"
         },
         {
+          "evidence_schema": "legacy_v1",
           "source": "artificial_analysis",
           "release": "2026-08-13",
           "tested_model": "Kimi K2.6",
@@ -381,6 +1747,7 @@
           "url": "https://artificialanalysis.ai/"
         },
         {
+          "evidence_schema": "legacy_v1",
           "source": "arena_coding",
           "release": "2026-08-13",
           "tested_model": "Kimi K2.6",
@@ -397,12 +1764,315 @@
           "url": "https://livebench.ai/"
         }
       ],
-      "suggested_effort": "high"
+      "suggested_effort": "high",
+      "legacy_capability_tier": "L2",
+      "standard_evidence": [
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "aa-cai-v1.3-kimi-k2.6-repository",
+          "source_id": "artificial_analysis_coding_agent",
+          "source_role": "primary",
+          "subject_type": "model_agent",
+          "model": {
+            "tested_model": "Kimi K2.6",
+            "canonical_family": "kimi-k2.6",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "deep-swe",
+            "version": "AA-CAI-v1.3",
+            "task_count": 113
+          },
+          "execution": {
+            "agent": "Claude Code",
+            "agent_version": null,
+            "harness": "Claude Code",
+            "harness_version": "AA-CAI-v1.3",
+            "reasoning_effort": null,
+            "attempts_per_task": 3
+          },
+          "result": {
+            "metric": "pass@1",
+            "value": 17.0,
+            "scale": "percent"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli",
+            "methodology_url": "https://artificialanalysis.ai/methodology/coding-agents-benchmarking",
+            "primary_approved_by": "research-review:openai-gpt-5.6-sol-2026-08-15",
+            "primary_approved_at": "2026-08-15T09:00:00Z",
+            "approval_basis_url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli"
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "aa-cai-v1.3-kimi-k2.6-terminal",
+          "source_id": "artificial_analysis_coding_agent",
+          "source_role": "primary",
+          "subject_type": "model_agent",
+          "model": {
+            "tested_model": "Kimi K2.6",
+            "canonical_family": "kimi-k2.6",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "terminal-bench",
+            "version": "AA-CAI-v1.3",
+            "task_count": 84
+          },
+          "execution": {
+            "agent": "Claude Code",
+            "agent_version": null,
+            "harness": "Claude Code",
+            "harness_version": "AA-CAI-v1.3",
+            "reasoning_effort": null,
+            "attempts_per_task": 3
+          },
+          "result": {
+            "metric": "pass@1",
+            "value": 65.0,
+            "scale": "percent"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli",
+            "methodology_url": "https://artificialanalysis.ai/methodology/coding-agents-benchmarking",
+            "primary_approved_by": "research-review:openai-gpt-5.6-sol-2026-08-15",
+            "primary_approved_at": "2026-08-15T09:00:00Z",
+            "approval_basis_url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli"
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "aa-cai-v1.3-kimi-k2.6-qna",
+          "source_id": "artificial_analysis_coding_agent",
+          "source_role": "primary",
+          "subject_type": "model_agent",
+          "model": {
+            "tested_model": "Kimi K2.6",
+            "canonical_family": "kimi-k2.6",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "swe-atlas-qna",
+            "version": "AA-CAI-v1.3",
+            "task_count": 124
+          },
+          "execution": {
+            "agent": "Claude Code",
+            "agent_version": null,
+            "harness": "Claude Code",
+            "harness_version": "AA-CAI-v1.3",
+            "reasoning_effort": null,
+            "attempts_per_task": 3
+          },
+          "result": {
+            "metric": "pass@1",
+            "value": 16.0,
+            "scale": "percent"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli",
+            "methodology_url": "https://artificialanalysis.ai/methodology/coding-agents-benchmarking",
+            "primary_approved_by": "research-review:openai-gpt-5.6-sol-2026-08-15",
+            "primary_approved_at": "2026-08-15T09:00:00Z",
+            "approval_basis_url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli"
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "aa-ii-v4.1-kimi-k2.6",
+          "source_id": "artificial_analysis_model",
+          "source_role": "supplemental",
+          "subject_type": "model_only",
+          "model": {
+            "tested_model": "Kimi K2.6",
+            "canonical_family": "kimi-k2.6",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "artificial-analysis-intelligence-index",
+            "version": "v4.1",
+            "task_count": null
+          },
+          "execution": {
+            "agent": null,
+            "agent_version": null,
+            "harness": null,
+            "harness_version": null,
+            "reasoning_effort": null,
+            "attempts_per_task": null
+          },
+          "result": {
+            "metric": "intelligence_index",
+            "value": 44,
+            "scale": "index"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://artificialanalysis.ai/models/kimi-k2-6/",
+            "methodology_url": "https://artificialanalysis.ai/methodology",
+            "primary_approved_by": null,
+            "primary_approved_at": null,
+            "approval_basis_url": null
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "provider-card-kimi-k2.6-20260420",
+          "source_id": "provider_official",
+          "source_role": "provider",
+          "subject_type": "provider_claim",
+          "model": {
+            "tested_model": "Kimi K2.6",
+            "canonical_family": "kimi-k2.6",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "provider-model-card",
+            "version": "2026-04-20",
+            "task_count": null
+          },
+          "execution": {
+            "agent": null,
+            "agent_version": null,
+            "harness": null,
+            "harness_version": null,
+            "reasoning_effort": null,
+            "attempts_per_task": null
+          },
+          "result": {
+            "metric": "release_status",
+            "value": "documented",
+            "scale": "text"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": "2026-04-20",
+            "url": "https://www.kimi.com/help/kimi-api/api-model-selection",
+            "methodology_url": null,
+            "primary_approved_by": null,
+            "primary_approved_at": null,
+            "approval_basis_url": null
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        }
+      ],
+      "scorecard": {
+        "schema": "tp-voyager.model_scorecard/v1",
+        "rules_version": "tp-voyager.model_tier_rules/v1",
+        "rules_status": "calibrated",
+        "evaluated_at": "2026-08-15",
+        "dimensions": {
+          "repository_engineering": {
+            "status": "measured",
+            "evidence_ids": [
+              "aa-cai-v1.3-kimi-k2.6-repository"
+            ],
+            "measurements": [
+              {
+                "evidence_id": "aa-cai-v1.3-kimi-k2.6-repository",
+                "source_id": "artificial_analysis_coding_agent",
+                "source_role": "primary",
+                "benchmark_id": "deep-swe",
+                "benchmark_version": "AA-CAI-v1.3",
+                "metric": "pass@1",
+                "value": 17.0,
+                "scale": "percent",
+                "numeric_percent": 17.0,
+                "calibration_compatible": true,
+                "primary": true
+              }
+            ]
+          },
+          "terminal_agentic": {
+            "status": "measured",
+            "evidence_ids": [
+              "aa-cai-v1.3-kimi-k2.6-terminal"
+            ],
+            "measurements": [
+              {
+                "evidence_id": "aa-cai-v1.3-kimi-k2.6-terminal",
+                "source_id": "artificial_analysis_coding_agent",
+                "source_role": "primary",
+                "benchmark_id": "terminal-bench",
+                "benchmark_version": "AA-CAI-v1.3",
+                "metric": "pass@1",
+                "value": 65.0,
+                "scale": "percent",
+                "numeric_percent": 65.0,
+                "calibration_compatible": true,
+                "primary": true
+              }
+            ]
+          },
+          "codebase_understanding": {
+            "status": "measured",
+            "evidence_ids": [
+              "aa-cai-v1.3-kimi-k2.6-qna"
+            ],
+            "measurements": [
+              {
+                "evidence_id": "aa-cai-v1.3-kimi-k2.6-qna",
+                "source_id": "artificial_analysis_coding_agent",
+                "source_role": "primary",
+                "benchmark_id": "swe-atlas-qna",
+                "benchmark_version": "AA-CAI-v1.3",
+                "metric": "pass@1",
+                "value": 16.0,
+                "scale": "percent",
+                "numeric_percent": 16.0,
+                "calibration_compatible": true,
+                "primary": true
+              }
+            ]
+          },
+          "general_coding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "multimodal_coding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          }
+        },
+        "coverage": "high",
+        "confidence": "high",
+        "tier": "L1"
+      },
+      "tier_authority": "standard_v1"
     },
     "codebuddy:kimi-k2.7": {
       "canonical_family": "kimi-k2.7-code",
       "provider_identity": "provider_declared",
-      "capability_tier": "L2",
+      "capability_tier": "UNCLASSIFIED",
       "profile_confidence": "high",
       "specialties": [
         "coding",
@@ -416,10 +2086,12 @@
       ],
       "risk_boundaries": [
         "slower and more verbose than cost-focused routes",
-        "architecture requires Captain review"
+        "architecture requires Captain review",
+        "formal Standard v1 tier is UNCLASSIFIED because compatible Primary evidence is insufficient"
       ],
       "benchmark_evidence": [
         {
+          "evidence_schema": "legacy_v1",
           "source": "livebench",
           "release": "2026-06-25",
           "tested_model": "Kimi K2.7 Code",
@@ -432,6 +2104,7 @@
           "url": "https://livebench.ai/"
         },
         {
+          "evidence_schema": "legacy_v1",
           "source": "artificial_analysis",
           "release": "2026-08-13",
           "tested_model": "Kimi K2.7 Code",
@@ -448,7 +2121,133 @@
           "url": "https://livebench.ai/"
         }
       ],
-      "suggested_effort": "high"
+      "suggested_effort": "high",
+      "legacy_capability_tier": "L2",
+      "standard_evidence": [
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "aa-ii-v4.1-kimi-k2.7-code",
+          "source_id": "artificial_analysis_model",
+          "source_role": "supplemental",
+          "subject_type": "model_only",
+          "model": {
+            "tested_model": "Kimi K2.7 Code",
+            "canonical_family": "kimi-k2.7-code",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "artificial-analysis-intelligence-index",
+            "version": "v4.1",
+            "task_count": null
+          },
+          "execution": {
+            "agent": null,
+            "agent_version": null,
+            "harness": null,
+            "harness_version": null,
+            "reasoning_effort": null,
+            "attempts_per_task": null
+          },
+          "result": {
+            "metric": "intelligence_index",
+            "value": 42,
+            "scale": "index"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://artificialanalysis.ai/models/kimi-k2-7-code/",
+            "methodology_url": "https://artificialanalysis.ai/methodology",
+            "primary_approved_by": null,
+            "primary_approved_at": null,
+            "approval_basis_url": null
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "provider-card-kimi-k2.7-code-20260612",
+          "source_id": "provider_official",
+          "source_role": "provider",
+          "subject_type": "provider_claim",
+          "model": {
+            "tested_model": "Kimi K2.7 Code",
+            "canonical_family": "kimi-k2.7-code",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "provider-model-card",
+            "version": "2026-06-12",
+            "task_count": null
+          },
+          "execution": {
+            "agent": null,
+            "agent_version": null,
+            "harness": null,
+            "harness_version": null,
+            "reasoning_effort": null,
+            "attempts_per_task": null
+          },
+          "result": {
+            "metric": "release_status",
+            "value": "documented",
+            "scale": "text"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": "2026-06-12",
+            "url": "https://www.kimi.com/resources/kimi-k2-7-code",
+            "methodology_url": null,
+            "primary_approved_by": null,
+            "primary_approved_at": null,
+            "approval_basis_url": null
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        }
+      ],
+      "scorecard": {
+        "schema": "tp-voyager.model_scorecard/v1",
+        "rules_version": "tp-voyager.model_tier_rules/v1",
+        "rules_status": "calibrated",
+        "evaluated_at": "2026-08-15",
+        "dimensions": {
+          "repository_engineering": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "terminal_agentic": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "codebase_understanding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "general_coding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "multimodal_coding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          }
+        },
+        "coverage": "low",
+        "confidence": "low",
+        "tier": "UNCLASSIFIED"
+      },
+      "tier_authority": "standard_v1"
     },
     "codebuddy:kimi-k3-2": {
       "canonical_family": "kimi-k3",
@@ -472,6 +2271,7 @@
       ],
       "benchmark_evidence": [
         {
+          "evidence_schema": "legacy_v1",
           "source": "livebench",
           "release": "2026-06-25",
           "tested_model": "Kimi K3",
@@ -484,6 +2284,7 @@
           "url": "https://livebench.ai/"
         },
         {
+          "evidence_schema": "legacy_v1",
           "source": "artificial_analysis",
           "release": "2026-08-13",
           "tested_model": "Kimi K3 Max",
@@ -494,6 +2295,7 @@
           "url": "https://artificialanalysis.ai/"
         },
         {
+          "evidence_schema": "legacy_v1",
           "source": "arena_coding",
           "release": "2026-08-13",
           "tested_model": "Kimi K3",
@@ -514,12 +2316,315 @@
           "url": "https://arena.ai/leaderboard/text/coding"
         }
       ],
-      "suggested_effort": "high"
+      "suggested_effort": "high",
+      "legacy_capability_tier": "L3",
+      "standard_evidence": [
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "aa-cai-v1.3-kimi-k3-repository",
+          "source_id": "artificial_analysis_coding_agent",
+          "source_role": "primary",
+          "subject_type": "model_agent",
+          "model": {
+            "tested_model": "Kimi K3",
+            "canonical_family": "kimi-k3",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "deep-swe",
+            "version": "AA-CAI-v1.3",
+            "task_count": 113
+          },
+          "execution": {
+            "agent": "Kimi Code CLI",
+            "agent_version": null,
+            "harness": "Kimi Code CLI",
+            "harness_version": "AA-CAI-v1.3",
+            "reasoning_effort": null,
+            "attempts_per_task": 3
+          },
+          "result": {
+            "metric": "pass@1",
+            "value": 64.0,
+            "scale": "percent"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/codex-vs-kimi-code-cli",
+            "methodology_url": "https://artificialanalysis.ai/methodology/coding-agents-benchmarking",
+            "primary_approved_by": "research-review:openai-gpt-5.6-sol-2026-08-15",
+            "primary_approved_at": "2026-08-15T09:00:00Z",
+            "approval_basis_url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/codex-vs-kimi-code-cli"
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "aa-cai-v1.3-kimi-k3-terminal",
+          "source_id": "artificial_analysis_coding_agent",
+          "source_role": "primary",
+          "subject_type": "model_agent",
+          "model": {
+            "tested_model": "Kimi K3",
+            "canonical_family": "kimi-k3",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "terminal-bench",
+            "version": "AA-CAI-v1.3",
+            "task_count": 84
+          },
+          "execution": {
+            "agent": "Kimi Code CLI",
+            "agent_version": null,
+            "harness": "Kimi Code CLI",
+            "harness_version": "AA-CAI-v1.3",
+            "reasoning_effort": null,
+            "attempts_per_task": 3
+          },
+          "result": {
+            "metric": "pass@1",
+            "value": 84.0,
+            "scale": "percent"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/codex-vs-kimi-code-cli",
+            "methodology_url": "https://artificialanalysis.ai/methodology/coding-agents-benchmarking",
+            "primary_approved_by": "research-review:openai-gpt-5.6-sol-2026-08-15",
+            "primary_approved_at": "2026-08-15T09:00:00Z",
+            "approval_basis_url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/codex-vs-kimi-code-cli"
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "aa-cai-v1.3-kimi-k3-qna",
+          "source_id": "artificial_analysis_coding_agent",
+          "source_role": "primary",
+          "subject_type": "model_agent",
+          "model": {
+            "tested_model": "Kimi K3",
+            "canonical_family": "kimi-k3",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "swe-atlas-qna",
+            "version": "AA-CAI-v1.3",
+            "task_count": 124
+          },
+          "execution": {
+            "agent": "Kimi Code CLI",
+            "agent_version": null,
+            "harness": "Kimi Code CLI",
+            "harness_version": "AA-CAI-v1.3",
+            "reasoning_effort": null,
+            "attempts_per_task": 3
+          },
+          "result": {
+            "metric": "pass@1",
+            "value": 37.0,
+            "scale": "percent"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/codex-vs-kimi-code-cli",
+            "methodology_url": "https://artificialanalysis.ai/methodology/coding-agents-benchmarking",
+            "primary_approved_by": "research-review:openai-gpt-5.6-sol-2026-08-15",
+            "primary_approved_at": "2026-08-15T09:00:00Z",
+            "approval_basis_url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/codex-vs-kimi-code-cli"
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "aa-ii-v4.1-kimi-k3",
+          "source_id": "artificial_analysis_model",
+          "source_role": "supplemental",
+          "subject_type": "model_only",
+          "model": {
+            "tested_model": "Kimi K3",
+            "canonical_family": "kimi-k3",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "artificial-analysis-intelligence-index",
+            "version": "v4.1",
+            "task_count": null
+          },
+          "execution": {
+            "agent": null,
+            "agent_version": null,
+            "harness": null,
+            "harness_version": null,
+            "reasoning_effort": null,
+            "attempts_per_task": null
+          },
+          "result": {
+            "metric": "intelligence_index",
+            "value": 57,
+            "scale": "index"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://artificialanalysis.ai/models/kimi-k3/",
+            "methodology_url": "https://artificialanalysis.ai/methodology",
+            "primary_approved_by": null,
+            "primary_approved_at": null,
+            "approval_basis_url": null
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "provider-card-kimi-k3-20260716",
+          "source_id": "provider_official",
+          "source_role": "provider",
+          "subject_type": "provider_claim",
+          "model": {
+            "tested_model": "Kimi K3",
+            "canonical_family": "kimi-k3",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "provider-model-card",
+            "version": "2026-07-16",
+            "task_count": null
+          },
+          "execution": {
+            "agent": null,
+            "agent_version": null,
+            "harness": null,
+            "harness_version": null,
+            "reasoning_effort": null,
+            "attempts_per_task": null
+          },
+          "result": {
+            "metric": "release_status",
+            "value": "documented",
+            "scale": "text"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": "2026-07-16",
+            "url": "https://www.kimi.com/blog/kimi-k3",
+            "methodology_url": null,
+            "primary_approved_by": null,
+            "primary_approved_at": null,
+            "approval_basis_url": null
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        }
+      ],
+      "scorecard": {
+        "schema": "tp-voyager.model_scorecard/v1",
+        "rules_version": "tp-voyager.model_tier_rules/v1",
+        "rules_status": "calibrated",
+        "evaluated_at": "2026-08-15",
+        "dimensions": {
+          "repository_engineering": {
+            "status": "measured",
+            "evidence_ids": [
+              "aa-cai-v1.3-kimi-k3-repository"
+            ],
+            "measurements": [
+              {
+                "evidence_id": "aa-cai-v1.3-kimi-k3-repository",
+                "source_id": "artificial_analysis_coding_agent",
+                "source_role": "primary",
+                "benchmark_id": "deep-swe",
+                "benchmark_version": "AA-CAI-v1.3",
+                "metric": "pass@1",
+                "value": 64.0,
+                "scale": "percent",
+                "numeric_percent": 64.0,
+                "calibration_compatible": true,
+                "primary": true
+              }
+            ]
+          },
+          "terminal_agentic": {
+            "status": "measured",
+            "evidence_ids": [
+              "aa-cai-v1.3-kimi-k3-terminal"
+            ],
+            "measurements": [
+              {
+                "evidence_id": "aa-cai-v1.3-kimi-k3-terminal",
+                "source_id": "artificial_analysis_coding_agent",
+                "source_role": "primary",
+                "benchmark_id": "terminal-bench",
+                "benchmark_version": "AA-CAI-v1.3",
+                "metric": "pass@1",
+                "value": 84.0,
+                "scale": "percent",
+                "numeric_percent": 84.0,
+                "calibration_compatible": true,
+                "primary": true
+              }
+            ]
+          },
+          "codebase_understanding": {
+            "status": "measured",
+            "evidence_ids": [
+              "aa-cai-v1.3-kimi-k3-qna"
+            ],
+            "measurements": [
+              {
+                "evidence_id": "aa-cai-v1.3-kimi-k3-qna",
+                "source_id": "artificial_analysis_coding_agent",
+                "source_role": "primary",
+                "benchmark_id": "swe-atlas-qna",
+                "benchmark_version": "AA-CAI-v1.3",
+                "metric": "pass@1",
+                "value": 37.0,
+                "scale": "percent",
+                "numeric_percent": 37.0,
+                "calibration_compatible": true,
+                "primary": true
+              }
+            ]
+          },
+          "general_coding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "multimodal_coding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          }
+        },
+        "coverage": "high",
+        "confidence": "high",
+        "tier": "L3"
+      },
+      "tier_authority": "standard_v1"
     },
     "codebuddy:minimax-m2.7": {
       "canonical_family": "minimax-m2.7",
       "provider_identity": "provider_declared",
-      "capability_tier": "L1",
+      "capability_tier": "UNCLASSIFIED",
       "profile_confidence": "medium",
       "specialties": [
         "routine_coding",
@@ -532,10 +2637,12 @@
       ],
       "risk_boundaries": [
         "superseded by MiniMax M3",
-        "avoid as default for large refactors"
+        "avoid as default for large refactors",
+        "formal Standard v1 tier is UNCLASSIFIED because compatible Primary evidence is insufficient"
       ],
       "benchmark_evidence": [
         {
+          "evidence_schema": "legacy_v1",
           "source": "livebench",
           "release": "2026-06-25",
           "tested_model": "MiniMax M2.7",
@@ -548,6 +2655,7 @@
           "url": "https://livebench.ai/"
         },
         {
+          "evidence_schema": "legacy_v1",
           "source": "artificial_analysis",
           "release": "2026-08-13",
           "tested_model": "MiniMax M2.7",
@@ -563,12 +2671,197 @@
           "kind": "url",
           "url": "https://livebench.ai/"
         }
-      ]
+      ],
+      "legacy_capability_tier": "L1",
+      "standard_evidence": [
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "aa-ii-v4.1-minimax-m2.7",
+          "source_id": "artificial_analysis_model",
+          "source_role": "supplemental",
+          "subject_type": "model_only",
+          "model": {
+            "tested_model": "MiniMax-M2.7",
+            "canonical_family": "minimax-m2.7",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "artificial-analysis-intelligence-index",
+            "version": "v4.1",
+            "task_count": null
+          },
+          "execution": {
+            "agent": null,
+            "agent_version": null,
+            "harness": null,
+            "harness_version": null,
+            "reasoning_effort": null,
+            "attempts_per_task": null
+          },
+          "result": {
+            "metric": "intelligence_index",
+            "value": 38,
+            "scale": "index"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://artificialanalysis.ai/models/minimax-m2-7/",
+            "methodology_url": "https://artificialanalysis.ai/methodology",
+            "primary_approved_by": null,
+            "primary_approved_at": null,
+            "approval_basis_url": null
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "provider-card-minimax-m2.7-20260318",
+          "source_id": "provider_official",
+          "source_role": "provider",
+          "subject_type": "provider_claim",
+          "model": {
+            "tested_model": "MiniMax-M2.7",
+            "canonical_family": "minimax-m2.7",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "provider-model-card",
+            "version": "2026-03-18",
+            "task_count": null
+          },
+          "execution": {
+            "agent": null,
+            "agent_version": null,
+            "harness": null,
+            "harness_version": null,
+            "reasoning_effort": null,
+            "attempts_per_task": null
+          },
+          "result": {
+            "metric": "release_status",
+            "value": "documented",
+            "scale": "text"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": "2026-03-18",
+            "url": "https://www.minimax.io/models/text/m27",
+            "methodology_url": null,
+            "primary_approved_by": null,
+            "primary_approved_at": null,
+            "approval_basis_url": null
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "provider-claim-minimax-m2.7-terminal-bench-2-0",
+          "source_id": "provider_official",
+          "source_role": "provider",
+          "subject_type": "provider_claim",
+          "model": {
+            "tested_model": "MiniMax-M2.7",
+            "canonical_family": "minimax-m2.7",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "terminal-bench",
+            "version": "2.0",
+            "task_count": 89
+          },
+          "execution": {
+            "agent": null,
+            "agent_version": null,
+            "harness": null,
+            "harness_version": null,
+            "reasoning_effort": null,
+            "attempts_per_task": null
+          },
+          "result": {
+            "metric": "pass@1",
+            "value": 57.0,
+            "scale": "percent"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://www.minimax.io/models/text/m27",
+            "methodology_url": null,
+            "primary_approved_by": null,
+            "primary_approved_at": null,
+            "approval_basis_url": null
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        }
+      ],
+      "scorecard": {
+        "schema": "tp-voyager.model_scorecard/v1",
+        "rules_version": "tp-voyager.model_tier_rules/v1",
+        "rules_status": "calibrated",
+        "evaluated_at": "2026-08-15",
+        "dimensions": {
+          "repository_engineering": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "terminal_agentic": {
+            "status": "supplemental",
+            "evidence_ids": [
+              "provider-claim-minimax-m2.7-terminal-bench-2-0"
+            ],
+            "measurements": [
+              {
+                "evidence_id": "provider-claim-minimax-m2.7-terminal-bench-2-0",
+                "source_id": "provider_official",
+                "source_role": "provider",
+                "benchmark_id": "terminal-bench",
+                "benchmark_version": "2.0",
+                "metric": "pass@1",
+                "value": 57.0,
+                "scale": "percent",
+                "numeric_percent": 57.0,
+                "calibration_compatible": false,
+                "primary": false
+              }
+            ]
+          },
+          "codebase_understanding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "general_coding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "multimodal_coding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          }
+        },
+        "coverage": "low",
+        "confidence": "low",
+        "tier": "UNCLASSIFIED"
+      },
+      "tier_authority": "standard_v1"
     },
     "codebuddy:minimax-m3-pay": {
       "canonical_family": "minimax-m3",
       "provider_identity": "provider_declared",
-      "capability_tier": "L2",
+      "capability_tier": "UNCLASSIFIED",
       "profile_confidence": "high",
       "specialties": [
         "coding",
@@ -583,10 +2876,12 @@
       ],
       "risk_boundaries": [
         "Captain review required for architecture",
-        "not the strongest long-horizon option in current independent results"
+        "not the strongest long-horizon option in current independent results",
+        "formal Standard v1 tier is UNCLASSIFIED because compatible Primary evidence is insufficient"
       ],
       "benchmark_evidence": [
         {
+          "evidence_schema": "legacy_v1",
           "source": "livebench",
           "release": "2026-06-25",
           "tested_model": "MiniMax M3",
@@ -599,6 +2894,7 @@
           "url": "https://livebench.ai/"
         },
         {
+          "evidence_schema": "legacy_v1",
           "source": "artificial_analysis",
           "release": "2026-08-13",
           "tested_model": "MiniMax M3",
@@ -609,6 +2905,7 @@
           "url": "https://artificialanalysis.ai/"
         },
         {
+          "evidence_schema": "legacy_v1",
           "source": "arena_coding",
           "release": "2026-08-13",
           "tested_model": "MiniMax M3",
@@ -626,383 +2923,197 @@
           "url": "https://livebench.ai/"
         }
       ],
-      "suggested_effort": "high"
-    },
-    "qoder:auto": {
-      "canonical_family": "qoder-auto-tier",
-      "provider_identity": "dynamic_tier",
-      "capability_tier": "DYNAMIC",
-      "profile_confidence": "low",
-      "specialties": [
-        "dynamic_model_pool"
-      ],
-      "recommended_tasks": [
-        "provider-routed general work when Captain accepts dynamic model choice"
-      ],
-      "risk_boundaries": [
-        "underlying model may change between requests",
-        "do not attribute a fixed benchmark score"
-      ],
-      "benchmark_evidence": [],
-      "evidence_refs": [
+      "suggested_effort": "high",
+      "legacy_capability_tier": "L2",
+      "standard_evidence": [
         {
-          "kind": "url",
-          "url": "https://docs.qoder.com/en/cli/model"
-        }
-      ]
-    },
-    "qoder:cmodel": {
-      "canonical_family": "cantus",
-      "provider_identity": "provider_declared",
-      "capability_tier": "UNCLASSIFIED",
-      "profile_confidence": "low",
-      "specialties": [
-        "unknown"
-      ],
-      "recommended_tasks": [
-        "manual evaluation",
-        "high-difficulty comparison only"
-      ],
-      "risk_boundaries": [
-        "independent public capability evidence is insufficient",
-        "high provider reference multiplier is not capability evidence",
-        "do not use as default route"
-      ],
-      "benchmark_evidence": [
-        {
-          "source": "independent_benchmark_search",
-          "release": "2026-08-13",
-          "tested_model": "Cantus",
-          "model_match": "missing",
-          "metrics": {
-            "status": "not_found"
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "aa-ii-v4.1-minimax-m3",
+          "source_id": "artificial_analysis_model",
+          "source_role": "supplemental",
+          "subject_type": "model_only",
+          "model": {
+            "tested_model": "MiniMax-M3",
+            "canonical_family": "minimax-m3",
+            "model_match": "exact"
           },
-          "url": "https://arena.ai/leaderboard/"
-        }
-      ],
-      "evidence_refs": [
-        {
-          "kind": "url",
-          "url": "https://docs.qoder.com/en/cli/model"
-        }
-      ]
-    },
-    "qoder:dfmodel": {
-      "canonical_family": "deepseek-v4-flash-0731",
-      "provider_identity": "operator_confirmed",
-      "capability_tier": "L3",
-      "profile_confidence": "high",
-      "specialties": [
-        "coding_agent",
-        "cost_efficient_frontier_execution"
-      ],
-      "recommended_tasks": [
-        "complex implementation",
-        "repository investigation",
-        "multi-file change",
-        "difficult debugging",
-        "test-fix loop",
-        "long-horizon coding agent"
-      ],
-      "risk_boundaries": [
-        "text-only model",
-        "architecture/final technical decisions require Captain review",
-        "high-stakes factual conclusions require verification"
-      ],
-      "benchmark_evidence": [
-        {
-          "source": "artificial_analysis",
-          "release": "2026-07-31",
-          "tested_model": "DeepSeek V4 Flash 0731 Max",
-          "model_match": "exact",
-          "metrics": {
-            "intelligence_index": 50,
-            "gdpval_aa_v2_elo": 1559,
-            "omniscience_index": -16
+          "benchmark": {
+            "id": "artificial-analysis-intelligence-index",
+            "version": "v4.1",
+            "task_count": null
           },
-          "url": "https://artificialanalysis.ai/",
-          "effort": "max"
-        }
-      ],
-      "evidence_refs": [
-        {
-          "kind": "trusted_file",
-          "root_alias": "operator_model_research",
-          "path": "Codex外部模型CLI委派参考.md",
-          "sha256": "df278a0d4fe6d32316539feabc210742a349fc0f422f0d6553ace7f0601a1b82"
+          "execution": {
+            "agent": null,
+            "agent_version": null,
+            "harness": null,
+            "harness_version": null,
+            "reasoning_effort": null,
+            "attempts_per_task": null
+          },
+          "result": {
+            "metric": "intelligence_index",
+            "value": 44,
+            "scale": "index"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://artificialanalysis.ai/models/minimax-m3/",
+            "methodology_url": "https://artificialanalysis.ai/methodology",
+            "primary_approved_by": null,
+            "primary_approved_at": null,
+            "approval_basis_url": null
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
         },
         {
-          "kind": "url",
-          "url": "https://artificialanalysis.ai/"
-        }
-      ],
-      "suggested_effort": "high"
-    },
-    "qoder:dmodel": {
-      "canonical_family": "deepseek-v4-pro",
-      "provider_identity": "provider_declared",
-      "capability_tier": "L2",
-      "profile_confidence": "high",
-      "specialties": [
-        "reasoning",
-        "coding",
-        "engineering"
-      ],
-      "recommended_tasks": [
-        "advanced engineering",
-        "complex reasoning",
-        "difficult debugging",
-        "code review"
-      ],
-      "risk_boundaries": [
-        "independent agent evidence trails current K3/GLM-5.2",
-        "Captain retains architecture authority"
-      ],
-      "benchmark_evidence": [
-        {
-          "source": "livebench",
-          "release": "2026-06-25",
-          "tested_model": "DeepSeek V4 Pro",
-          "model_match": "exact",
-          "metrics": {
-            "overall": 71.6,
-            "coding": 70.0,
-            "agentic_coding": 42.6
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "provider-card-minimax-m3-20260601",
+          "source_id": "provider_official",
+          "source_role": "provider",
+          "subject_type": "provider_claim",
+          "model": {
+            "tested_model": "MiniMax-M3",
+            "canonical_family": "minimax-m3",
+            "model_match": "exact"
           },
-          "url": "https://livebench.ai/"
+          "benchmark": {
+            "id": "provider-model-card",
+            "version": "2026-06-01",
+            "task_count": null
+          },
+          "execution": {
+            "agent": null,
+            "agent_version": null,
+            "harness": null,
+            "harness_version": null,
+            "reasoning_effort": null,
+            "attempts_per_task": null
+          },
+          "result": {
+            "metric": "release_status",
+            "value": "documented",
+            "scale": "text"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": "2026-06-01",
+            "url": "https://www.minimax.io/blog/minimax-m3",
+            "methodology_url": null,
+            "primary_approved_by": null,
+            "primary_approved_at": null,
+            "approval_basis_url": null
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
         },
         {
-          "source": "artificial_analysis",
-          "release": "2026-08-13",
-          "tested_model": "DeepSeek V4 Pro",
-          "model_match": "exact",
-          "metrics": {
-            "intelligence_index": 44
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "provider-claim-minimax-m3-terminal-bench-2-1",
+          "source_id": "provider_official",
+          "source_role": "provider",
+          "subject_type": "provider_claim",
+          "model": {
+            "tested_model": "MiniMax-M3",
+            "canonical_family": "minimax-m3",
+            "model_match": "exact"
           },
-          "url": "https://artificialanalysis.ai/"
+          "benchmark": {
+            "id": "terminal-bench",
+            "version": "2.1",
+            "task_count": 89
+          },
+          "execution": {
+            "agent": "Terminus 2",
+            "agent_version": null,
+            "harness": "Terminus 2",
+            "harness_version": null,
+            "reasoning_effort": null,
+            "attempts_per_task": null
+          },
+          "result": {
+            "metric": "pass@1",
+            "value": 66.0,
+            "scale": "percent"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://www.minimax.io/blog/minimax-m3",
+            "methodology_url": null,
+            "primary_approved_by": null,
+            "primary_approved_at": null,
+            "approval_basis_url": null
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        }
+      ],
+      "scorecard": {
+        "schema": "tp-voyager.model_scorecard/v1",
+        "rules_version": "tp-voyager.model_tier_rules/v1",
+        "rules_status": "calibrated",
+        "evaluated_at": "2026-08-15",
+        "dimensions": {
+          "repository_engineering": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "terminal_agentic": {
+            "status": "supplemental",
+            "evidence_ids": [
+              "provider-claim-minimax-m3-terminal-bench-2-1"
+            ],
+            "measurements": [
+              {
+                "evidence_id": "provider-claim-minimax-m3-terminal-bench-2-1",
+                "source_id": "provider_official",
+                "source_role": "provider",
+                "benchmark_id": "terminal-bench",
+                "benchmark_version": "2.1",
+                "metric": "pass@1",
+                "value": 66.0,
+                "scale": "percent",
+                "numeric_percent": 66.0,
+                "calibration_compatible": false,
+                "primary": false
+              }
+            ]
+          },
+          "codebase_understanding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "general_coding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "multimodal_coding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          }
         },
-        {
-          "source": "arena_coding",
-          "release": "2026-08-13",
-          "tested_model": "DeepSeek V4 Pro",
-          "model_match": "exact",
-          "metrics": {
-            "arena_score": 1502,
-            "confidence_interval": 7
-          },
-          "url": "https://arena.ai/leaderboard/text/coding"
-        }
-      ],
-      "evidence_refs": [
-        {
-          "kind": "url",
-          "url": "https://livebench.ai/"
-        }
-      ],
-      "suggested_effort": "high"
-    },
-    "qoder:efficient": {
-      "canonical_family": "qoder-efficient-tier",
-      "provider_identity": "dynamic_tier",
-      "capability_tier": "L1",
-      "profile_confidence": "medium",
-      "specialties": [
-        "credit_efficiency"
-      ],
-      "recommended_tasks": [
-        "routine coding",
-        "unit tests",
-        "documentation",
-        "daily engineering"
-      ],
-      "risk_boundaries": [
-        "underlying model is provider-selected",
-        "not preferred for architecture"
-      ],
-      "benchmark_evidence": [],
-      "evidence_refs": [
-        {
-          "kind": "url",
-          "url": "https://docs.qoder.com/en/cli/model"
-        }
-      ]
-    },
-    "qoder:gm51model": {
-      "canonical_family": "glm-5.2",
-      "provider_identity": "provider_declared",
-      "capability_tier": "L3",
-      "profile_confidence": "high",
-      "specialties": [
-        "long_horizon_coding",
-        "systems_engineering"
-      ],
-      "recommended_tasks": [
-        "complex systems engineering",
-        "cross-module implementation",
-        "long-horizon coding",
-        "difficult review"
-      ],
-      "risk_boundaries": [
-        "Captain retains final architecture and release authority",
-        "avoid for trivial mechanical work"
-      ],
-      "benchmark_evidence": [
-        {
-          "source": "livebench",
-          "release": "2026-06-25",
-          "tested_model": "GLM-5.2",
-          "model_match": "exact",
-          "metrics": {
-            "overall": 73.2,
-            "coding": 79.7,
-            "agentic_coding": 51.9
-          },
-          "url": "https://livebench.ai/"
-        },
-        {
-          "source": "artificial_analysis",
-          "release": "2026-08-13",
-          "tested_model": "GLM-5.2 Max",
-          "model_match": "exact",
-          "metrics": {
-            "intelligence_index": 51
-          },
-          "url": "https://artificialanalysis.ai/"
-        }
-      ],
-      "evidence_refs": [
-        {
-          "kind": "url",
-          "url": "https://livebench.ai/"
-        },
-        {
-          "kind": "url",
-          "url": "https://artificialanalysis.ai/"
-        }
-      ],
-      "suggested_effort": "high"
-    },
-    "qoder:kmodel": {
-      "canonical_family": "kimi-k2.7-code",
-      "provider_identity": "provider_declared",
-      "capability_tier": "L2",
-      "profile_confidence": "high",
-      "specialties": [
-        "coding",
-        "long_context"
-      ],
-      "recommended_tasks": [
-        "repository coding",
-        "long-context implementation",
-        "debugging",
-        "bounded agent loops"
-      ],
-      "risk_boundaries": [
-        "slower and more verbose than cost-focused routes",
-        "architecture requires Captain review"
-      ],
-      "benchmark_evidence": [
-        {
-          "source": "livebench",
-          "release": "2026-06-25",
-          "tested_model": "Kimi K2.7 Code",
-          "model_match": "exact",
-          "metrics": {
-            "overall": 68.4,
-            "coding": 74.0,
-            "agentic_coding": 45.7
-          },
-          "url": "https://livebench.ai/"
-        },
-        {
-          "source": "artificial_analysis",
-          "release": "2026-08-13",
-          "tested_model": "Kimi K2.7 Code",
-          "model_match": "exact",
-          "metrics": {
-            "intelligence_index": 42
-          },
-          "url": "https://artificialanalysis.ai/"
-        }
-      ],
-      "evidence_refs": [
-        {
-          "kind": "url",
-          "url": "https://livebench.ai/"
-        }
-      ],
-      "suggested_effort": "high"
-    },
-    "qoder:kmodel_latest": {
-      "canonical_family": "kimi-k3",
-      "provider_identity": "provider_declared",
-      "capability_tier": "L3",
-      "profile_confidence": "high",
-      "specialties": [
-        "frontier_coding",
-        "long_horizon",
-        "reasoning"
-      ],
-      "recommended_tasks": [
-        "architecture",
-        "difficult coding",
-        "long-horizon agent work",
-        "high-value review"
-      ],
-      "risk_boundaries": [
-        "avoid for trivial work due to latency/verbosity/relative consumption",
-        "Captain owns irreversible decisions"
-      ],
-      "benchmark_evidence": [
-        {
-          "source": "livebench",
-          "release": "2026-06-25",
-          "tested_model": "Kimi K3",
-          "model_match": "exact",
-          "metrics": {
-            "overall": 78.5,
-            "coding": 81.4,
-            "agentic_coding": 57.6
-          },
-          "url": "https://livebench.ai/"
-        },
-        {
-          "source": "artificial_analysis",
-          "release": "2026-08-13",
-          "tested_model": "Kimi K3 Max",
-          "model_match": "exact",
-          "metrics": {
-            "intelligence_index": 57
-          },
-          "url": "https://artificialanalysis.ai/"
-        },
-        {
-          "source": "arena_coding",
-          "release": "2026-08-13",
-          "tested_model": "Kimi K3",
-          "model_match": "exact",
-          "metrics": {
-            "open_weight_rank": 1
-          },
-          "url": "https://arena.ai/leaderboard/text/coding"
-        }
-      ],
-      "evidence_refs": [
-        {
-          "kind": "url",
-          "url": "https://livebench.ai/"
-        },
-        {
-          "kind": "url",
-          "url": "https://arena.ai/leaderboard/text/coding"
-        }
-      ],
-      "suggested_effort": "high"
+        "coverage": "low",
+        "confidence": "low",
+        "tier": "UNCLASSIFIED"
+      },
+      "tier_authority": "standard_v1"
     },
     "qoder:Lite": {
       "canonical_family": "qoder-lite-tier",
       "provider_identity": "dynamic_tier",
-      "capability_tier": "L0",
+      "capability_tier": "DYNAMIC",
       "profile_confidence": "medium",
       "specialties": [
         "free_basic_tier"
@@ -1031,12 +3142,1584 @@
           "kind": "url",
           "url": "https://docs.qoder.com/en/cli/model"
         }
-      ]
+      ],
+      "legacy_capability_tier": "L0",
+      "tier_authority": "provider_dynamic",
+      "provider_tier_label": "Lite",
+      "scorecard": null,
+      "standard_evidence": []
+    },
+    "qoder:cmodel": {
+      "canonical_family": "cantus",
+      "provider_identity": "provider_declared",
+      "capability_tier": "UNCLASSIFIED",
+      "profile_confidence": "low",
+      "specialties": [
+        "identity_pending_validation"
+      ],
+      "recommended_tasks": [
+        "manual model evaluation",
+        "bounded comparison tasks"
+      ],
+      "risk_boundaries": [
+        "public provider/model identity is unresolved",
+        "do not assign external benchmark results until exact identity is proven",
+        "formal Standard v1 tier is UNCLASSIFIED because compatible Primary evidence is insufficient"
+      ],
+      "benchmark_evidence": [
+        {
+          "evidence_schema": "legacy_v1",
+          "source": "independent_benchmark_search",
+          "release": "2026-08-13",
+          "tested_model": "Cantus",
+          "model_match": "missing",
+          "metrics": {
+            "status": "not_found"
+          },
+          "url": "https://arena.ai/leaderboard/"
+        }
+      ],
+      "evidence_refs": [
+        {
+          "kind": "url",
+          "url": "https://docs.qoder.com/en/cli/model"
+        }
+      ],
+      "legacy_capability_tier": "UNCLASSIFIED",
+      "standard_evidence": [],
+      "scorecard": {
+        "schema": "tp-voyager.model_scorecard/v1",
+        "rules_version": "tp-voyager.model_tier_rules/v1",
+        "rules_status": "calibrated",
+        "evaluated_at": "2026-08-15",
+        "dimensions": {
+          "repository_engineering": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "terminal_agentic": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "codebase_understanding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "general_coding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "multimodal_coding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          }
+        },
+        "coverage": "low",
+        "confidence": "low",
+        "tier": "UNCLASSIFIED"
+      },
+      "tier_authority": "standard_v1"
+    },
+    "qoder:dfmodel": {
+      "canonical_family": "deepseek-v4-flash",
+      "provider_identity": "operator_confirmed",
+      "capability_tier": "UNCLASSIFIED",
+      "profile_confidence": "high",
+      "specialties": [
+        "coding_agent",
+        "cost_efficient_frontier_execution"
+      ],
+      "recommended_tasks": [
+        "complex implementation",
+        "repository investigation",
+        "multi-file change",
+        "difficult debugging",
+        "test-fix loop",
+        "long-horizon coding agent"
+      ],
+      "risk_boundaries": [
+        "text-only model",
+        "architecture/final technical decisions require Captain review",
+        "high-stakes factual conclusions require verification",
+        "formal Standard v1 tier is UNCLASSIFIED because compatible Primary evidence is insufficient"
+      ],
+      "benchmark_evidence": [
+        {
+          "evidence_schema": "legacy_v1",
+          "source": "artificial_analysis",
+          "release": "2026-07-31",
+          "tested_model": "DeepSeek V4 Flash 0731 Max",
+          "model_match": "exact",
+          "metrics": {
+            "intelligence_index": 50,
+            "gdpval_aa_v2_elo": 1559,
+            "omniscience_index": -16
+          },
+          "url": "https://artificialanalysis.ai/",
+          "effort": "max"
+        }
+      ],
+      "evidence_refs": [
+        {
+          "kind": "trusted_file",
+          "root_alias": "operator_model_research",
+          "path": "Codex外部模型CLI委派参考.md",
+          "sha256": "df278a0d4fe6d32316539feabc210742a349fc0f422f0d6553ace7f0601a1b82"
+        },
+        {
+          "kind": "url",
+          "url": "https://artificialanalysis.ai/"
+        }
+      ],
+      "suggested_effort": "high",
+      "legacy_capability_tier": "L3",
+      "standard_evidence": [
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "aa-ii-v4.1-deepseek-v4-flash",
+          "source_id": "artificial_analysis_model",
+          "source_role": "supplemental",
+          "subject_type": "model_only",
+          "model": {
+            "tested_model": "DeepSeek V4 Flash (Reasoning, Max Effort)",
+            "canonical_family": "deepseek-v4-flash",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "artificial-analysis-intelligence-index",
+            "version": "v4.1",
+            "task_count": null
+          },
+          "execution": {
+            "agent": null,
+            "agent_version": null,
+            "harness": null,
+            "harness_version": null,
+            "reasoning_effort": null,
+            "attempts_per_task": null
+          },
+          "result": {
+            "metric": "intelligence_index",
+            "value": 40,
+            "scale": "index"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://artificialanalysis.ai/models/deepseek-v4-flash/",
+            "methodology_url": "https://artificialanalysis.ai/methodology",
+            "primary_approved_by": null,
+            "primary_approved_at": null,
+            "approval_basis_url": null
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "provider-card-deepseek-v4-flash-20260424",
+          "source_id": "provider_official",
+          "source_role": "provider",
+          "subject_type": "provider_claim",
+          "model": {
+            "tested_model": "DeepSeek V4 Flash",
+            "canonical_family": "deepseek-v4-flash",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "provider-model-card",
+            "version": "2026-04-24",
+            "task_count": null
+          },
+          "execution": {
+            "agent": null,
+            "agent_version": null,
+            "harness": null,
+            "harness_version": null,
+            "reasoning_effort": null,
+            "attempts_per_task": null
+          },
+          "result": {
+            "metric": "release_status",
+            "value": "documented",
+            "scale": "text"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": "2026-04-24",
+            "url": "https://api-docs.deepseek.com/news/news260424/",
+            "methodology_url": null,
+            "primary_approved_by": null,
+            "primary_approved_at": null,
+            "approval_basis_url": null
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        }
+      ],
+      "scorecard": {
+        "schema": "tp-voyager.model_scorecard/v1",
+        "rules_version": "tp-voyager.model_tier_rules/v1",
+        "rules_status": "calibrated",
+        "evaluated_at": "2026-08-15",
+        "dimensions": {
+          "repository_engineering": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "terminal_agentic": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "codebase_understanding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "general_coding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "multimodal_coding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          }
+        },
+        "coverage": "low",
+        "confidence": "low",
+        "tier": "UNCLASSIFIED"
+      },
+      "tier_authority": "standard_v1"
+    },
+    "qoder:dmodel": {
+      "canonical_family": "deepseek-v4-pro",
+      "provider_identity": "provider_declared",
+      "capability_tier": "L2",
+      "profile_confidence": "high",
+      "specialties": [
+        "reasoning",
+        "coding",
+        "engineering"
+      ],
+      "recommended_tasks": [
+        "advanced engineering",
+        "complex reasoning",
+        "difficult debugging",
+        "code review"
+      ],
+      "risk_boundaries": [
+        "independent agent evidence trails current K3/GLM-5.2",
+        "Captain retains architecture authority"
+      ],
+      "benchmark_evidence": [
+        {
+          "evidence_schema": "legacy_v1",
+          "source": "livebench",
+          "release": "2026-06-25",
+          "tested_model": "DeepSeek V4 Pro",
+          "model_match": "exact",
+          "metrics": {
+            "overall": 71.6,
+            "coding": 70.0,
+            "agentic_coding": 42.6
+          },
+          "url": "https://livebench.ai/"
+        },
+        {
+          "evidence_schema": "legacy_v1",
+          "source": "artificial_analysis",
+          "release": "2026-08-13",
+          "tested_model": "DeepSeek V4 Pro",
+          "model_match": "exact",
+          "metrics": {
+            "intelligence_index": 44
+          },
+          "url": "https://artificialanalysis.ai/"
+        },
+        {
+          "evidence_schema": "legacy_v1",
+          "source": "arena_coding",
+          "release": "2026-08-13",
+          "tested_model": "DeepSeek V4 Pro",
+          "model_match": "exact",
+          "metrics": {
+            "arena_score": 1502,
+            "confidence_interval": 7
+          },
+          "url": "https://arena.ai/leaderboard/text/coding"
+        }
+      ],
+      "evidence_refs": [
+        {
+          "kind": "url",
+          "url": "https://livebench.ai/"
+        }
+      ],
+      "suggested_effort": "high",
+      "legacy_capability_tier": "L2",
+      "standard_evidence": [
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "aa-cai-v1.3-deepseek-v4-pro-repository",
+          "source_id": "artificial_analysis_coding_agent",
+          "source_role": "primary",
+          "subject_type": "model_agent",
+          "model": {
+            "tested_model": "DeepSeek V4 Pro (high)",
+            "canonical_family": "deepseek-v4-pro",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "deep-swe",
+            "version": "AA-CAI-v1.3",
+            "task_count": 113
+          },
+          "execution": {
+            "agent": "Claude Code",
+            "agent_version": null,
+            "harness": "Claude Code",
+            "harness_version": "AA-CAI-v1.3",
+            "reasoning_effort": "high",
+            "attempts_per_task": 3
+          },
+          "result": {
+            "metric": "pass@1",
+            "value": 9.0,
+            "scale": "percent"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli",
+            "methodology_url": "https://artificialanalysis.ai/methodology/coding-agents-benchmarking",
+            "primary_approved_by": "research-review:openai-gpt-5.6-sol-2026-08-15",
+            "primary_approved_at": "2026-08-15T09:00:00Z",
+            "approval_basis_url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli"
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "aa-cai-v1.3-deepseek-v4-pro-terminal",
+          "source_id": "artificial_analysis_coding_agent",
+          "source_role": "primary",
+          "subject_type": "model_agent",
+          "model": {
+            "tested_model": "DeepSeek V4 Pro (high)",
+            "canonical_family": "deepseek-v4-pro",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "terminal-bench",
+            "version": "AA-CAI-v1.3",
+            "task_count": 84
+          },
+          "execution": {
+            "agent": "Claude Code",
+            "agent_version": null,
+            "harness": "Claude Code",
+            "harness_version": "AA-CAI-v1.3",
+            "reasoning_effort": "high",
+            "attempts_per_task": 3
+          },
+          "result": {
+            "metric": "pass@1",
+            "value": 66.0,
+            "scale": "percent"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli",
+            "methodology_url": "https://artificialanalysis.ai/methodology/coding-agents-benchmarking",
+            "primary_approved_by": "research-review:openai-gpt-5.6-sol-2026-08-15",
+            "primary_approved_at": "2026-08-15T09:00:00Z",
+            "approval_basis_url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli"
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "aa-cai-v1.3-deepseek-v4-pro-qna",
+          "source_id": "artificial_analysis_coding_agent",
+          "source_role": "primary",
+          "subject_type": "model_agent",
+          "model": {
+            "tested_model": "DeepSeek V4 Pro (high)",
+            "canonical_family": "deepseek-v4-pro",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "swe-atlas-qna",
+            "version": "AA-CAI-v1.3",
+            "task_count": 124
+          },
+          "execution": {
+            "agent": "Claude Code",
+            "agent_version": null,
+            "harness": "Claude Code",
+            "harness_version": "AA-CAI-v1.3",
+            "reasoning_effort": "high",
+            "attempts_per_task": 3
+          },
+          "result": {
+            "metric": "pass@1",
+            "value": 20.0,
+            "scale": "percent"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli",
+            "methodology_url": "https://artificialanalysis.ai/methodology/coding-agents-benchmarking",
+            "primary_approved_by": "research-review:openai-gpt-5.6-sol-2026-08-15",
+            "primary_approved_at": "2026-08-15T09:00:00Z",
+            "approval_basis_url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli"
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "aa-ii-v4.1-deepseek-v4-pro",
+          "source_id": "artificial_analysis_model",
+          "source_role": "supplemental",
+          "subject_type": "model_only",
+          "model": {
+            "tested_model": "DeepSeek V4 Pro (Reasoning, Max Effort)",
+            "canonical_family": "deepseek-v4-pro",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "artificial-analysis-intelligence-index",
+            "version": "v4.1",
+            "task_count": null
+          },
+          "execution": {
+            "agent": null,
+            "agent_version": null,
+            "harness": null,
+            "harness_version": null,
+            "reasoning_effort": null,
+            "attempts_per_task": null
+          },
+          "result": {
+            "metric": "intelligence_index",
+            "value": 44,
+            "scale": "index"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://artificialanalysis.ai/models/deepseek-v4-pro/",
+            "methodology_url": "https://artificialanalysis.ai/methodology",
+            "primary_approved_by": null,
+            "primary_approved_at": null,
+            "approval_basis_url": null
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "provider-card-deepseek-v4-pro-20260424",
+          "source_id": "provider_official",
+          "source_role": "provider",
+          "subject_type": "provider_claim",
+          "model": {
+            "tested_model": "DeepSeek V4 Pro",
+            "canonical_family": "deepseek-v4-pro",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "provider-model-card",
+            "version": "2026-04-24",
+            "task_count": null
+          },
+          "execution": {
+            "agent": null,
+            "agent_version": null,
+            "harness": null,
+            "harness_version": null,
+            "reasoning_effort": null,
+            "attempts_per_task": null
+          },
+          "result": {
+            "metric": "release_status",
+            "value": "documented",
+            "scale": "text"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": "2026-04-24",
+            "url": "https://api-docs.deepseek.com/news/news260424/",
+            "methodology_url": null,
+            "primary_approved_by": null,
+            "primary_approved_at": null,
+            "approval_basis_url": null
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        }
+      ],
+      "scorecard": {
+        "schema": "tp-voyager.model_scorecard/v1",
+        "rules_version": "tp-voyager.model_tier_rules/v1",
+        "rules_status": "calibrated",
+        "evaluated_at": "2026-08-15",
+        "dimensions": {
+          "repository_engineering": {
+            "status": "measured",
+            "evidence_ids": [
+              "aa-cai-v1.3-deepseek-v4-pro-repository"
+            ],
+            "measurements": [
+              {
+                "evidence_id": "aa-cai-v1.3-deepseek-v4-pro-repository",
+                "source_id": "artificial_analysis_coding_agent",
+                "source_role": "primary",
+                "benchmark_id": "deep-swe",
+                "benchmark_version": "AA-CAI-v1.3",
+                "metric": "pass@1",
+                "value": 9.0,
+                "scale": "percent",
+                "numeric_percent": 9.0,
+                "calibration_compatible": true,
+                "primary": true
+              }
+            ]
+          },
+          "terminal_agentic": {
+            "status": "measured",
+            "evidence_ids": [
+              "aa-cai-v1.3-deepseek-v4-pro-terminal"
+            ],
+            "measurements": [
+              {
+                "evidence_id": "aa-cai-v1.3-deepseek-v4-pro-terminal",
+                "source_id": "artificial_analysis_coding_agent",
+                "source_role": "primary",
+                "benchmark_id": "terminal-bench",
+                "benchmark_version": "AA-CAI-v1.3",
+                "metric": "pass@1",
+                "value": 66.0,
+                "scale": "percent",
+                "numeric_percent": 66.0,
+                "calibration_compatible": true,
+                "primary": true
+              }
+            ]
+          },
+          "codebase_understanding": {
+            "status": "measured",
+            "evidence_ids": [
+              "aa-cai-v1.3-deepseek-v4-pro-qna"
+            ],
+            "measurements": [
+              {
+                "evidence_id": "aa-cai-v1.3-deepseek-v4-pro-qna",
+                "source_id": "artificial_analysis_coding_agent",
+                "source_role": "primary",
+                "benchmark_id": "swe-atlas-qna",
+                "benchmark_version": "AA-CAI-v1.3",
+                "metric": "pass@1",
+                "value": 20.0,
+                "scale": "percent",
+                "numeric_percent": 20.0,
+                "calibration_compatible": true,
+                "primary": true
+              }
+            ]
+          },
+          "general_coding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "multimodal_coding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          }
+        },
+        "coverage": "high",
+        "confidence": "high",
+        "tier": "L2"
+      },
+      "tier_authority": "standard_v1"
+    },
+    "qoder:efficient": {
+      "canonical_family": "qoder-efficient-tier",
+      "provider_identity": "dynamic_tier",
+      "capability_tier": "DYNAMIC",
+      "profile_confidence": "medium",
+      "specialties": [
+        "credit_efficiency"
+      ],
+      "recommended_tasks": [
+        "routine coding",
+        "unit tests",
+        "documentation",
+        "daily engineering"
+      ],
+      "risk_boundaries": [
+        "underlying model is provider-selected",
+        "not preferred for architecture"
+      ],
+      "benchmark_evidence": [],
+      "evidence_refs": [
+        {
+          "kind": "url",
+          "url": "https://docs.qoder.com/en/cli/model"
+        }
+      ],
+      "legacy_capability_tier": "L1",
+      "tier_authority": "provider_dynamic",
+      "provider_tier_label": "Efficient",
+      "scorecard": null,
+      "standard_evidence": []
+    },
+    "qoder:gm51model": {
+      "canonical_family": "glm-5.2",
+      "provider_identity": "provider_declared",
+      "capability_tier": "L2",
+      "profile_confidence": "high",
+      "specialties": [
+        "long_horizon_coding",
+        "systems_engineering"
+      ],
+      "recommended_tasks": [
+        "complex systems engineering",
+        "cross-module implementation",
+        "long-horizon coding",
+        "difficult review"
+      ],
+      "risk_boundaries": [
+        "Captain retains final architecture and release authority",
+        "avoid for trivial mechanical work"
+      ],
+      "benchmark_evidence": [
+        {
+          "evidence_schema": "legacy_v1",
+          "source": "livebench",
+          "release": "2026-06-25",
+          "tested_model": "GLM-5.2",
+          "model_match": "exact",
+          "metrics": {
+            "overall": 73.2,
+            "coding": 79.7,
+            "agentic_coding": 51.9
+          },
+          "url": "https://livebench.ai/"
+        },
+        {
+          "evidence_schema": "legacy_v1",
+          "source": "artificial_analysis",
+          "release": "2026-08-13",
+          "tested_model": "GLM-5.2 Max",
+          "model_match": "exact",
+          "metrics": {
+            "intelligence_index": 51
+          },
+          "url": "https://artificialanalysis.ai/"
+        }
+      ],
+      "evidence_refs": [
+        {
+          "kind": "url",
+          "url": "https://livebench.ai/"
+        },
+        {
+          "kind": "url",
+          "url": "https://artificialanalysis.ai/"
+        }
+      ],
+      "suggested_effort": "high",
+      "legacy_capability_tier": "L3",
+      "standard_evidence": [
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "aa-cai-v1.3-glm-5.2-repository",
+          "source_id": "artificial_analysis_coding_agent",
+          "source_role": "primary",
+          "subject_type": "model_agent",
+          "model": {
+            "tested_model": "GLM-5.2",
+            "canonical_family": "glm-5.2",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "deep-swe",
+            "version": "AA-CAI-v1.3",
+            "task_count": 113
+          },
+          "execution": {
+            "agent": "Claude Code",
+            "agent_version": null,
+            "harness": "Claude Code",
+            "harness_version": "AA-CAI-v1.3",
+            "reasoning_effort": null,
+            "attempts_per_task": 3
+          },
+          "result": {
+            "metric": "pass@1",
+            "value": 29.0,
+            "scale": "percent"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli",
+            "methodology_url": "https://artificialanalysis.ai/methodology/coding-agents-benchmarking",
+            "primary_approved_by": "research-review:openai-gpt-5.6-sol-2026-08-15",
+            "primary_approved_at": "2026-08-15T09:00:00Z",
+            "approval_basis_url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli"
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "aa-cai-v1.3-glm-5.2-terminal",
+          "source_id": "artificial_analysis_coding_agent",
+          "source_role": "primary",
+          "subject_type": "model_agent",
+          "model": {
+            "tested_model": "GLM-5.2",
+            "canonical_family": "glm-5.2",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "terminal-bench",
+            "version": "AA-CAI-v1.3",
+            "task_count": 84
+          },
+          "execution": {
+            "agent": "Claude Code",
+            "agent_version": null,
+            "harness": "Claude Code",
+            "harness_version": "AA-CAI-v1.3",
+            "reasoning_effort": null,
+            "attempts_per_task": 3
+          },
+          "result": {
+            "metric": "pass@1",
+            "value": 72.0,
+            "scale": "percent"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli",
+            "methodology_url": "https://artificialanalysis.ai/methodology/coding-agents-benchmarking",
+            "primary_approved_by": "research-review:openai-gpt-5.6-sol-2026-08-15",
+            "primary_approved_at": "2026-08-15T09:00:00Z",
+            "approval_basis_url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli"
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "aa-cai-v1.3-glm-5.2-qna",
+          "source_id": "artificial_analysis_coding_agent",
+          "source_role": "primary",
+          "subject_type": "model_agent",
+          "model": {
+            "tested_model": "GLM-5.2",
+            "canonical_family": "glm-5.2",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "swe-atlas-qna",
+            "version": "AA-CAI-v1.3",
+            "task_count": 124
+          },
+          "execution": {
+            "agent": "Claude Code",
+            "agent_version": null,
+            "harness": "Claude Code",
+            "harness_version": "AA-CAI-v1.3",
+            "reasoning_effort": null,
+            "attempts_per_task": 3
+          },
+          "result": {
+            "metric": "pass@1",
+            "value": 29.0,
+            "scale": "percent"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli",
+            "methodology_url": "https://artificialanalysis.ai/methodology/coding-agents-benchmarking",
+            "primary_approved_by": "research-review:openai-gpt-5.6-sol-2026-08-15",
+            "primary_approved_at": "2026-08-15T09:00:00Z",
+            "approval_basis_url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli"
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "aa-ii-v4.1-glm-5.2",
+          "source_id": "artificial_analysis_model",
+          "source_role": "supplemental",
+          "subject_type": "model_only",
+          "model": {
+            "tested_model": "GLM-5.2 (max)",
+            "canonical_family": "glm-5.2",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "artificial-analysis-intelligence-index",
+            "version": "v4.1",
+            "task_count": null
+          },
+          "execution": {
+            "agent": null,
+            "agent_version": null,
+            "harness": null,
+            "harness_version": null,
+            "reasoning_effort": null,
+            "attempts_per_task": null
+          },
+          "result": {
+            "metric": "intelligence_index",
+            "value": 51,
+            "scale": "index"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://artificialanalysis.ai/models/glm-5-2/",
+            "methodology_url": "https://artificialanalysis.ai/methodology",
+            "primary_approved_by": null,
+            "primary_approved_at": null,
+            "approval_basis_url": null
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "provider-card-glm-5.2-20260616",
+          "source_id": "provider_official",
+          "source_role": "provider",
+          "subject_type": "provider_claim",
+          "model": {
+            "tested_model": "GLM-5.2",
+            "canonical_family": "glm-5.2",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "provider-model-card",
+            "version": "2026-06-16",
+            "task_count": null
+          },
+          "execution": {
+            "agent": null,
+            "agent_version": null,
+            "harness": null,
+            "harness_version": null,
+            "reasoning_effort": null,
+            "attempts_per_task": null
+          },
+          "result": {
+            "metric": "release_status",
+            "value": "documented",
+            "scale": "text"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": "2026-06-16",
+            "url": "https://z.ai/blog/glm-5.2",
+            "methodology_url": null,
+            "primary_approved_by": null,
+            "primary_approved_at": null,
+            "approval_basis_url": null
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        }
+      ],
+      "scorecard": {
+        "schema": "tp-voyager.model_scorecard/v1",
+        "rules_version": "tp-voyager.model_tier_rules/v1",
+        "rules_status": "calibrated",
+        "evaluated_at": "2026-08-15",
+        "dimensions": {
+          "repository_engineering": {
+            "status": "measured",
+            "evidence_ids": [
+              "aa-cai-v1.3-glm-5.2-repository"
+            ],
+            "measurements": [
+              {
+                "evidence_id": "aa-cai-v1.3-glm-5.2-repository",
+                "source_id": "artificial_analysis_coding_agent",
+                "source_role": "primary",
+                "benchmark_id": "deep-swe",
+                "benchmark_version": "AA-CAI-v1.3",
+                "metric": "pass@1",
+                "value": 29.0,
+                "scale": "percent",
+                "numeric_percent": 29.0,
+                "calibration_compatible": true,
+                "primary": true
+              }
+            ]
+          },
+          "terminal_agentic": {
+            "status": "measured",
+            "evidence_ids": [
+              "aa-cai-v1.3-glm-5.2-terminal"
+            ],
+            "measurements": [
+              {
+                "evidence_id": "aa-cai-v1.3-glm-5.2-terminal",
+                "source_id": "artificial_analysis_coding_agent",
+                "source_role": "primary",
+                "benchmark_id": "terminal-bench",
+                "benchmark_version": "AA-CAI-v1.3",
+                "metric": "pass@1",
+                "value": 72.0,
+                "scale": "percent",
+                "numeric_percent": 72.0,
+                "calibration_compatible": true,
+                "primary": true
+              }
+            ]
+          },
+          "codebase_understanding": {
+            "status": "measured",
+            "evidence_ids": [
+              "aa-cai-v1.3-glm-5.2-qna"
+            ],
+            "measurements": [
+              {
+                "evidence_id": "aa-cai-v1.3-glm-5.2-qna",
+                "source_id": "artificial_analysis_coding_agent",
+                "source_role": "primary",
+                "benchmark_id": "swe-atlas-qna",
+                "benchmark_version": "AA-CAI-v1.3",
+                "metric": "pass@1",
+                "value": 29.0,
+                "scale": "percent",
+                "numeric_percent": 29.0,
+                "calibration_compatible": true,
+                "primary": true
+              }
+            ]
+          },
+          "general_coding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "multimodal_coding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          }
+        },
+        "coverage": "high",
+        "confidence": "high",
+        "tier": "L2"
+      },
+      "tier_authority": "standard_v1"
+    },
+    "qoder:kmodel": {
+      "canonical_family": "kimi-k2.7-code",
+      "provider_identity": "provider_declared",
+      "capability_tier": "UNCLASSIFIED",
+      "profile_confidence": "high",
+      "specialties": [
+        "coding",
+        "long_context"
+      ],
+      "recommended_tasks": [
+        "repository coding",
+        "long-context implementation",
+        "debugging",
+        "bounded agent loops"
+      ],
+      "risk_boundaries": [
+        "slower and more verbose than cost-focused routes",
+        "architecture requires Captain review",
+        "formal Standard v1 tier is UNCLASSIFIED because compatible Primary evidence is insufficient"
+      ],
+      "benchmark_evidence": [
+        {
+          "evidence_schema": "legacy_v1",
+          "source": "livebench",
+          "release": "2026-06-25",
+          "tested_model": "Kimi K2.7 Code",
+          "model_match": "exact",
+          "metrics": {
+            "overall": 68.4,
+            "coding": 74.0,
+            "agentic_coding": 45.7
+          },
+          "url": "https://livebench.ai/"
+        },
+        {
+          "evidence_schema": "legacy_v1",
+          "source": "artificial_analysis",
+          "release": "2026-08-13",
+          "tested_model": "Kimi K2.7 Code",
+          "model_match": "exact",
+          "metrics": {
+            "intelligence_index": 42
+          },
+          "url": "https://artificialanalysis.ai/"
+        }
+      ],
+      "evidence_refs": [
+        {
+          "kind": "url",
+          "url": "https://livebench.ai/"
+        }
+      ],
+      "suggested_effort": "high",
+      "legacy_capability_tier": "L2",
+      "standard_evidence": [
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "aa-ii-v4.1-kimi-k2.7-code",
+          "source_id": "artificial_analysis_model",
+          "source_role": "supplemental",
+          "subject_type": "model_only",
+          "model": {
+            "tested_model": "Kimi K2.7 Code",
+            "canonical_family": "kimi-k2.7-code",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "artificial-analysis-intelligence-index",
+            "version": "v4.1",
+            "task_count": null
+          },
+          "execution": {
+            "agent": null,
+            "agent_version": null,
+            "harness": null,
+            "harness_version": null,
+            "reasoning_effort": null,
+            "attempts_per_task": null
+          },
+          "result": {
+            "metric": "intelligence_index",
+            "value": 42,
+            "scale": "index"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://artificialanalysis.ai/models/kimi-k2-7-code/",
+            "methodology_url": "https://artificialanalysis.ai/methodology",
+            "primary_approved_by": null,
+            "primary_approved_at": null,
+            "approval_basis_url": null
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "provider-card-kimi-k2.7-code-20260612",
+          "source_id": "provider_official",
+          "source_role": "provider",
+          "subject_type": "provider_claim",
+          "model": {
+            "tested_model": "Kimi K2.7 Code",
+            "canonical_family": "kimi-k2.7-code",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "provider-model-card",
+            "version": "2026-06-12",
+            "task_count": null
+          },
+          "execution": {
+            "agent": null,
+            "agent_version": null,
+            "harness": null,
+            "harness_version": null,
+            "reasoning_effort": null,
+            "attempts_per_task": null
+          },
+          "result": {
+            "metric": "release_status",
+            "value": "documented",
+            "scale": "text"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": "2026-06-12",
+            "url": "https://www.kimi.com/resources/kimi-k2-7-code",
+            "methodology_url": null,
+            "primary_approved_by": null,
+            "primary_approved_at": null,
+            "approval_basis_url": null
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        }
+      ],
+      "scorecard": {
+        "schema": "tp-voyager.model_scorecard/v1",
+        "rules_version": "tp-voyager.model_tier_rules/v1",
+        "rules_status": "calibrated",
+        "evaluated_at": "2026-08-15",
+        "dimensions": {
+          "repository_engineering": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "terminal_agentic": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "codebase_understanding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "general_coding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "multimodal_coding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          }
+        },
+        "coverage": "low",
+        "confidence": "low",
+        "tier": "UNCLASSIFIED"
+      },
+      "tier_authority": "standard_v1"
+    },
+    "qoder:kmodel_latest": {
+      "canonical_family": "kimi-k3",
+      "provider_identity": "provider_declared",
+      "capability_tier": "L3",
+      "profile_confidence": "high",
+      "specialties": [
+        "frontier_coding",
+        "long_horizon",
+        "reasoning"
+      ],
+      "recommended_tasks": [
+        "architecture",
+        "difficult coding",
+        "long-horizon agent work",
+        "high-value review"
+      ],
+      "risk_boundaries": [
+        "avoid for trivial work due to latency/verbosity/relative consumption",
+        "Captain owns irreversible decisions"
+      ],
+      "benchmark_evidence": [
+        {
+          "evidence_schema": "legacy_v1",
+          "source": "livebench",
+          "release": "2026-06-25",
+          "tested_model": "Kimi K3",
+          "model_match": "exact",
+          "metrics": {
+            "overall": 78.5,
+            "coding": 81.4,
+            "agentic_coding": 57.6
+          },
+          "url": "https://livebench.ai/"
+        },
+        {
+          "evidence_schema": "legacy_v1",
+          "source": "artificial_analysis",
+          "release": "2026-08-13",
+          "tested_model": "Kimi K3 Max",
+          "model_match": "exact",
+          "metrics": {
+            "intelligence_index": 57
+          },
+          "url": "https://artificialanalysis.ai/"
+        },
+        {
+          "evidence_schema": "legacy_v1",
+          "source": "arena_coding",
+          "release": "2026-08-13",
+          "tested_model": "Kimi K3",
+          "model_match": "exact",
+          "metrics": {
+            "open_weight_rank": 1
+          },
+          "url": "https://arena.ai/leaderboard/text/coding"
+        }
+      ],
+      "evidence_refs": [
+        {
+          "kind": "url",
+          "url": "https://livebench.ai/"
+        },
+        {
+          "kind": "url",
+          "url": "https://arena.ai/leaderboard/text/coding"
+        }
+      ],
+      "suggested_effort": "high",
+      "legacy_capability_tier": "L3",
+      "standard_evidence": [
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "aa-cai-v1.3-kimi-k3-repository",
+          "source_id": "artificial_analysis_coding_agent",
+          "source_role": "primary",
+          "subject_type": "model_agent",
+          "model": {
+            "tested_model": "Kimi K3",
+            "canonical_family": "kimi-k3",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "deep-swe",
+            "version": "AA-CAI-v1.3",
+            "task_count": 113
+          },
+          "execution": {
+            "agent": "Kimi Code CLI",
+            "agent_version": null,
+            "harness": "Kimi Code CLI",
+            "harness_version": "AA-CAI-v1.3",
+            "reasoning_effort": null,
+            "attempts_per_task": 3
+          },
+          "result": {
+            "metric": "pass@1",
+            "value": 64.0,
+            "scale": "percent"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/codex-vs-kimi-code-cli",
+            "methodology_url": "https://artificialanalysis.ai/methodology/coding-agents-benchmarking",
+            "primary_approved_by": "research-review:openai-gpt-5.6-sol-2026-08-15",
+            "primary_approved_at": "2026-08-15T09:00:00Z",
+            "approval_basis_url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/codex-vs-kimi-code-cli"
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "aa-cai-v1.3-kimi-k3-terminal",
+          "source_id": "artificial_analysis_coding_agent",
+          "source_role": "primary",
+          "subject_type": "model_agent",
+          "model": {
+            "tested_model": "Kimi K3",
+            "canonical_family": "kimi-k3",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "terminal-bench",
+            "version": "AA-CAI-v1.3",
+            "task_count": 84
+          },
+          "execution": {
+            "agent": "Kimi Code CLI",
+            "agent_version": null,
+            "harness": "Kimi Code CLI",
+            "harness_version": "AA-CAI-v1.3",
+            "reasoning_effort": null,
+            "attempts_per_task": 3
+          },
+          "result": {
+            "metric": "pass@1",
+            "value": 84.0,
+            "scale": "percent"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/codex-vs-kimi-code-cli",
+            "methodology_url": "https://artificialanalysis.ai/methodology/coding-agents-benchmarking",
+            "primary_approved_by": "research-review:openai-gpt-5.6-sol-2026-08-15",
+            "primary_approved_at": "2026-08-15T09:00:00Z",
+            "approval_basis_url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/codex-vs-kimi-code-cli"
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "aa-cai-v1.3-kimi-k3-qna",
+          "source_id": "artificial_analysis_coding_agent",
+          "source_role": "primary",
+          "subject_type": "model_agent",
+          "model": {
+            "tested_model": "Kimi K3",
+            "canonical_family": "kimi-k3",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "swe-atlas-qna",
+            "version": "AA-CAI-v1.3",
+            "task_count": 124
+          },
+          "execution": {
+            "agent": "Kimi Code CLI",
+            "agent_version": null,
+            "harness": "Kimi Code CLI",
+            "harness_version": "AA-CAI-v1.3",
+            "reasoning_effort": null,
+            "attempts_per_task": 3
+          },
+          "result": {
+            "metric": "pass@1",
+            "value": 37.0,
+            "scale": "percent"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/codex-vs-kimi-code-cli",
+            "methodology_url": "https://artificialanalysis.ai/methodology/coding-agents-benchmarking",
+            "primary_approved_by": "research-review:openai-gpt-5.6-sol-2026-08-15",
+            "primary_approved_at": "2026-08-15T09:00:00Z",
+            "approval_basis_url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/codex-vs-kimi-code-cli"
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "aa-ii-v4.1-kimi-k3",
+          "source_id": "artificial_analysis_model",
+          "source_role": "supplemental",
+          "subject_type": "model_only",
+          "model": {
+            "tested_model": "Kimi K3",
+            "canonical_family": "kimi-k3",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "artificial-analysis-intelligence-index",
+            "version": "v4.1",
+            "task_count": null
+          },
+          "execution": {
+            "agent": null,
+            "agent_version": null,
+            "harness": null,
+            "harness_version": null,
+            "reasoning_effort": null,
+            "attempts_per_task": null
+          },
+          "result": {
+            "metric": "intelligence_index",
+            "value": 57,
+            "scale": "index"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://artificialanalysis.ai/models/kimi-k3/",
+            "methodology_url": "https://artificialanalysis.ai/methodology",
+            "primary_approved_by": null,
+            "primary_approved_at": null,
+            "approval_basis_url": null
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "provider-card-kimi-k3-20260716",
+          "source_id": "provider_official",
+          "source_role": "provider",
+          "subject_type": "provider_claim",
+          "model": {
+            "tested_model": "Kimi K3",
+            "canonical_family": "kimi-k3",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "provider-model-card",
+            "version": "2026-07-16",
+            "task_count": null
+          },
+          "execution": {
+            "agent": null,
+            "agent_version": null,
+            "harness": null,
+            "harness_version": null,
+            "reasoning_effort": null,
+            "attempts_per_task": null
+          },
+          "result": {
+            "metric": "release_status",
+            "value": "documented",
+            "scale": "text"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": "2026-07-16",
+            "url": "https://www.kimi.com/blog/kimi-k3",
+            "methodology_url": null,
+            "primary_approved_by": null,
+            "primary_approved_at": null,
+            "approval_basis_url": null
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        }
+      ],
+      "scorecard": {
+        "schema": "tp-voyager.model_scorecard/v1",
+        "rules_version": "tp-voyager.model_tier_rules/v1",
+        "rules_status": "calibrated",
+        "evaluated_at": "2026-08-15",
+        "dimensions": {
+          "repository_engineering": {
+            "status": "measured",
+            "evidence_ids": [
+              "aa-cai-v1.3-kimi-k3-repository"
+            ],
+            "measurements": [
+              {
+                "evidence_id": "aa-cai-v1.3-kimi-k3-repository",
+                "source_id": "artificial_analysis_coding_agent",
+                "source_role": "primary",
+                "benchmark_id": "deep-swe",
+                "benchmark_version": "AA-CAI-v1.3",
+                "metric": "pass@1",
+                "value": 64.0,
+                "scale": "percent",
+                "numeric_percent": 64.0,
+                "calibration_compatible": true,
+                "primary": true
+              }
+            ]
+          },
+          "terminal_agentic": {
+            "status": "measured",
+            "evidence_ids": [
+              "aa-cai-v1.3-kimi-k3-terminal"
+            ],
+            "measurements": [
+              {
+                "evidence_id": "aa-cai-v1.3-kimi-k3-terminal",
+                "source_id": "artificial_analysis_coding_agent",
+                "source_role": "primary",
+                "benchmark_id": "terminal-bench",
+                "benchmark_version": "AA-CAI-v1.3",
+                "metric": "pass@1",
+                "value": 84.0,
+                "scale": "percent",
+                "numeric_percent": 84.0,
+                "calibration_compatible": true,
+                "primary": true
+              }
+            ]
+          },
+          "codebase_understanding": {
+            "status": "measured",
+            "evidence_ids": [
+              "aa-cai-v1.3-kimi-k3-qna"
+            ],
+            "measurements": [
+              {
+                "evidence_id": "aa-cai-v1.3-kimi-k3-qna",
+                "source_id": "artificial_analysis_coding_agent",
+                "source_role": "primary",
+                "benchmark_id": "swe-atlas-qna",
+                "benchmark_version": "AA-CAI-v1.3",
+                "metric": "pass@1",
+                "value": 37.0,
+                "scale": "percent",
+                "numeric_percent": 37.0,
+                "calibration_compatible": true,
+                "primary": true
+              }
+            ]
+          },
+          "general_coding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "multimodal_coding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          }
+        },
+        "coverage": "high",
+        "confidence": "high",
+        "tier": "L3"
+      },
+      "tier_authority": "standard_v1"
     },
     "qoder:mmodel": {
       "canonical_family": "minimax-m3",
       "provider_identity": "provider_declared",
-      "capability_tier": "L2",
+      "capability_tier": "UNCLASSIFIED",
       "profile_confidence": "high",
       "specialties": [
         "coding",
@@ -1051,10 +4734,12 @@
       ],
       "risk_boundaries": [
         "Captain review required for architecture",
-        "not the strongest long-horizon option in current independent results"
+        "not the strongest long-horizon option in current independent results",
+        "formal Standard v1 tier is UNCLASSIFIED because compatible Primary evidence is insufficient"
       ],
       "benchmark_evidence": [
         {
+          "evidence_schema": "legacy_v1",
           "source": "livebench",
           "release": "2026-06-25",
           "tested_model": "MiniMax M3",
@@ -1067,6 +4752,7 @@
           "url": "https://livebench.ai/"
         },
         {
+          "evidence_schema": "legacy_v1",
           "source": "artificial_analysis",
           "release": "2026-08-13",
           "tested_model": "MiniMax M3",
@@ -1077,6 +4763,7 @@
           "url": "https://artificialanalysis.ai/"
         },
         {
+          "evidence_schema": "legacy_v1",
           "source": "arena_coding",
           "release": "2026-08-13",
           "tested_model": "MiniMax M3",
@@ -1094,12 +4781,197 @@
           "url": "https://livebench.ai/"
         }
       ],
-      "suggested_effort": "high"
+      "suggested_effort": "high",
+      "legacy_capability_tier": "L2",
+      "standard_evidence": [
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "aa-ii-v4.1-minimax-m3",
+          "source_id": "artificial_analysis_model",
+          "source_role": "supplemental",
+          "subject_type": "model_only",
+          "model": {
+            "tested_model": "MiniMax-M3",
+            "canonical_family": "minimax-m3",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "artificial-analysis-intelligence-index",
+            "version": "v4.1",
+            "task_count": null
+          },
+          "execution": {
+            "agent": null,
+            "agent_version": null,
+            "harness": null,
+            "harness_version": null,
+            "reasoning_effort": null,
+            "attempts_per_task": null
+          },
+          "result": {
+            "metric": "intelligence_index",
+            "value": 44,
+            "scale": "index"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://artificialanalysis.ai/models/minimax-m3/",
+            "methodology_url": "https://artificialanalysis.ai/methodology",
+            "primary_approved_by": null,
+            "primary_approved_at": null,
+            "approval_basis_url": null
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "provider-card-minimax-m3-20260601",
+          "source_id": "provider_official",
+          "source_role": "provider",
+          "subject_type": "provider_claim",
+          "model": {
+            "tested_model": "MiniMax-M3",
+            "canonical_family": "minimax-m3",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "provider-model-card",
+            "version": "2026-06-01",
+            "task_count": null
+          },
+          "execution": {
+            "agent": null,
+            "agent_version": null,
+            "harness": null,
+            "harness_version": null,
+            "reasoning_effort": null,
+            "attempts_per_task": null
+          },
+          "result": {
+            "metric": "release_status",
+            "value": "documented",
+            "scale": "text"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": "2026-06-01",
+            "url": "https://www.minimax.io/blog/minimax-m3",
+            "methodology_url": null,
+            "primary_approved_by": null,
+            "primary_approved_at": null,
+            "approval_basis_url": null
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "provider-claim-minimax-m3-terminal-bench-2-1",
+          "source_id": "provider_official",
+          "source_role": "provider",
+          "subject_type": "provider_claim",
+          "model": {
+            "tested_model": "MiniMax-M3",
+            "canonical_family": "minimax-m3",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "terminal-bench",
+            "version": "2.1",
+            "task_count": 89
+          },
+          "execution": {
+            "agent": "Terminus 2",
+            "agent_version": null,
+            "harness": "Terminus 2",
+            "harness_version": null,
+            "reasoning_effort": null,
+            "attempts_per_task": null
+          },
+          "result": {
+            "metric": "pass@1",
+            "value": 66.0,
+            "scale": "percent"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://www.minimax.io/blog/minimax-m3",
+            "methodology_url": null,
+            "primary_approved_by": null,
+            "primary_approved_at": null,
+            "approval_basis_url": null
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        }
+      ],
+      "scorecard": {
+        "schema": "tp-voyager.model_scorecard/v1",
+        "rules_version": "tp-voyager.model_tier_rules/v1",
+        "rules_status": "calibrated",
+        "evaluated_at": "2026-08-15",
+        "dimensions": {
+          "repository_engineering": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "terminal_agentic": {
+            "status": "supplemental",
+            "evidence_ids": [
+              "provider-claim-minimax-m3-terminal-bench-2-1"
+            ],
+            "measurements": [
+              {
+                "evidence_id": "provider-claim-minimax-m3-terminal-bench-2-1",
+                "source_id": "provider_official",
+                "source_role": "provider",
+                "benchmark_id": "terminal-bench",
+                "benchmark_version": "2.1",
+                "metric": "pass@1",
+                "value": 66.0,
+                "scale": "percent",
+                "numeric_percent": 66.0,
+                "calibration_compatible": false,
+                "primary": false
+              }
+            ]
+          },
+          "codebase_understanding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "general_coding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "multimodal_coding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          }
+        },
+        "coverage": "low",
+        "confidence": "low",
+        "tier": "UNCLASSIFIED"
+      },
+      "tier_authority": "standard_v1"
     },
     "qoder:performance": {
       "canonical_family": "qoder-performance-tier",
       "provider_identity": "dynamic_tier",
-      "capability_tier": "L2",
+      "capability_tier": "DYNAMIC",
       "profile_confidence": "medium",
       "specialties": [
         "performance_priority"
@@ -1119,12 +4991,17 @@
           "kind": "url",
           "url": "https://docs.qoder.com/en/cli/model"
         }
-      ]
+      ],
+      "legacy_capability_tier": "L2",
+      "tier_authority": "provider_dynamic",
+      "provider_tier_label": "Performance",
+      "scorecard": null,
+      "standard_evidence": []
     },
     "qoder:qmodel": {
       "canonical_family": "qwen3.7-plus",
       "provider_identity": "provider_declared",
-      "capability_tier": "L1",
+      "capability_tier": "L2",
       "profile_confidence": "medium-high",
       "specialties": [
         "multimodal",
@@ -1142,6 +5019,7 @@
       ],
       "benchmark_evidence": [
         {
+          "evidence_schema": "legacy_v1",
           "source": "artificial_analysis",
           "release": "2026-08-13",
           "tested_model": "Qwen3.7 Plus",
@@ -1152,6 +5030,7 @@
           "url": "https://artificialanalysis.ai/"
         },
         {
+          "evidence_schema": "legacy_v1",
           "source": "arena_vision",
           "release": "2026-08-13",
           "tested_model": "Qwen3.7 Plus",
@@ -1168,34 +5047,332 @@
           "url": "https://artificialanalysis.ai/"
         }
       ],
-      "suggested_effort": "high"
+      "suggested_effort": "high",
+      "legacy_capability_tier": "L1",
+      "standard_evidence": [
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "aa-cai-v1.3-qwen3.7-plus-repository",
+          "source_id": "artificial_analysis_coding_agent",
+          "source_role": "primary",
+          "subject_type": "model_agent",
+          "model": {
+            "tested_model": "Qwen3.7 Plus (thinking)",
+            "canonical_family": "qwen3.7-plus",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "deep-swe",
+            "version": "AA-CAI-v1.3",
+            "task_count": 113
+          },
+          "execution": {
+            "agent": "Claude Code",
+            "agent_version": null,
+            "harness": "Claude Code",
+            "harness_version": "AA-CAI-v1.3",
+            "reasoning_effort": "thinking",
+            "attempts_per_task": 3
+          },
+          "result": {
+            "metric": "pass@1",
+            "value": 19.0,
+            "scale": "percent"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli",
+            "methodology_url": "https://artificialanalysis.ai/methodology/coding-agents-benchmarking",
+            "primary_approved_by": "research-review:openai-gpt-5.6-sol-2026-08-15",
+            "primary_approved_at": "2026-08-15T09:00:00Z",
+            "approval_basis_url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli"
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "aa-cai-v1.3-qwen3.7-plus-terminal",
+          "source_id": "artificial_analysis_coding_agent",
+          "source_role": "primary",
+          "subject_type": "model_agent",
+          "model": {
+            "tested_model": "Qwen3.7 Plus (thinking)",
+            "canonical_family": "qwen3.7-plus",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "terminal-bench",
+            "version": "AA-CAI-v1.3",
+            "task_count": 84
+          },
+          "execution": {
+            "agent": "Claude Code",
+            "agent_version": null,
+            "harness": "Claude Code",
+            "harness_version": "AA-CAI-v1.3",
+            "reasoning_effort": "thinking",
+            "attempts_per_task": 3
+          },
+          "result": {
+            "metric": "pass@1",
+            "value": 65.0,
+            "scale": "percent"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli",
+            "methodology_url": "https://artificialanalysis.ai/methodology/coding-agents-benchmarking",
+            "primary_approved_by": "research-review:openai-gpt-5.6-sol-2026-08-15",
+            "primary_approved_at": "2026-08-15T09:00:00Z",
+            "approval_basis_url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli"
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "aa-cai-v1.3-qwen3.7-plus-qna",
+          "source_id": "artificial_analysis_coding_agent",
+          "source_role": "primary",
+          "subject_type": "model_agent",
+          "model": {
+            "tested_model": "Qwen3.7 Plus (thinking)",
+            "canonical_family": "qwen3.7-plus",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "swe-atlas-qna",
+            "version": "AA-CAI-v1.3",
+            "task_count": 124
+          },
+          "execution": {
+            "agent": "Claude Code",
+            "agent_version": null,
+            "harness": "Claude Code",
+            "harness_version": "AA-CAI-v1.3",
+            "reasoning_effort": "thinking",
+            "attempts_per_task": 3
+          },
+          "result": {
+            "metric": "pass@1",
+            "value": 24.0,
+            "scale": "percent"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli",
+            "methodology_url": "https://artificialanalysis.ai/methodology/coding-agents-benchmarking",
+            "primary_approved_by": "research-review:openai-gpt-5.6-sol-2026-08-15",
+            "primary_approved_at": "2026-08-15T09:00:00Z",
+            "approval_basis_url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli"
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "aa-ii-v4.1-qwen3.7-plus",
+          "source_id": "artificial_analysis_model",
+          "source_role": "supplemental",
+          "subject_type": "model_only",
+          "model": {
+            "tested_model": "Qwen3.7 Plus",
+            "canonical_family": "qwen3.7-plus",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "artificial-analysis-intelligence-index",
+            "version": "v4.1",
+            "task_count": null
+          },
+          "execution": {
+            "agent": null,
+            "agent_version": null,
+            "harness": null,
+            "harness_version": null,
+            "reasoning_effort": null,
+            "attempts_per_task": null
+          },
+          "result": {
+            "metric": "intelligence_index",
+            "value": 39,
+            "scale": "index"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://artificialanalysis.ai/models/qwen3-7-plus/",
+            "methodology_url": "https://artificialanalysis.ai/methodology",
+            "primary_approved_by": null,
+            "primary_approved_at": null,
+            "approval_basis_url": null
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "provider-card-qwen3.7-plus-20260601",
+          "source_id": "provider_official",
+          "source_role": "provider",
+          "subject_type": "provider_claim",
+          "model": {
+            "tested_model": "Qwen3.7-Plus",
+            "canonical_family": "qwen3.7-plus",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "provider-model-card",
+            "version": "2026-06-01",
+            "task_count": null
+          },
+          "execution": {
+            "agent": null,
+            "agent_version": null,
+            "harness": null,
+            "harness_version": null,
+            "reasoning_effort": null,
+            "attempts_per_task": null
+          },
+          "result": {
+            "metric": "release_status",
+            "value": "documented",
+            "scale": "text"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": "2026-06-01",
+            "url": "https://qwen.ai/home",
+            "methodology_url": null,
+            "primary_approved_by": null,
+            "primary_approved_at": null,
+            "approval_basis_url": null
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        }
+      ],
+      "scorecard": {
+        "schema": "tp-voyager.model_scorecard/v1",
+        "rules_version": "tp-voyager.model_tier_rules/v1",
+        "rules_status": "calibrated",
+        "evaluated_at": "2026-08-15",
+        "dimensions": {
+          "repository_engineering": {
+            "status": "measured",
+            "evidence_ids": [
+              "aa-cai-v1.3-qwen3.7-plus-repository"
+            ],
+            "measurements": [
+              {
+                "evidence_id": "aa-cai-v1.3-qwen3.7-plus-repository",
+                "source_id": "artificial_analysis_coding_agent",
+                "source_role": "primary",
+                "benchmark_id": "deep-swe",
+                "benchmark_version": "AA-CAI-v1.3",
+                "metric": "pass@1",
+                "value": 19.0,
+                "scale": "percent",
+                "numeric_percent": 19.0,
+                "calibration_compatible": true,
+                "primary": true
+              }
+            ]
+          },
+          "terminal_agentic": {
+            "status": "measured",
+            "evidence_ids": [
+              "aa-cai-v1.3-qwen3.7-plus-terminal"
+            ],
+            "measurements": [
+              {
+                "evidence_id": "aa-cai-v1.3-qwen3.7-plus-terminal",
+                "source_id": "artificial_analysis_coding_agent",
+                "source_role": "primary",
+                "benchmark_id": "terminal-bench",
+                "benchmark_version": "AA-CAI-v1.3",
+                "metric": "pass@1",
+                "value": 65.0,
+                "scale": "percent",
+                "numeric_percent": 65.0,
+                "calibration_compatible": true,
+                "primary": true
+              }
+            ]
+          },
+          "codebase_understanding": {
+            "status": "measured",
+            "evidence_ids": [
+              "aa-cai-v1.3-qwen3.7-plus-qna"
+            ],
+            "measurements": [
+              {
+                "evidence_id": "aa-cai-v1.3-qwen3.7-plus-qna",
+                "source_id": "artificial_analysis_coding_agent",
+                "source_role": "primary",
+                "benchmark_id": "swe-atlas-qna",
+                "benchmark_version": "AA-CAI-v1.3",
+                "metric": "pass@1",
+                "value": 24.0,
+                "scale": "percent",
+                "numeric_percent": 24.0,
+                "calibration_compatible": true,
+                "primary": true
+              }
+            ]
+          },
+          "general_coding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "multimodal_coding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          }
+        },
+        "coverage": "high",
+        "confidence": "high",
+        "tier": "L2"
+      },
+      "tier_authority": "standard_v1"
     },
     "qoder:qmodel_38max": {
       "canonical_family": "qwen3.8-max",
       "provider_identity": "operator_confirmed",
-      "capability_tier": "L3",
+      "capability_tier": "UNCLASSIFIED",
       "profile_confidence": "medium-high",
       "specialties": [
-        "frontier_reasoning",
-        "long_horizon",
-        "multimodal",
-        "coding_agent"
+        "identity_pending_validation"
       ],
       "recommended_tasks": [
-        "architecture",
-        "complex requirement design",
-        "long-horizon agent work",
-        "cross-module or cross-repository work",
-        "difficult review",
-        "multimodal and visual UI validation"
+        "manual model evaluation",
+        "bounded comparison tasks",
+        "non-critical coding with strong verification"
       ],
       "risk_boundaries": [
-        "Arena evidence is still preliminary",
-        "verbose/relatively expensive route",
-        "Captain retains final high-risk decisions"
+        "current Qoder account display is Qwen3.8-Max while public Qwen Code material observed in this refresh names qwen3.8-max-preview",
+        "do not inherit preview benchmark results as exact current-model evidence",
+        "formal Standard v1 tier is UNCLASSIFIED because compatible Primary evidence is insufficient"
       ],
       "benchmark_evidence": [
         {
+          "evidence_schema": "legacy_v1",
           "source": "arena_text",
           "release": "2026-08-03",
           "tested_model": "Qwen3.8-Max",
@@ -1207,6 +5384,7 @@
           "url": "https://arena.ai/leaderboard/text"
         },
         {
+          "evidence_schema": "legacy_v1",
           "source": "arena_vision",
           "release": "2026-08-03",
           "tested_model": "Qwen3.8-Max",
@@ -1234,12 +5412,51 @@
           "url": "https://arena.ai/leaderboard/vision"
         }
       ],
-      "suggested_effort": "medium"
+      "suggested_effort": "medium",
+      "legacy_capability_tier": "L3",
+      "standard_evidence": [],
+      "scorecard": {
+        "schema": "tp-voyager.model_scorecard/v1",
+        "rules_version": "tp-voyager.model_tier_rules/v1",
+        "rules_status": "calibrated",
+        "evaluated_at": "2026-08-15",
+        "dimensions": {
+          "repository_engineering": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "terminal_agentic": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "codebase_understanding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "general_coding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "multimodal_coding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          }
+        },
+        "coverage": "low",
+        "confidence": "low",
+        "tier": "UNCLASSIFIED"
+      },
+      "tier_authority": "standard_v1"
     },
     "qoder:qmodel_latest": {
       "canonical_family": "qwen3.7-max",
       "provider_identity": "provider_declared",
-      "capability_tier": "L3",
+      "capability_tier": "UNCLASSIFIED",
       "profile_confidence": "high",
       "specialties": [
         "reasoning",
@@ -1254,10 +5471,12 @@
       ],
       "risk_boundaries": [
         "higher relative consumption than routine routes",
-        "Captain owns release-critical decisions"
+        "Captain owns release-critical decisions",
+        "formal Standard v1 tier is UNCLASSIFIED because compatible Primary evidence is insufficient"
       ],
       "benchmark_evidence": [
         {
+          "evidence_schema": "legacy_v1",
           "source": "livebench",
           "release": "2026-06-25",
           "tested_model": "Qwen3.7 Max",
@@ -1270,6 +5489,7 @@
           "url": "https://livebench.ai/"
         },
         {
+          "evidence_schema": "legacy_v1",
           "source": "artificial_analysis",
           "release": "2026-08-13",
           "tested_model": "Qwen3.7 Max",
@@ -1286,12 +5506,138 @@
           "url": "https://livebench.ai/"
         }
       ],
-      "suggested_effort": "high"
+      "suggested_effort": "high",
+      "legacy_capability_tier": "L3",
+      "standard_evidence": [
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "aa-ii-v4.1-qwen3.7-max",
+          "source_id": "artificial_analysis_model",
+          "source_role": "supplemental",
+          "subject_type": "model_only",
+          "model": {
+            "tested_model": "Qwen3.7 Max",
+            "canonical_family": "qwen3.7-max",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "artificial-analysis-intelligence-index",
+            "version": "v4.1",
+            "task_count": null
+          },
+          "execution": {
+            "agent": null,
+            "agent_version": null,
+            "harness": null,
+            "harness_version": null,
+            "reasoning_effort": null,
+            "attempts_per_task": null
+          },
+          "result": {
+            "metric": "intelligence_index",
+            "value": 46,
+            "scale": "index"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": null,
+            "url": "https://artificialanalysis.ai/models/qwen3-7-max/",
+            "methodology_url": "https://artificialanalysis.ai/methodology",
+            "primary_approved_by": null,
+            "primary_approved_at": null,
+            "approval_basis_url": null
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "provider-card-qwen3.7-max-20260519",
+          "source_id": "provider_official",
+          "source_role": "provider",
+          "subject_type": "provider_claim",
+          "model": {
+            "tested_model": "Qwen3.7-Max",
+            "canonical_family": "qwen3.7-max",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "provider-model-card",
+            "version": "2026-05-19",
+            "task_count": null
+          },
+          "execution": {
+            "agent": null,
+            "agent_version": null,
+            "harness": null,
+            "harness_version": null,
+            "reasoning_effort": null,
+            "attempts_per_task": null
+          },
+          "result": {
+            "metric": "release_status",
+            "value": "documented",
+            "scale": "text"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": "2026-05-19",
+            "url": "https://qwen.ai/home",
+            "methodology_url": null,
+            "primary_approved_by": null,
+            "primary_approved_at": null,
+            "approval_basis_url": null
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        }
+      ],
+      "scorecard": {
+        "schema": "tp-voyager.model_scorecard/v1",
+        "rules_version": "tp-voyager.model_tier_rules/v1",
+        "rules_status": "calibrated",
+        "evaluated_at": "2026-08-15",
+        "dimensions": {
+          "repository_engineering": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "terminal_agentic": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "codebase_understanding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "general_coding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          },
+          "multimodal_coding": {
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
+          }
+        },
+        "coverage": "low",
+        "confidence": "low",
+        "tier": "UNCLASSIFIED"
+      },
+      "tier_authority": "standard_v1"
     },
     "qoder:ultimate": {
       "canonical_family": "qoder-ultimate-tier",
       "provider_identity": "dynamic_tier",
-      "capability_tier": "L3",
+      "capability_tier": "DYNAMIC",
       "profile_confidence": "medium",
       "specialties": [
         "quality_priority"
@@ -1311,7 +5657,12 @@
           "kind": "url",
           "url": "https://docs.qoder.com/en/cli/model"
         }
-      ]
+      ],
+      "legacy_capability_tier": "L3",
+      "tier_authority": "provider_dynamic",
+      "provider_tier_label": "Ultimate",
+      "scorecard": null,
+      "standard_evidence": []
     }
   }
 }

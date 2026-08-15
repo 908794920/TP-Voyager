@@ -166,7 +166,7 @@ $env:TP_VOYAGER_PYTHON = "D:\path\to\python.exe"
 
 Crew CLI 的解析顺序是“临时环境变量覆盖 → `config.json` → PATH”。当前临时覆盖变量仍是 `QODER_CLI_PATH`、`CODEBUDDY_CODE_PATH` 和 `CODEBUDDY_INTERNET_ENVIRONMENT`；正常长期使用应写入 `config.json`。Token、Cookie、登录缓存等 Credential **不得**写入该文件。
 
-`model_routing_profiles.json` 继续独立存在，因为它是可更新、带 Evidence/provenance 的模型认知资料，而不是普通机器配置。`tp-voyager init` 会在缺失时 materialize 随包的 26-route baseline；也可以单独执行 `python -m agent_runtime.cli model-routing-init`。
+`model_routing_profiles.json` 继续独立存在，因为它是可更新、带 Evidence/provenance 的模型认知资料，而不是普通机器配置。`tp-voyager init` 会在缺失时 materialize 随包的 26-route baseline；当前账号快照有 27 个可见条目，但 Qoder GLM-5.3 的 account-specific route id 未在本构建环境捕获，因此 baseline 不猜测该 alias。也可以单独执行 `python -m agent_runtime.cli model-routing-init`。
 
 ## Captain 怎么用
 
@@ -308,3 +308,8 @@ Evidence over claims
 ## License
 
 [MIT License](LICENSE)
+
+
+### Model Evaluation Standard v1
+
+The current v1.0.7 baseline standardizes model-evaluation provenance without changing Captain authority. Fixed-model Tier is a persisted Scorecard result; legacy tiers are historical only, Qoder Ultimate/Performance/Efficient/Lite remain `DYNAMIC`, and `qoder:auto` is retired by local policy. Existing v1 operator profile files remain readable and can be explicitly migrated with `tp-voyager model-routing-migrate`; use `tp-voyager model-evaluation-validate` for read-only validation. See `docs/MODEL_EVALUATION_STANDARD.md`.

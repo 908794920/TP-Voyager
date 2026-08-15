@@ -121,12 +121,16 @@ SQLite 内部结构
 ```text
 Provider live catalog           → availability/context/effort/reference multiplier
 config.json / dispatch          → 能不能用（硬约束）
-model_routing_profiles.json     → 适合干什么（operator advisory metadata）
+model_routing_profiles.json     → canonical identity / persisted Scorecard / work & risk advisory
+Model Evaluation Standard v1    → Evidence comparability / Tier authority
 Runtime Evidence                → 实际历史/Usage
 Captain                         → 最终选择
 ```
 
 - 能力档位、推荐任务、风险边界不得硬编码进 Python；
+- fixed model 的正式 Tier 只能来自 persisted `Scorecard.tier` + calibrated `model_tier_rules/v1`；旧静态 Tier 仅保留为 `legacy_capability_tier`；
+- Qoder Ultimate / Performance / Efficient / Lite 必须保持 `DYNAMIC`，不得附 fixed-model Scorecard；`qoder:auto` 在 TP-Voyager 本地策略中已退休；
+- Provider claim、preference/Elo、legacy evidence 或不兼容 benchmark version 不得单独提升正式 Tier；
 - `model_routing_profiles.json` 只提供建议，不能绕过 `config.json.dispatch`；
 - `reference_multiplier` 永远是 reference-only，公共投影固定 `calculation_allowed=false`；
 - `crew_catalog` 可合并并投影事实，但必须保持 `selection_performed=false`、`dispatch_performed=false`；

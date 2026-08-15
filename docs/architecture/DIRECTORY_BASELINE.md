@@ -851,6 +851,7 @@ docs/
 ├── README.md
 ├── ARCHITECTURE.md
 ├── MODEL_ROUTING.md
+├── MODEL_EVALUATION_STANDARD.md
 ├── TESTING.md
 ├── OPERATIONS.md
 ├── BACKEND_CODEBUDDY.md
@@ -1301,6 +1302,8 @@ TP-Voyager/
 │
 └── docs/
     ├── ARCHITECTURE.md
+    ├── MODEL_ROUTING.md
+    ├── MODEL_EVALUATION_STANDARD.md
     ├── TESTING.md
     ├── OPERATIONS.md
     ├── BACKEND_CODEBUDDY.md
