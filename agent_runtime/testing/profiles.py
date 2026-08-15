@@ -63,6 +63,7 @@ CURRENT_TARGETS = (
     TestTarget("tests.test_v2_task_launch", 120, "shared Durable Task launch boundary"),
     TestTarget("tests.test_runtime_reconciliation", 120, "restart reconciliation"),
     TestTarget("tests.test_tp_voyager_architecture", 90, "Charter/directory architecture gate"),
+    TestTarget("tests.test_v107_user_config", 120, "v1.0.7 user config and TP-Voyager home boundary"),
     TestTarget("tests.test_test_profiles", 90, "test policy integrity"),
     TestTarget("tests.test_v105_flow_control", 180, "v1.0.5 flow-control contract"),
 )
@@ -92,7 +93,7 @@ REGRESSION_MODULES = (
     "test_v15_knowledge_runtime",
     "test_v16_planner",
     "test_v16_server_api",
-    "test_v2_home_migration",
+    "test_v107_user_config",
     "test_v2_plan_execution_controller",
     "test_v2_plan_execution_foundation",
     "test_v2_server_api",

@@ -5,7 +5,7 @@ Captain Skill 是上层 AI 使用 TP-Voyager 的操作规范。
 它只教 Captain **怎么查事实、怎么选择、怎么显式派遣、怎么验收**；不保存任务状态、不直接绕过 Runtime 调供应商 CLI，也不把 TP-Voyager 变成第二个规划 AI。
 
 ```text
-Captain Skill 1.0.6
+Captain Skill 1.0.7
 ```
 
 ## Captain MCP 合约
@@ -34,7 +34,7 @@ task_result + Verification / Evidence
 Captain 接受 / 拒绝 / 决定下一步
 ```
 
-## v1.0.6 怎么选模型
+## v1.0.7 怎么选模型
 
 不要把模型名称写死在 Skill 里，也不要凭记忆猜“哪个更强”。
 

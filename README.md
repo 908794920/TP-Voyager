@@ -16,7 +16,7 @@ Crew
 └── Qoder CLI
 ```
 
-> 当前版本：**v1.0.6 — Routable Model Catalog & Repository Cleanup**
+> 当前版本：**v1.0.7 — Unified User Configuration & TP-Voyager Home**
 
 ## 为什么需要 TP-Voyager
 
@@ -30,50 +30,46 @@ TP-Voyager 把这些问题收在执行层：
 - **Verification + Evidence**：把测试、Patch、Usage、执行结果变成可追溯事实；
 - **小型 Captain Surface**：正常只需要 6 个 MCP 工具，不要求 Captain 理解 Runtime 内部实现。
 
-## v1.0.6：可路由模型目录
+## v1.0.7：统一用户配置
 
-`crew_catalog(include_models=true)` 不再只返回零散的模型 ID，而是聚合四类事实：
+TP-Voyager 的机器级配置统一放在用户目录：
+
+```text
+~/.tp-voyager/
+├── config.json                    # Crew 路径、模型授权、trusted roots、资源根、并发上限
+├── model_routing_profiles.json    # 模型能力资料；可选 operator materialize
+└── runtime/
+    ├── tp_voyager.db
+    ├── artifacts/
+    ├── workspaces/
+    └── logs/
+```
+
+首次使用执行：
+
+```powershell
+.\.venv\Scripts\python.exe -m agent_runtime.cli init
+```
+
+`init` 会创建目录、尝试从 PATH 发现 Qoder / CodeBuddy CLI，并生成严格的 `tp-voyager.config/v1`。重复执行不会覆盖已有 `config.json`。
+
+模型目录继续保持数据驱动：
 
 ```text
 Provider 实时目录
       +
-dispatch_model_policy.json      # 能不能用：硬约束
+config.json / dispatch            # 能不能用：硬约束
       +
-model_routing_profiles.json     # 适合干什么：operator 认知资料
+model_routing_profiles.json       # 适合干什么：operator 认知资料
       +
-Runtime Evidence                # 实际历史表现 / Usage
+Runtime Evidence                  # 实际历史表现 / Usage
       ↓
 Routable Model Catalog
       ↓
 Captain 自己选 Crew / Model / Effort
 ```
 
-每个模型路由会尽量给出：
-
-- `route_id`、`available`、`allowlist_status`；
-- `routable` / `routability_status`（支持 true / false / unknown 三态）；
-- Provider 返回的 context / reasoning effort；
-- **reference-only** 倍率，且固定 `calculation_allowed=false`；
-- operator 维护的 `capability_tier`、`recommended_tasks`、`risk_boundaries`、`suggested_effort`；
-- Runtime 历史成功率、耗时与 Usage Evidence；
-- 每类信息自己的 `sources`。
-
-TP-Voyager **不自动给模型打综合分，也不替 Captain 选模型**：
-
-```text
-selection_performed = false
-dispatch_performed = false
-```
-
-真正执行时仍必须显式下发 Crew / model；`reasoning_effort` 只有当前 Backend route 明确支持时才传：
-
-```text
-crew=...
-model=...
-reasoning_effort=...   # supported route only
-```
-
-详细配置见 [模型路由目录](docs/MODEL_ROUTING.md)。
+TP-Voyager **不自动给模型打综合分，也不替 Captain 选模型**；真正执行仍必须显式下发 Crew / model，`reasoning_effort` 只有当前 Backend route 明确支持时才传。详细配置见 [模型路由目录](docs/MODEL_ROUTING.md)。
 
 ## 支持的 Crew
 
@@ -117,51 +113,60 @@ py -m venv .venv
 如需显式指定 Python：
 
 ```powershell
-$env:AGENT_RUNTIME_PYTHON = "D:\path\to\python.exe"
+$env:TP_VOYAGER_PYTHON = "D:\path\to\python.exe"
 .\scripts\start_runtime.cmd
 ```
 
-### 3. 配置 operator 模型资料
+### 3. 初始化并编辑用户配置
 
-Runtime Home 默认是：
-
-```text
-~/.agent-runtime
-```
-
-也可以通过：
+默认用户目录：
 
 ```text
-AGENT_RUNTIME_HOME
+~/.tp-voyager
 ```
 
-指定其他位置。
+可通过 `TP_VOYAGER_HOME` 改变整个用户目录，通过 `TP_VOYAGER_DB` 单独覆盖 SQLite 路径。启动脚本的 Python 覆盖变量是 `TP_VOYAGER_PYTHON`。
 
-两个文件职责不同：
-
-```text
-<runtime-home>/dispatch_model_policy.json
-    → 模型授权：硬约束
-
-<runtime-home>/model_routing_profiles.json
-    → 模型能力资料：只读建议，不参与授权
-```
-
-TP-Voyager 随包提供一份经过审阅的 **26-route baseline**。如果 Runtime Home 尚未存在 operator 文件，MCP 会**只读使用 bundled baseline**，因此升级后无需额外复制就能看到能力资料。
-
-如果希望把 baseline materialize 到 Runtime Home 并自行维护，显式执行：
+首次初始化：
 
 ```powershell
-.\.venv\Scripts\python.exe -m agent_runtime.cli model-routing-init
+.\.venv\Scripts\python.exe -m agent_runtime.cli init
 ```
 
-该命令只在 `model_routing_profiles.json` 不存在时写入 Runtime Home，**绝不覆盖 operator 已维护的文件**。一旦 operator 文件存在，它会覆盖 bundled baseline。
+生成的 `config.json` 结构：
 
-四条核心 route 的精简示例仍保留在：
+```json
+{
+  "schema": "tp-voyager.config/v1",
+  "crew": {
+    "qoder": {"enabled": true, "cli_path": ""},
+    "codebuddy": {"enabled": true, "cli_path": "", "internet_environment": "internal"}
+  },
+  "dispatch": {
+    "allowed_models": [
+      "qoder:Lite",
+      "qoder:qmodel_38max",
+      "codebuddy:hy3",
+      "codebuddy:deepseek-v4-flash"
+    ],
+    "preferred_models": [],
+    "task_kind_allowed_models": {}
+  },
+  "trusted_roots": {
+    "model_evidence": {},
+    "instructions": {}
+  },
+  "resources": {
+    "worker_profiles_root": "",
+    "worker_skills_root": ""
+  },
+  "runtime": {"max_concurrent_tasks": 4}
+}
+```
 
-[docs/examples/model_routing_profiles.example.json](docs/examples/model_routing_profiles.example.json)
+Crew CLI 的解析顺序是“临时环境变量覆盖 → `config.json` → PATH”。当前临时覆盖变量仍是 `QODER_CLI_PATH`、`CODEBUDDY_CODE_PATH` 和 `CODEBUDDY_INTERNET_ENVIRONMENT`；正常长期使用应写入 `config.json`。Token、Cookie、登录缓存等 Credential **不得**写入该文件。
 
-独立 benchmark、profile confidence 和受信任本地 Evidence 的配置见 [模型路由目录](docs/MODEL_ROUTING.md)。
+`model_routing_profiles.json` 继续独立存在，因为它是可更新、带 Evidence/provenance 的模型认知资料，而不是普通机器配置。`tp-voyager init` 会在缺失时 materialize 随包的 26-route baseline；也可以单独执行 `python -m agent_runtime.cli model-routing-init`。
 
 ## Captain 怎么用
 
@@ -229,6 +234,7 @@ Captain Host 应用 Patch 后，可以把 Apply Receipt + 精确 Verification Su
 TP-Voyager/
 ├── agent_runtime/              # Runtime 生产代码
 │   ├── api/                    # MCP / public projection
+│   ├── configuration/          # 用户级 TP-Voyager 配置
 │   ├── application/            # Crew、dispatch、task 等 use cases
 │   ├── backends/               # CodeBuddy / Qoder adapters
 │   ├── domain/                 # 稳定 contracts
@@ -245,7 +251,7 @@ TP-Voyager/
 └── CHANGELOG.md
 ```
 
-v1.0.6 **不为了目录好看大搬 Durable Core**。已有大型历史 service 暂时保持兼容位置；新能力优先进入已有职责槽位，后续只有在真实维护成本证明值得时再迁移。
+v1.0.7 **不为了目录好看大搬 Durable Core**。已有大型历史 service 暂时保持兼容位置；新能力优先进入已有职责槽位，后续只有在真实维护成本证明值得时再迁移。
 
 ## 文档入口
 

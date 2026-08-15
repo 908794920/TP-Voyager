@@ -999,7 +999,7 @@
       ],
       "suggested_effort": "high"
     },
-    "qoder:lite": {
+    "qoder:Lite": {
       "canonical_family": "qoder-lite-tier",
       "provider_identity": "dynamic_tier",
       "capability_tier": "L0",

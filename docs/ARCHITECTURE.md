@@ -105,13 +105,29 @@ Crew terminal material
 
 因此 Captain 一旦观察到 `completed`，Runtime-owned `patch-*` worktree 必须已经退休。Cleanup 失败会把 Task 收敛为明确 failure，而不是先宣布成功再后台清理。
 
+## User Configuration Boundary
+
+TP-Voyager v1.0.7 明确增加一个窄的用户机器配置边界：
+
+```text
+~/.tp-voyager/config.json
+        ↓
+agent_runtime/configuration/
+        ↓
+Runtime paths / Crew adapters / dispatch authorization / trusted roots / worker resources
+```
+
+该层只解析和初始化机器级/operator 配置，不保存 Credential，不拥有 Task 状态，不做业务编排，也不自动选择模型。任务级 read/write scope、timeout、verification commands、reasoning effort 继续由 Captain 的具体 dispatch contract 决定。
+
+`model_routing_profiles.json` 保持独立，因为它是带 provenance/Evidence 的模型能力资料，不是普通机器配置。
+
 ## Model Awareness
 
-v1.0.6 不增加新的 Captain MCP tool，而是把既有模型事实整理成 data-driven Routable Model Catalog：
+v1.0.7 不增加新的 Captain MCP tool，并继续把既有模型事实整理成 data-driven Routable Model Catalog：
 
 ```text
 Provider model catalog
-+ dispatch_model_policy.json
++ config.json / dispatch
 + model_routing_profiles.json
 + Durable Task/Session model history
 + Attempt-bound Usage Evidence
@@ -150,7 +166,7 @@ Runtime-owned target/reports/... Artifact
 
 WorkBuddy 已从当前生产 Backend 移除。
 
-只允许保留读取/迁移历史数据所必需的 schema/path 兼容。历史 WorkBuddy 记录不属于当前文档 Contract，也不应重新进入生产执行路径。
+只允许保留解释既有 durable schema 所必需的历史字符串。当前 Runtime 不提供 WorkBuddy Home 自动发现或 Home migration；历史 WorkBuddy 记录不属于当前文档 Contract，也不应重新进入生产执行路径。
 
 ## 架构约束
 

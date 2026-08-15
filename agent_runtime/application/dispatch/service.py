@@ -15,7 +15,6 @@ from agent_runtime.application.crew import CrewRegistryService
 from agent_runtime.application.dispatch.policy import DispatchModelPolicyError, GlobalDispatchModelPolicy
 from agent_runtime.domain.dispatch import CaptainDispatchRequest
 from agent_runtime.domain.crew_outcome import OUTCOME_PROMPT_CONTRACT
-from agent_runtime.persistence.runtime_paths import canonical_runtime_home
 from agent_runtime.persistence.errors import RuntimePersistenceError
 
 
@@ -77,7 +76,7 @@ class CaptainDispatchService:
         selected_model = str(request.model or "").strip()
         selected_model_key = f"{crew}:{selected_model}" if selected_model else ""
         try:
-            global_policy = self._global_model_policy or GlobalDispatchModelPolicy.load(canonical_runtime_home())
+            global_policy = self._global_model_policy or GlobalDispatchModelPolicy()
             preferred = global_policy.validate(
                 crew, selected_model, request.model_policy, request.worker_profile_ref,
                 *request.worker_skill_refs, task_kind=kind,

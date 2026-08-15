@@ -2,6 +2,21 @@
 
 本项目从 TP-Voyager 正式基线开始记录对外版本。
 
+## 1.0.7 — 2026-08-15
+
+Unified User Configuration + TP-Voyager Home。把用户机器相关配置从散落环境变量/独立 JSON 收敛到 `~/.tp-voyager/config.json`，不引入旧 Home 迁移兼容。
+
+- Runtime Home clean break 为 `~/.tp-voyager`；标准启动变量改为 `TP_VOYAGER_HOME` / `TP_VOYAGER_DB` / `TP_VOYAGER_PYTHON`，默认数据库为 `runtime/tp_voyager.db`；
+- 新增严格 `tp-voyager.config/v1`：统一管理 Qoder/CodeBuddy CLI 路径与 enable 状态、CodeBuddy internet environment、模型 allowlist/preference/task-kind 约束、trusted model/instruction roots、worker profile/skill roots、Runtime 全局并发上限；
+- 新增 `tp-voyager init` / `python -m agent_runtime.cli init`：幂等创建用户目录与配置、从 PATH 探测 Crew CLI，并 materialize 26-route `model_routing_profiles.json` baseline；已有配置绝不覆盖；
+- Qoder/CodeBuddy CLI 解析统一为“临时环境覆盖 → `config.json` → PATH”；Credential、Token、Cookie、登录缓存继续不进入 `config.json`；
+- `dispatch_model_policy.json`、`model_evidence_roots.json`、`trusted_instruction_roots.json` 与 worker-root 专用环境变量退出当前配置面；模型授权改由 `config.json.dispatch` 独占，能力资料仍独立保留在 `model_routing_profiles.json`；
+- Runtime 增加 `runtime.max_concurrent_tasks` admission guard，默认 4；并发达到上限时新任务以 `RUNTIME_BUSY` 明确拒绝，不静默无限起 worker thread；
+- Captain Codex Desktop manifest 不再绑定 Crew CLI 机器路径，安装 binding 只保留宿主安装必需信息；
+- Qoder Lite 的 dispatch/model-route 标识统一为 `qoder:Lite`，避免 policy/catalog/profile 出现大小写重复 route；
+- 正式版本号、Captain Skill、CodeBuddy catalog clientInfo、文档与启动脚本统一为 v1.0.7 / TP-Voyager 命名；内部 Python package `agent_runtime` 保持不变；
+- 移除 standalone Runtime Home migration utility 与旧路径自动选择；当前版本不读取 `.agent-runtime` / `AGENT_RUNTIME_*` / WorkBuddy Home。
+
 ## 1.0.6 — 2026-08-12
 
 Routable Model Catalog + public documentation cleanup。保持 Captain 显式决策和默认六工具 Surface，不新增自动选模器。

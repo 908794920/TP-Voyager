@@ -225,7 +225,7 @@ def _list_codebuddy_models_via_acp() -> list[ModelDescriptor]:
     try:
         # ACP requires these session/new fields but this remains a no-prompt,
         # no-tool, no-MCP-server catalog session.
-        initial = exchange("initialize", {"protocolVersion": 1, "clientInfo": {"name": "tp-voyager", "version": "1.0.6"}})
+        initial = exchange("initialize", {"protocolVersion": 1, "clientInfo": {"name": "tp-voyager", "version": "1.0.7"}})
         if not isinstance(initial, dict) or initial.get("error"):
             raise CodeBuddyCatalogError("CODEBUDDY_MODEL_CATALOG_UNAVAILABLE")
         session = exchange("session/new", {"cwd": os.getcwd(), "mcpServers": []})

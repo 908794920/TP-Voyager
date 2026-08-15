@@ -132,6 +132,9 @@ agent_runtime/
 │   ├── mcp_server.py
 │   └── schemas/
 │
+├── configuration/
+│   └── user_config.py
+│
 ├── application/
 │   ├── voyage/
 │   ├── crew/
@@ -164,6 +167,31 @@ Not every subdirectory must exist immediately.
 A directory should only be created when real code for that responsibility exists.
 
 Do not create empty placeholder architecture merely to match the diagram.
+
+## 4.1 `configuration/` — User Machine Configuration Boundary
+
+`configuration/` is an explicitly reviewed v1.0.7 addition. It exists because TP-Voyager now has one product-level user configuration shared by runtime paths, Crew adapters, dispatch authorization, trusted roots, and reusable worker resources.
+
+Purpose:
+
+```text
+Parse and validate ~/.tp-voyager/config.json
+Initialize user-owned TP-Voyager home files
+Expose typed, read-only machine/operator configuration
+```
+
+Must not contain:
+
+```text
+Credentials or login caches
+Task-specific policy/read/write scopes
+Business orchestration
+SQLite task state
+Backend execution logic
+Automatic model selection/fallback
+```
+
+This is a narrow configuration boundary, not a new generic `common/` or `platform/` layer. No additional `agent_runtime/` top-level directory is implied by this exception.
 
 ---
 
@@ -1066,6 +1094,10 @@ application
  ↓
 persistence abstraction / existing service
 
+api / application / backends / persistence
+ ↓
+configuration (typed user-machine settings only)
+
 runtime
  ↓
 domain / persistence as required
@@ -1231,6 +1263,9 @@ TP-Voyager/
 │   ├── api/
 │   │   ├── mcp_server.py
 │   │   └── schemas/
+│   │
+│   ├── configuration/
+│   │   └── user_config.py
 │   │
 │   ├── application/
 │   │   ├── voyage/

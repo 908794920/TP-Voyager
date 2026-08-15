@@ -2,7 +2,7 @@
   "schema": "tp-voyager.manifest/v1",
   "skill": {
     "name": "tp-voyager-captain",
-    "version": "1.0.6",
+    "version": "1.0.7",
     "protocol": "tp-voyager-captain/v1"
   },
   "mcp": {
@@ -17,15 +17,7 @@
       "binding": "repository_root",
       "required": true
     },
-    "env": {
-      "QODER_CLI_PATH": {
-        "literal": "~\\.agent-runtime\\bin\\qodercli-qoder-client.cmd"
-      },
-      "CODEBUDDY_CODE_PATH": {
-        "binding": "CODEBUDDY_CODE_PATH",
-        "required": true
-      }
-    },
+    "env": {},
     "required_captain_tools": [
       "voyager_overview",
       "crew_catalog",

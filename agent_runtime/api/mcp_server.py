@@ -12,6 +12,7 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 from agent_runtime.activity_log import ActivityLogger
+from agent_runtime.configuration import VoyagerUserConfig, VoyagerUserConfigError
 from agent_runtime.runtime.backend_callbacks import RuntimeBackendCallbacks
 from agent_runtime.api.schemas import CAPTAIN_TOOL_NAMES
 from agent_runtime.domain.enums import (
@@ -171,7 +172,7 @@ from agent_runtime.backends.registry import BackendRegistry
 
 
 ROOT = Path(__file__).resolve().parents[2]
-LOG_DIR = ROOT / "work" / "agent-runtime-logs"
+LOG_DIR = canonical_runtime_home() / "runtime" / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 mcp = FastMCP(
@@ -222,6 +223,31 @@ from agent_runtime.runtime.handles import (
 
 RUNTIME_DATABASE: Database | None = None
 RUNTIME_DATABASE_LOCK = threading.Lock()
+_RUNTIME_WORKER_SLOT_LOCK = threading.Lock()
+_RUNTIME_ACTIVE_WORKERS = 0
+
+
+def _try_acquire_runtime_worker_slot() -> bool:
+    global _RUNTIME_ACTIVE_WORKERS
+    limit = VoyagerUserConfig.load().runtime.max_concurrent_tasks
+    with _RUNTIME_WORKER_SLOT_LOCK:
+        if _RUNTIME_ACTIVE_WORKERS >= limit:
+            return False
+        _RUNTIME_ACTIVE_WORKERS += 1
+        return True
+
+
+def _release_runtime_worker_slot() -> None:
+    global _RUNTIME_ACTIVE_WORKERS
+    with _RUNTIME_WORKER_SLOT_LOCK:
+        _RUNTIME_ACTIVE_WORKERS = max(0, _RUNTIME_ACTIVE_WORKERS - 1)
+
+
+def _run_worker_with_runtime_slot(worker_target: Any, task: TaskState, timeout_seconds: float) -> None:
+    try:
+        worker_target(task, timeout_seconds)
+    finally:
+        _release_runtime_worker_slot()
 
 
 def _start_worker_thread(thread: threading.Thread) -> None:
@@ -237,8 +263,10 @@ def _start_worker_thread(thread: threading.Thread) -> None:
 
 def configure_runtime_database(path: str | Path | None) -> Database | None:
     """Inject an explicit runtime database (tests) or reset to lazy default."""
-    global RUNTIME_DATABASE, _RUNTIME_LEASE, _PLAN_EXECUTION_SERVICE
+    global RUNTIME_DATABASE, _RUNTIME_LEASE, _PLAN_EXECUTION_SERVICE, _RUNTIME_ACTIVE_WORKERS
     with RUNTIME_DATABASE_LOCK:
+        with _RUNTIME_WORKER_SLOT_LOCK:
+            _RUNTIME_ACTIVE_WORKERS = 0
         if path is None:
             RUNTIME_DATABASE = None
             # The lease service binds to the previous database/instance:
@@ -288,9 +316,22 @@ def _context_service() -> ProjectContextService:
 
 
 def _worker_profile_resolver() -> WorkerProfileResolver:
-    configured = str(os.getenv("TP_VOYAGER_WORKER_PROFILE_ROOT") or "").strip()
+    try:
+        configured = VoyagerUserConfig.load().resources.worker_profiles_root
+    except VoyagerUserConfigError as exc:
+        raise ValueError("TP-Voyager user config is invalid") from exc
     root = Path(configured).expanduser() if configured else ROOT / "skills" / "tp-voyager-captain" / "worker-profiles"
     return WorkerProfileResolver(root)
+
+
+def _worker_skill_resolver() -> WorkerSkillResolver:
+    try:
+        configured = VoyagerUserConfig.load().resources.worker_skills_root
+    except VoyagerUserConfigError as exc:
+        raise ValueError("TP-Voyager user config is invalid") from exc
+    if not configured:
+        raise ValueError("resources.worker_skills_root is not configured")
+    return WorkerSkillResolver(configured)
 
 
 def _knowledge_service() -> KnowledgeRuntimeService:
@@ -410,6 +451,7 @@ def _captain_dispatch_service() -> CaptainDispatchService:
     patch_workspaces = PatchWorkspaceService(_get_runtime_database().path.parent / "workspaces")
     return CaptainDispatchService(
         _crew_registry_service(),
+        global_model_policy=GlobalDispatchModelPolicy.load(canonical_runtime_home()),
         artifact_loader=lambda refs: tuple(
             item.content
             for item in ArtifactInputResolver(
@@ -879,22 +921,11 @@ def _is_captain_read_only_task(task: TaskState) -> bool:
 
 
 def _trusted_instruction_roots() -> dict[str, str]:
-    """Load operator-owned alias -> absolute trusted-root mapping."""
-    path = _get_runtime_database().path.parent / "trusted_instruction_roots.json"
+    """Load trusted instruction aliases from the unified user config."""
     try:
-        data = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
-    except (OSError, json.JSONDecodeError):
-        raise ValueError("trusted_instruction_roots.json is invalid")
-    if not isinstance(data, dict):
-        raise ValueError("trusted_instruction_roots.json must be an object")
-    roots: dict[str, str] = {}
-    for alias, root in data.items():
-        key = str(alias or "").strip()
-        raw = str(root or "").strip()
-        if not key or not raw:
-            raise ValueError("trusted instruction root aliases and paths must be non-empty")
-        roots[key] = raw
-    return roots
+        return VoyagerUserConfig.load().trusted_roots.instructions_map()
+    except VoyagerUserConfigError as exc:
+        raise ValueError("TP-Voyager user config is invalid") from exc
 
 
 def _repository_research_captain_fingerprint(
@@ -2049,6 +2080,16 @@ def _durable_cli_start(
         updated_at=now,
     )
     try:
+        slot_acquired = _try_acquire_runtime_worker_slot()
+    except VoyagerUserConfigError as exc:
+        return {"ok": False, "reason_code": "CONFIG_INVALID", "error": str(exc)}
+    if not slot_acquired:
+        return {
+            "ok": False,
+            "reason_code": "RUNTIME_BUSY",
+            "error": "runtime max_concurrent_tasks limit reached",
+        }
+    try:
         created = service.create_task(
             task=durable_task,
             session=session,
@@ -2061,8 +2102,10 @@ def _durable_cli_start(
             now=now,
         )
     except RuntimePersistenceError as exc:
+        _release_runtime_worker_slot()
         return {"ok": False, "error": f"runtime database unavailable: {exc}"}
     if created.outcome == "replayed":
+        _release_runtime_worker_slot()
         durable = service.get_task(created.task_id or "")
         return {
             "ok": True,
@@ -2074,8 +2117,10 @@ def _durable_cli_start(
             ),
         }
     if created.outcome in {"budget_rejected", "step_conflict"}:
+        _release_runtime_worker_slot()
         return {"ok": False, "reason_code": created.reason_code, "error": created.error}
     if created.outcome == "conflict":
+        _release_runtime_worker_slot()
         return {"ok": False, "reason_code": "IDEMPOTENCY_CONFLICT", "error": created.error}
 
     task = TaskState(
@@ -2120,13 +2165,14 @@ def _durable_cli_start(
             IDEMPOTENCY_TASKS[canonical_key] = task_id
     _note_task_activity(task, "task_accepted")
     thread = threading.Thread(
-        target=worker_target,
-        args=(task, float(timeout_seconds)),
+        target=_run_worker_with_runtime_slot,
+        args=(worker_target, task, float(timeout_seconds)),
         daemon=True,
     )
     try:
         _start_worker_thread(thread)
     except RuntimeError as exc:
+        _release_runtime_worker_slot()
         task.error = str(exc)
         task.terminal_reason = "ThreadStartError"
         task.state = "failed"
@@ -3375,10 +3421,7 @@ def task_dispatch(
             return reject("WORKER_PROFILE_INVALID", str(exc))
     if parsed_skills:
         try:
-            skill_root = os.environ.get("TP_VOYAGER_WORKER_SKILL_ROOT")
-            if not skill_root:
-                raise ValueError("TP_VOYAGER_WORKER_SKILL_ROOT is required")
-            skill_resolver = WorkerSkillResolver(skill_root)
+            skill_resolver = _worker_skill_resolver()
             skill_content = tuple(skill_resolver.resolve(item).content for item in parsed_skills)
         except (ValueError, WorkerProfileError) as exc:
             return reject("WORKER_SKILL_INVALID", str(exc))

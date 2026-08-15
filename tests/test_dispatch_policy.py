@@ -8,46 +8,69 @@ from agent_runtime.application.dispatch.service import CaptainDispatchService
 from agent_runtime.application.crew import CrewProvider, CrewRegistryService
 from agent_runtime.domain.crew import CrewDescriptor
 from agent_runtime.domain.dispatch import CaptainDispatchRequest, InputArtifactRef
+from agent_runtime.configuration import VoyagerUserConfig
 
 class GlobalPolicyTests(unittest.TestCase):
-    def test_missing_file_is_safe_and_requires_explicit_model(self):
+    def _write_config(self, root: str, *, allowed: list[str] | None = None, preferred: list[str] | None = None, task_kinds: dict[str, list[str]] | None = None, extra_dispatch: dict[str, object] | None = None) -> None:
+        payload = VoyagerUserConfig.defaults(root).to_dict()
+        if allowed is not None:
+            payload["dispatch"]["allowed_models"] = allowed
+        if preferred is not None:
+            payload["dispatch"]["preferred_models"] = preferred
+        if task_kinds is not None:
+            payload["dispatch"]["task_kind_allowed_models"] = task_kinds
+        if extra_dispatch:
+            payload["dispatch"].update(extra_dispatch)
+        Path(root, "config.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    def test_missing_config_uses_safe_default_allowlist_and_requires_explicit_model(self):
         with tempfile.TemporaryDirectory() as root:
             policy = GlobalDispatchModelPolicy.load(root)
-        with self.assertRaises(DispatchModelPolicyError): policy.validate("codebuddy", "")
+        self.assertIn("codebuddy:hy3", policy.allowed_models or ())
+        with self.assertRaises(DispatchModelPolicyError):
+            policy.validate("codebuddy", "")
+        with self.assertRaises(DispatchModelPolicyError):
+            policy.validate("codebuddy", "unreviewed-model")
 
-    def test_operator_policy_cannot_disable_explicit_model(self):
+    def test_config_cannot_add_switch_that_disables_explicit_model(self):
         with tempfile.TemporaryDirectory() as root:
-            Path(root, "dispatch_model_policy.json").write_text(
-                json.dumps({"require_explicit_model": False}), encoding="utf-8"
-            )
+            self._write_config(root, extra_dispatch={"require_explicit_model": False})
             with self.assertRaises(DispatchModelPolicyError):
                 GlobalDispatchModelPolicy.load(root)
         with self.assertRaises(DispatchModelPolicyError):
             GlobalDispatchModelPolicy(require_explicit_model=False).validate("codebuddy", "")
 
-    def test_intersection_only_narrows(self):
+    def test_config_allowlist_intersection_only_narrows(self):
         with tempfile.TemporaryDirectory() as root:
-            Path(root, "dispatch_model_policy.json").write_text(json.dumps({"require_explicit_model": True, "allowed_models": ["codebuddy:hy3", "codebuddy:kimi"], "task_preferences": {"preferred": ["codebuddy:hy3"]}}), encoding="utf-8")
+            self._write_config(
+                root,
+                allowed=["codebuddy:hy3", "codebuddy:kimi"],
+                preferred=["codebuddy:hy3"],
+            )
             policy = GlobalDispatchModelPolicy.load(root)
         self.assertEqual(policy.validate("codebuddy", "hy3", ["codebuddy:hy3"]), ("codebuddy:hy3",))
-        with self.assertRaises(DispatchModelPolicyError): policy.validate("codebuddy", "kimi", ["codebuddy:hy3"])
+        with self.assertRaises(DispatchModelPolicyError):
+            policy.validate("codebuddy", "kimi", ["codebuddy:hy3"])
 
-    def test_duplicate_keys_fail_closed(self):
+    def test_duplicate_config_keys_fail_closed(self):
         with tempfile.TemporaryDirectory() as root:
-            Path(root, "dispatch_model_policy.json").write_text(
-                '{"require_explicit_model":true,"allowed_models":["codebuddy:hy3"],"allowed_models":["codebuddy:kimi"]}',
-                encoding="utf-8",
+            payload = VoyagerUserConfig.defaults(root).to_dict()
+            text = json.dumps(payload)
+            text = text.replace(
+                '"allowed_models": ["qoder:Lite", "qoder:qmodel_38max", "codebuddy:hy3", "codebuddy:deepseek-v4-flash"]',
+                '"allowed_models": ["codebuddy:hy3"], "allowed_models": ["codebuddy:kimi"]',
             )
+            Path(root, "config.json").write_text(text, encoding="utf-8")
             with self.assertRaises(DispatchModelPolicyError):
                 GlobalDispatchModelPolicy.load(root)
 
     def test_task_kind_hard_constraint_is_intersected(self):
         with tempfile.TemporaryDirectory() as root:
-            Path(root, "dispatch_model_policy.json").write_text(json.dumps({
-                "require_explicit_model": True,
-                "allowed_models": ["codebuddy:hy3", "codebuddy:kimi"],
-                "task_kind_allowed_models": {"research": ["codebuddy:hy3"]},
-            }), encoding="utf-8")
+            self._write_config(
+                root,
+                allowed=["codebuddy:hy3", "codebuddy:kimi"],
+                task_kinds={"research": ["codebuddy:hy3"]},
+            )
             policy = GlobalDispatchModelPolicy.load(root)
         self.assertEqual(policy.validate("codebuddy", "hy3", task_kind="research"), ())
         with self.assertRaises(DispatchModelPolicyError):
@@ -55,10 +78,11 @@ class GlobalPolicyTests(unittest.TestCase):
 
     def test_preferred_is_cropped_to_current_backend(self):
         with tempfile.TemporaryDirectory() as root:
-            Path(root, "dispatch_model_policy.json").write_text(json.dumps({
-                "require_explicit_model": True,
-                "task_preferences": {"preferred": ["codebuddy:hy3", "qoder:Pro"]},
-            }), encoding="utf-8")
+            self._write_config(
+                root,
+                allowed=["codebuddy:hy3", "qoder:Pro"],
+                preferred=["codebuddy:hy3", "qoder:Pro"],
+            )
             policy = GlobalDispatchModelPolicy.load(root)
         self.assertEqual(policy.validate("codebuddy", "hy3"), ("codebuddy:hy3",))
 

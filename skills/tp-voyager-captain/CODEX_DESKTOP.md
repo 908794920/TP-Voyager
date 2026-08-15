@@ -6,10 +6,10 @@
 
 ## 一条命令完成安装 / 更新 + MCP 注册
 
-在 TP-Voyager 仓库根目录执行：
+在 TP-Voyager 仓库根目录执行。首次使用先初始化用户配置，初始化器会尝试从 PATH 发现 Qoder / CodeBuddy CLI；如未发现，可随后编辑 `~/.tp-voyager/config.json`：
 
 ```powershell
-$env:CODEBUDDY_CODE_PATH = "<path-to-codebuddy-command>"
+python -m agent_runtime.cli init
 python .\skills\tp-voyager-captain\install_codex_desktop.py
 ```
 
@@ -22,7 +22,7 @@ python .\skills\tp-voyager-captain\install_codex_desktop.py
 5. 在已安装 Skill 目录生成本机 `tp-voyager.bindings.json`；
 6. 从**已安装目录**运行 `sync_codex_desktop.py`，只维护全局 `config.toml` 中 `mcp_servers.tp_voyager` 自己的字段。
 
-Qoder 的默认 CLI 路径使用 manifest 中的 home-relative literal。任何必须使用绝对路径的本机值都通过 install binding 提供，只存在用户安装目录或用户环境变量中，不写回共享仓库。
+Crew CLI 路径不再属于 Codex MCP binding。Qoder / CodeBuddy 的本机路径统一从 `~/.tp-voyager/config.json` 读取；`QODER_CLI_PATH` / `CODEBUDDY_CODE_PATH` 仅作为临时环境覆盖。Codex 安装 binding 只保存 `repository_root` 等安装时必须解析的宿主信息。
 
 重复执行必须幂等：第一次报告 `changed`，内容未变化时第二次报告 `no-op`。
 

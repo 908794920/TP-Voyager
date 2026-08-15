@@ -1,6 +1,6 @@
 # Data-Driven Routable Model Catalog
 
-TP-Voyager v1.0.6 将 `crew_catalog(include_models=true)` 作为 Captain 的**可路由模型目录**。
+TP-Voyager v1.0.7 继续将 `crew_catalog(include_models=true)` 作为 Captain 的**可路由模型目录**。
 
 它不替 Captain 选模型。Runtime 只把实时供应商事实、operator 授权、operator 模型认知和 Runtime Evidence 合并成一个结构化 route projection。
 
@@ -10,13 +10,13 @@ TP-Voyager v1.0.6 将 `crew_catalog(include_models=true)` 作为 Captain 的**�
 Provider live catalog
   owns: model_id / display_name / availability / context / provider effort metadata / reference multiplier
 
-operator dispatch_model_policy.json
+operator ~/.tp-voyager/config.json / dispatch
   owns: authorization / allowlist / policy_sha256
 
 operator model_routing_profiles.json
   owns: capability tier / benchmark snapshot / recommended work / risk boundaries / suggested effort
 
-operator model_evidence_roots.json
+operator ~/.tp-voyager/config.json / trusted_roots.model_evidence
   owns: trusted local evidence root aliases only
 
 Runtime durable Evidence
@@ -44,7 +44,7 @@ online benchmark scraping
 
 ## 2. 默认只读 baseline + 可选 operator materialize
 
-v1.0.6 随包发布一份经过审阅的机器可读 baseline。它覆盖当前 MCP 真实目录中的：
+v1.0.7 继续随包发布一份经过审阅的机器可读 baseline。它覆盖当前 MCP 真实目录中的：
 
 ```text
 CodeBuddy 11 routes
@@ -52,7 +52,7 @@ Qoder     15 routes
 Total     26 routes
 ```
 
-当 `${AGENT_RUNTIME_HOME}/model_routing_profiles.json` 不存在时，Runtime 会直接**只读加载 bundled baseline**：
+当 `${TP_VOYAGER_HOME}/model_routing_profiles.json` 不存在时，Runtime 会直接**只读加载 bundled baseline**：
 
 ```text
 status = bundled_baseline
@@ -72,13 +72,13 @@ python -m agent_runtime.cli model-routing-init
 该命令会把同一 baseline **显式复制**到：
 
 ```text
-${AGENT_RUNTIME_HOME}/model_routing_profiles.json
+${TP_VOYAGER_HOME}/model_routing_profiles.json
 ```
 
 默认 Runtime Home：
 
 ```text
-~/.agent-runtime
+~/.tp-voyager
 ```
 
 如果文件已经存在，命令会拒绝覆盖。一旦 operator 文件存在，Runtime 优先加载它并停止使用 bundled fallback。TP-Voyager 不在启动 Runtime 时偷偷改 operator 配置。
@@ -98,35 +98,40 @@ model_routing_profiles.profile_count
 model_routing_profiles.evidence_profile_counts
 ```
 
-## 3. 两个 operator 文件不要混用
+## 3. 授权配置与模型资料不要混用
 
-### `dispatch_model_policy.json`
+### `config.json / dispatch`
 
-这是**硬约束**。现有 dispatch 逻辑继续以它作为模型授权 Source of Truth。
+这是**硬约束**，位于 `~/.tp-voyager/config.json`。Captain 仍必须显式选择模型；配置只允许或进一步限制，不自动选择。
 
 例如：
 
 ```json
 {
-  "require_explicit_model": true,
-  "allowed_models": [
-    "codebuddy:hy3",
-    "codebuddy:deepseek-v4-flash",
-    "qoder:lite",
-    "qoder:qmodel_38max"
-  ]
+  "dispatch": {
+    "allowed_models": [
+      "codebuddy:hy3",
+      "codebuddy:deepseek-v4-flash",
+      "qoder:Lite",
+      "qoder:qmodel_38max"
+    ],
+    "preferred_models": [],
+    "task_kind_allowed_models": {}
+  }
 }
 ```
+
+完整 `config.json` 还包含 Crew 路径、trusted roots、worker resources 和运行时并发设置；见 `docs/OPERATIONS.md`。
 
 ### `model_routing_profiles.json`
 
 这是**operator 认知资料**。它可以告诉 Captain 哪个模型适合什么工作，但不能授权模型、不能覆盖 Provider availability、不能触发 dispatch。
 
-四条核心 route 的 v1.0.6 baseline：
+四条核心 route 的当前 baseline：
 
 | Route | Tier | Confidence | 主要定位 |
 |---|---|---|---|
-| `qoder:lite` | L0 | medium | 搜索、摘要、机械修改、简单逻辑、快速验证 |
+| `qoder:Lite` | L0 | medium | 搜索、摘要、机械修改、简单逻辑、快速验证 |
 | `codebuddy:hy3` | L1 | medium-high | 常规编码、SQL、文档、中型 repo、明确边界多文件工作 |
 | `codebuddy:deepseek-v4-flash` | **L3** | **high** | 已由 operator 确认映射到 **DeepSeek-V4-Flash-0731**；高级 Coding/Agent 主力 |
 | `qoder:qmodel_38max` | **L3** | **medium-high** | 已由 operator 确认映射到正式 **Qwen3.8-Max**；复杂长程、多模态、架构级工作 |
@@ -141,7 +146,7 @@ DeepSeek-0731 和 Qwen3.8-Max 都可以是 L3，但前者更适合高频、成�
 
 ## 4. 为什么能力资料不能只看厂商宣传
 
-v1.0.6 baseline 区分：
+当前 baseline 区分：
 
 ```text
 Independent benchmarks
@@ -204,7 +209,7 @@ missing
 
 ## 5. 本地 Markdown 可以成为可验证 Evidence
 
-URL 不是唯一 provenance。v1.0.6 支持：
+URL 不是唯一 provenance。当前版本支持：
 
 ```json
 {
@@ -218,14 +223,19 @@ URL 不是唯一 provenance。v1.0.6 支持：
 真实绝对目录不写进 profile，而是单独配置：
 
 ```text
-${AGENT_RUNTIME_HOME}/model_evidence_roots.json
+~/.tp-voyager/config.json -> trusted_roots.model_evidence
 ```
 
 例如 Windows：
 
 ```json
 {
-  "operator_model_research": "D:/AI/model-research"
+  "trusted_roots": {
+    "model_evidence": {
+      "operator_model_research": "D:/AI/model-research"
+    },
+    "instructions": {}
+  }
 }
 ```
 
@@ -271,7 +281,7 @@ rejected      路径逃逸、过大或不可安全读取
 not_declared  没有 Evidence ref
 ```
 
-Evidence 过期不会改变 `allowed / denied`。授权仍只属于 `dispatch_model_policy.json`。
+Evidence 过期不会改变 `allowed / denied`。授权仍只属于 `config.json.dispatch`。
 
 ## 6. Profile 示例
 

@@ -23,6 +23,7 @@ from typing import Any, Callable
 
 from agent_runtime.backends.base import BackendActivity
 from agent_runtime.domain.dispatch import CommandSpec
+from agent_runtime.backends.codebuddy.process import resolve_codebuddy_internet_environment
 from agent_runtime.backends.errors import (
     BackendCancelledError,
     BackendProtocolError,
@@ -404,10 +405,7 @@ class CodeBuddySdkClient:
         # The target product uses the China CodeBuddy account environment.
         # Preserve an explicit caller override for enterprise/iOA testing, but
         # never silently switch a configured CN environment to public.
-        current_env = str(
-            os.environ.get("CODEBUDDY_INTERNET_ENVIRONMENT")
-            or ("internal" if self.region == "cn" else "public")
-        ).strip()
+        current_env = resolve_codebuddy_internet_environment().strip()
         if current_env:
             env["CODEBUDDY_INTERNET_ENVIRONMENT"] = current_env
 

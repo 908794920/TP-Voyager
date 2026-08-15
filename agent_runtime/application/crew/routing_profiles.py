@@ -3,7 +3,7 @@
 This module never scores or selects models.  It validates an operator-maintained
 routing profile file, verifies optional trusted local evidence by path/hash, and
 provides a deliberate bootstrap from the reviewed baseline shipped with
-TP-Voyager.  Dispatch authorization remains owned by ``dispatch_model_policy``.
+TP-Voyager.  Dispatch authorization remains owned by ``config.json.dispatch``.
 """
 
 from __future__ import annotations
@@ -16,10 +16,11 @@ from pathlib import Path, PurePosixPath
 import re
 from typing import Any, Mapping
 
+from agent_runtime.configuration import VoyagerUserConfig, VoyagerUserConfigError
+
 
 _SCHEMA = "tp-voyager.model_routing_profiles/v1"
 _FILE_NAME = "model_routing_profiles.json"
-_EVIDENCE_ROOTS_FILE = "model_evidence_roots.json"
 _BASELINE_FILE = "model_routing_profiles.baseline.json"
 _TOP_LEVEL_KEYS = frozenset({"schema", "updated_at", "profiles"})
 _PROFILE_KEYS = frozenset(
@@ -228,32 +229,22 @@ def _declared_evidence_refs(value: object, field: str) -> tuple[dict[str, str], 
 
 
 def _load_evidence_roots(runtime_home: Path) -> tuple[dict[str, Path], dict[str, Any]]:
-    path = runtime_home / _EVIDENCE_ROOTS_FILE
-    if not path.exists():
-        return {}, {"status": "not_configured", "sha256": None, "root_count": 0}
     try:
-        data = path.read_bytes()
-        raw = json.loads(data.decode("utf-8"), object_pairs_hook=_strict_object)
-        if not isinstance(raw, dict) or len(raw) > 64:
-            raise ModelRoutingProfileError("model evidence roots must be a bounded object")
-        roots: dict[str, Path] = {}
-        for alias, value in raw.items():
-            if not isinstance(alias, str) or not _SHORT_TOKEN.fullmatch(alias):
-                raise ModelRoutingProfileError("model evidence roots contain an invalid alias")
-            if not isinstance(value, str) or not value.strip():
-                raise ModelRoutingProfileError("model evidence roots contain an invalid path")
-            root = Path(value).expanduser()
-            if not root.is_absolute():
-                raise ModelRoutingProfileError("model evidence root paths must be absolute")
-            roots[alias] = root.resolve()
+        config = VoyagerUserConfig.load(runtime_home)
+        configured = config.trusted_roots.model_evidence_map()
+        roots = {alias: Path(value).expanduser().resolve() for alias, value in configured.items()}
+        config_path = runtime_home / "config.json"
+        digest = hashlib.sha256(config_path.read_bytes()).hexdigest() if config_path.is_file() else None
         return roots, {
-            "status": "loaded",
-            "sha256": hashlib.sha256(data).hexdigest(),
+            "status": "loaded" if roots else "not_configured",
+            "source": "config.json",
+            "sha256": digest,
             "root_count": len(roots),
         }
-    except Exception as exc:  # evidence trust config cannot authorize dispatch
+    except (VoyagerUserConfigError, OSError) as exc:
         return {}, {
             "status": "invalid",
+            "source": "config.json",
             "sha256": None,
             "root_count": 0,
             "error": type(exc).__name__,
@@ -406,7 +397,7 @@ class ModelRoutingProfiles:
             "sha256": loaded.sha256,
             "profile_count": loaded.profile_count,
             "updated_at": loaded.updated_at,
-            "evidence_roots_file": str(home / _EVIDENCE_ROOTS_FILE),
+            "evidence_roots_config": str(home / "config.json"),
             "required_evidence_root_aliases": required_aliases,
             "selection_performed": False,
             "dispatch_performed": False,

@@ -10,6 +10,8 @@ from agent_runtime.domain.crew import CrewDescriptor, ModelDescriptor
 from agent_runtime.application.crew.service import CrewProvider, CrewRegistryService
 from agent_runtime.application.crew.routing_profiles import ModelRoutingProfile, ModelRoutingProfiles
 
+from agent_runtime.configuration import VoyagerUserConfig
+
 
 class ModelRoutingProfilesTests(unittest.TestCase):
     def test_missing_operator_file_uses_read_only_bundled_baseline(self) -> None:
@@ -59,7 +61,7 @@ class ModelRoutingProfilesTests(unittest.TestCase):
         root = Path(self._tmpdir())
         root.mkdir(parents=True, exist_ok=True)
         (root / "model_routing_profiles.json").write_text(
-            '{"schema":"tp-voyager.model_routing_profiles/v1","profiles":{"qoder:lite":{"capability_tier":"L0"},"qoder:lite":{"capability_tier":"L1"}}}',
+            '{"schema":"tp-voyager.model_routing_profiles/v1","profiles":{"qoder:Lite":{"capability_tier":"L0"},"qoder:Lite":{"capability_tier":"L1"}}}',
             encoding="utf-8",
         )
         with self.assertRaises(ModelRoutingProfileError):
@@ -80,12 +82,12 @@ class ModelRoutingProfilesTests(unittest.TestCase):
             "codebuddy:kimi-k3-2", "codebuddy:kimi-k2.7", "codebuddy:kimi-k2.6",
             "codebuddy:deepseek-v4-pro", "codebuddy:deepseek-v4-flash",
             "qoder:auto", "qoder:ultimate", "qoder:performance", "qoder:efficient",
-            "qoder:lite", "qoder:cmodel", "qoder:qmodel_38max", "qoder:qmodel_latest",
+            "qoder:Lite", "qoder:cmodel", "qoder:qmodel_38max", "qoder:qmodel_latest",
             "qoder:qmodel", "qoder:kmodel_latest", "qoder:kmodel", "qoder:gm51model",
             "qoder:dmodel", "qoder:dfmodel", "qoder:mmodel",
         }
         self.assertEqual(set(profiles.route_ids()), expected)
-        self.assertEqual(profiles.get("qoder:lite")["capability_tier"], "L0")
+        self.assertEqual(profiles.get("qoder:Lite")["capability_tier"], "L0")
         self.assertEqual(profiles.get("codebuddy:hy3")["capability_tier"], "L1")
         deepseek = profiles.get("codebuddy:deepseek-v4-flash")
         self.assertEqual(deepseek["canonical_family"], "deepseek-v4-flash-0731")
@@ -108,7 +110,7 @@ class ModelRoutingProfilesTests(unittest.TestCase):
         (root / "model_routing_profiles.json").write_bytes(example.read_bytes())
         profiles = ModelRoutingProfiles.load(root)
         self.assertEqual(set(profiles.route_ids()), {
-            "qoder:lite", "codebuddy:hy3", "codebuddy:deepseek-v4-flash", "qoder:qmodel_38max"
+            "qoder:Lite", "codebuddy:hy3", "codebuddy:deepseek-v4-flash", "qoder:qmodel_38max"
         })
 
     def test_initialize_installs_bundled_baseline_without_overwriting_operator_file(self) -> None:
@@ -132,9 +134,9 @@ class ModelRoutingProfilesTests(unittest.TestCase):
         evidence = evidence_root / "models.md"
         evidence.write_text("operator model research\n", encoding="utf-8")
         digest = hashlib.sha256(evidence.read_bytes()).hexdigest()
-        (root / "model_evidence_roots.json").write_text(
-            json.dumps({"operator_model_research": str(evidence_root.resolve())}), encoding="utf-8"
-        )
+        config = VoyagerUserConfig.defaults(root).to_dict()
+        config["trusted_roots"]["model_evidence"] = {"operator_model_research": str(evidence_root.resolve())}
+        (root / "config.json").write_text(json.dumps(config), encoding="utf-8")
         payload = {
             "schema": "tp-voyager.model_routing_profiles/v1",
             "profiles": {
@@ -177,9 +179,9 @@ class ModelRoutingProfilesTests(unittest.TestCase):
         evidence_root = root / "research"
         evidence_root.mkdir(parents=True)
         (evidence_root / "models.md").write_text("new content", encoding="utf-8")
-        (root / "model_evidence_roots.json").write_text(
-            json.dumps({"operator_model_research": str(evidence_root.resolve())}), encoding="utf-8"
-        )
+        config = VoyagerUserConfig.defaults(root).to_dict()
+        config["trusted_roots"]["model_evidence"] = {"operator_model_research": str(evidence_root.resolve())}
+        (root / "config.json").write_text(json.dumps(config), encoding="utf-8")
         payload = {
             "schema": "tp-voyager.model_routing_profiles/v1",
             "profiles": {
@@ -228,7 +230,7 @@ class ModelRoutingProfilesTests(unittest.TestCase):
         for name, payload in {
             "unknown": {
                 "schema": "tp-voyager.model_routing_profiles/v1",
-                "profiles": {"qoder:lite": {"capability_tier": "L0", "score": 10}},
+                "profiles": {"qoder:Lite": {"capability_tier": "L0", "score": 10}},
             },
             "route": {
                 "schema": "tp-voyager.model_routing_profiles/v1",
@@ -408,7 +410,7 @@ class RoutableModelCatalogTests(unittest.TestCase):
         service = CrewRegistryService(
             {"qoder": CrewProvider(_crew_descriptor("qoder"), models=lambda: [model])},
             model_policy_loader=lambda: SimpleNamespace(
-                allowed_models=frozenset({"qoder:lite"}), sha256="policy123"
+                allowed_models=frozenset({"qoder:Lite"}), sha256="policy123"
             ),
             routing_profiles_loader=lambda: ModelRoutingProfiles(),
         )

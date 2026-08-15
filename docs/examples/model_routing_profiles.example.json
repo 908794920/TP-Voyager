@@ -2,7 +2,7 @@
   "schema": "tp-voyager.model_routing_profiles/v1",
   "updated_at": "2026-08-13",
   "profiles": {
-    "qoder:lite": {
+    "qoder:Lite": {
       "canonical_family": "qoder-lite-tier",
       "provider_identity": "dynamic_tier",
       "capability_tier": "L0",

@@ -1,7 +1,7 @@
 """Local operational CLI for the durable Sub-Agent Runtime.
 
-The CLI is read-only for Runtime task state.  Its only configuration mutation
-is the explicit ``model-routing-init`` bootstrap, plus explicitly requested
+The CLI is read-only for Runtime task state except for explicit ``init`` and
+``model-routing-init`` configuration bootstraps, plus explicitly requested
 Markdown/JSON export files.  It does not import the MCP server and cannot start,
 cancel, retry, resume, or mutate a task.
 """
@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_runtime.api.schemas import CAPTAIN_TOOL_NAMES
+from agent_runtime.configuration import VoyagerUserConfig, VoyagerUserConfigError
 from agent_runtime.application.crew.routing_profiles import (
     ModelRoutingProfileError,
     ModelRoutingProfiles,
@@ -109,7 +110,7 @@ def _doctor_projection(overview: dict[str, Any]) -> dict[str, Any]:
     projection = dict(overview)
     projection.update({
         "schema": "tp-voyager.doctor/v1",
-        "version": "1.0.6",
+        "version": "1.0.7",
         "ok": installation_ready,
         "runtime": {
             "ok": runtime_ok,
@@ -154,13 +155,13 @@ def _doctor_projection(overview: dict[str, Any]) -> dict[str, Any]:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="agent-runtime",
+        prog="tp-voyager",
         description="Local operations and read-only diagnostics for TP-Voyager Runtime.",
     )
     parser.add_argument(
         "--db",
         default="",
-        help="Runtime SQLite path (default: AGENT_RUNTIME_DB or runtime home)",
+        help="Runtime SQLite path (default: TP_VOYAGER_DB or TP-Voyager home)",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -172,8 +173,13 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     subparsers.add_parser(
+        "init",
+        help="Initialize ~/.tp-voyager user configuration and reviewed routing baseline",
+    )
+
+    subparsers.add_parser(
         "model-routing-init",
-        help="Install the reviewed model-routing baseline into Runtime Home without overwrite",
+        help="Install the reviewed model-routing baseline into TP-Voyager Home without overwrite",
     )
 
     audit_parser = subparsers.add_parser(
@@ -253,6 +259,25 @@ def main(argv: list[str] | None = None) -> int:
     resolution = resolve_runtime_database()
     path = Path(args.db).expanduser().resolve() if args.db else resolution.database
     try:
+        if args.command == "init":
+            home = canonical_runtime_home()
+            config_result = VoyagerUserConfig.initialize(home)
+            routing_path = home / "model_routing_profiles.json"
+            if routing_path.exists():
+                routing_result = {
+                    "status": "already_exists",
+                    "target": str(routing_path),
+                    "profile_count": ModelRoutingProfiles.load(home).profile_count,
+                }
+            else:
+                routing_result = ModelRoutingProfiles.initialize(home)
+            _json_print({
+                "schema": "tp-voyager.init/v1",
+                "home": str(home),
+                "config": config_result,
+                "model_routing_profiles": routing_result,
+            })
+            return 0
         if args.command == "model-routing-init":
             result = ModelRoutingProfiles.initialize(canonical_runtime_home())
             _json_print(result)
@@ -263,13 +288,8 @@ def main(argv: list[str] | None = None) -> int:
             overview = inspector.overview().to_dict()
             path_info = resolution.to_dict()
             if args.db:
-                path_info = {**path_info, "database": str(path), "path_source": "--db", "legacy_compat_active": False}
-            marker = path.parent / "migration-v2.json"
+                path_info = {**path_info, "database": str(path), "path_source": "--db"}
             overview["path_resolution"] = path_info
-            overview["home_migration"] = {
-                "marker_file": str(marker),
-                "marker_exists": marker.is_file(),
-            }
             doctor = _doctor_projection(overview)
             _json_print(doctor)
             if not doctor["schema_supported"]:

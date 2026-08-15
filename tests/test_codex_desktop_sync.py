@@ -26,10 +26,7 @@ class CodexDesktopSyncTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.sync = _module()
         cls.manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
-        cls.bindings = {
-            "repository_root": str(ROOT.resolve()),
-            "CODEBUDDY_CODE_PATH": "codebuddy-command",
-        }
+        cls.bindings = {"repository_root": str(ROOT.resolve())}
         cls.resolved_manifest = cls.sync.load_manifest(MANIFEST, bindings=cls.bindings)[0]
 
     def temp_path(self, name: str) -> Path:
@@ -42,10 +39,9 @@ class CodexDesktopSyncTests(unittest.TestCase):
         self.assertEqual(mcp["name"], "tp_voyager")
         self.assertEqual(mcp["command"], ["python", "-m", "agent_runtime.server"])
         self.assertEqual(mcp["cwd"], {"binding": "repository_root", "required": True})
-        self.assertEqual(mcp["env"]["QODER_CLI_PATH"], {"literal": r"~\.agent-runtime\bin\qodercli-qoder-client.cmd"})
-        self.assertEqual(mcp["env"]["CODEBUDDY_CODE_PATH"], {"binding": "CODEBUDDY_CODE_PATH", "required": True})
+        self.assertEqual(mcp["env"], {})
         self.assertEqual(self.resolved_manifest["cwd"], str(ROOT.resolve()))
-        self.assertEqual(self.resolved_manifest["env"]["CODEBUDDY_CODE_PATH"], "codebuddy-command")
+        self.assertEqual(self.resolved_manifest["env"], {})
         self.assertEqual(len(mcp["required_captain_tools"]), 6)
         source = SCRIPT.read_text(encoding="utf-8")
         self.assertNotIn("agent_runtime.server", source)
@@ -71,7 +67,7 @@ class CodexDesktopSyncTests(unittest.TestCase):
         self.assertIn('[mcp_servers.other]\ncommand = "other-server"', text)
         self.assertIn('trust_level = "trusted"', text)
         self.assertFalse(result["secrets_returned"])
-        self.assertEqual(result["entry"]["env_keys"], ["CODEBUDDY_CODE_PATH", "QODER_CLI_PATH"])
+        self.assertEqual(result["entry"]["env_keys"], [])
         serialized = json.dumps(result, ensure_ascii=False)
         for value in self.resolved_manifest["env"].values():
             self.assertNotIn(value, serialized)
@@ -100,6 +96,8 @@ class CodexDesktopSyncTests(unittest.TestCase):
         self.assertIn("startup_timeout_sec = 45", text)
         self.assertIn("# keep env comment", text)
         self.assertIn('CUSTOM_KEEP = "yes"', text)
+        self.assertNotIn('QODER_CLI_PATH = "old"', text)
+        self.assertNotIn('CODEBUDDY_CODE_PATH = "old"', text)
         self.assertNotIn('command = "old-python"', text)
         self.assertEqual(self.sync.check_text(text, self.resolved_manifest), [])
 

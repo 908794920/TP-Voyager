@@ -681,12 +681,15 @@ class CodeBuddyServerIntegrationTests(unittest.TestCase):
         self.assertTrue(registered["ok"], registered)
         runtime_home = Path(self.tmp.name) / "policy-home"
         runtime_home.mkdir()
-        policy_path = runtime_home / "dispatch_model_policy.json"
-        policy_path.write_text(json.dumps({
-            "require_explicit_model": True,
+        from agent_runtime.configuration.user_config import VoyagerUserConfig
+        policy_path = runtime_home / "config.json"
+        config = VoyagerUserConfig.defaults(runtime_home).to_dict()
+        config["dispatch"] = {
             "allowed_models": ["codebuddy:hy3"],
-            "task_preferences": {"preferred": ["codebuddy:hy3"]},
-        }), encoding="utf-8")
+            "preferred_models": ["codebuddy:hy3"],
+            "task_kind_allowed_models": {},
+        }
+        policy_path.write_text(json.dumps(config), encoding="utf-8")
         fake = FakeBackend(result=BackendResult(
             backend="codebuddy", stop_reason="success", answer="policy result",
             result={"backend": "codebuddy", "stopReason": "success"}, backend_session_id="cb-policy",
@@ -695,7 +698,7 @@ class CodeBuddyServerIntegrationTests(unittest.TestCase):
             objective="Inspect policy sample", crew="codebuddy", task_kind="research", model="hy3",
             cwd=str(self.cwd), context_id="ctx-policy", idempotency_key="policy-replay", timeout_seconds=10,
         )
-        with patch.dict(os.environ, {"AGENT_RUNTIME_HOME": str(runtime_home)}), patch(
+        with patch.dict(os.environ, {"TP_VOYAGER_HOME": str(runtime_home)}), patch(
             "agent_runtime.backends.codebuddy.captain_dispatch.resolve_codebuddy_cli", return_value="codebuddy"
         ), patch("agent_runtime.backends.codebuddy.captain_dispatch.load_codebuddy_sdk", return_value=object()), patch(
             "agent_runtime.server._create_codebuddy_backend", return_value=fake
@@ -704,11 +707,12 @@ class CodeBuddyServerIntegrationTests(unittest.TestCase):
             self.assertTrue(started["ok"], started)
             self.assertEqual(self.wait(started["task_id"])["state"], "completed")
             recorded_hash = started["effective_model_policy"]["policy_sha256"]
-            policy_path.write_text(json.dumps({
-                "require_explicit_model": True,
+            config["dispatch"] = {
                 "allowed_models": ["codebuddy:kimi"],
-                "task_preferences": {"preferred": ["codebuddy:kimi"]},
-            }), encoding="utf-8")
+                "preferred_models": ["codebuddy:kimi"],
+                "task_kind_allowed_models": {},
+            }
+            policy_path.write_text(json.dumps(config), encoding="utf-8")
             replay = self.server.task_dispatch(**kwargs)
             self.assertTrue(replay["ok"], replay)
             self.assertTrue(replay["replayed"])

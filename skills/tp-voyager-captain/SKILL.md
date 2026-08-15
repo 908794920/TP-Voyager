@@ -2,13 +2,13 @@
 name: tp-voyager-captain
 description: Route bounded work through TP-Voyager MCP.
 metadata:
-  version: "1.0.6"
+  version: "1.0.7"
   protocol: "tp-voyager-captain/v1"
 ---
 
 # TP-Voyager Captain Skill
 
-> Version: 1.0.6
+> Version: 1.0.7
 >
 > Role: Captain-side orchestration skill for TP-Voyager.
 >
@@ -102,7 +102,7 @@ Model `billing` and `capabilities` metadata are descriptive/reference facts
 with explicit sources. They are not scores, bills, or routing instructions.
 Usage Evidence remains the only task-level resource-consumption truth source.
 
-In v1.0.6, prefer the normalized route facts returned by
+In v1.0.7, prefer the normalized route facts returned by
 `crew_catalog(include_models=true)` instead of guessing model quality from an
 ID or display name.  For each candidate route, inspect at least:
 

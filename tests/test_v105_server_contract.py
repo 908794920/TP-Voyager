@@ -36,7 +36,7 @@ class V105ServerContractTests(unittest.TestCase):
             crew="qoder",
             task_kind="research",
             cwd=self.tmp.name,
-            model="lite",
+            model="Lite",
             idempotency_key=f"{run_id}-{step_key}",
             run_control={
                 "run_id": run_id,

@@ -16,7 +16,7 @@ class TestProfileTests(unittest.TestCase):
 
     def test_smoke_and_current_are_bounded_tp_voyager_surfaces(self) -> None:
         self.assertLessEqual(len(SMOKE_TARGETS), 20)
-        self.assertLessEqual(len(CURRENT_TARGETS), 11)
+        self.assertLessEqual(len(CURRENT_TARGETS), 12)
         smoke = {item.name for item in SMOKE_TARGETS}
         current = {item.name for item in CURRENT_TARGETS}
         self.assertTrue(any("test_patch_worker" in name for name in smoke))
@@ -24,6 +24,7 @@ class TestProfileTests(unittest.TestCase):
         for name in (
             "tests.test_codebuddy_backend", "tests.test_qoder_backend", "tests.test_crew_registry",
             "tests.test_captain_boundary", "tests.test_patch_worker",
+            "tests.test_v107_user_config",
         ):
             self.assertIn(name, current)
 
@@ -36,6 +37,7 @@ class TestProfileTests(unittest.TestCase):
         self.assertIn("test_runtime_reconciliation", REGRESSION_MODULES)
         self.assertIn("test_v105_flow_control", REGRESSION_MODULES)
         self.assertIn("test_v105_server_contract", REGRESSION_MODULES)
+        self.assertIn("test_v107_user_config", REGRESSION_MODULES)
 
     def test_release_is_regression_plus_stress(self) -> None:
         self.assertEqual(profile_targets("release"), profile_targets("regression") + profile_targets("stress"))

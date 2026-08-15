@@ -10,11 +10,18 @@ from pathlib import Path
 from typing import Sequence
 
 from agent_runtime.backends.errors import BackendUnavailableError
+from agent_runtime.configuration import VoyagerUserConfig, VoyagerUserConfigError
 
 
 def resolve_qoder_cli() -> str:
-    """Resolve qodercli without exposing the path through public APIs."""
-    configured = (os.environ.get("QODER_CLI_PATH") or "").strip()
+    """Resolve Qoder as env override -> user config -> PATH."""
+    try:
+        crew = VoyagerUserConfig.load().crew.qoder
+    except VoyagerUserConfigError as exc:
+        raise BackendUnavailableError("TP-Voyager user config is invalid") from exc
+    if not crew.enabled:
+        raise BackendUnavailableError("Qoder Crew is disabled in TP-Voyager config")
+    configured = (os.environ.get("QODER_CLI_PATH") or "").strip() or crew.cli_path
     if configured:
         path = Path(configured).expanduser()
         if path.is_file():
