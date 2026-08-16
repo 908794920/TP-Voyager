@@ -63,6 +63,14 @@ def terminate_process_tree(process: subprocess.Popen[bytes], timeout: float = 5.
                 timeout=timeout,
                 check=False,
             )
+            # taskkill returns after requesting tree termination; wait for the
+            # root handle to release its cwd/files before the caller removes
+            # a disposable read-scope snapshot on Windows.
+            try:
+                process.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=timeout)
         else:
             os.killpg(process.pid, signal.SIGTERM)
             try:

@@ -20,7 +20,7 @@ from agent_runtime.backends.errors import BackendProtocolError
 from agent_runtime.application.context_service import ProjectContextService
 from agent_runtime.application.task_service import TaskService
 from agent_runtime.application.dispatch.repository_research import RepositoryResearchService
-from agent_runtime.domain.dispatch import CaptainDispatchRequest
+from agent_runtime.domain.dispatch import CaptainDispatchRequest, ModelParameters
 from agent_runtime.domain.artifact import Artifact
 from agent_runtime.domain.session import Session
 from agent_runtime.domain.task import Task
@@ -161,6 +161,7 @@ class CodeBuddyProbeTests(unittest.TestCase):
             patch("agent_runtime.backends.codebuddy.process.subprocess.run", return_value=completed),
             patch("agent_runtime.backends.codebuddy.process.importlib.util.find_spec", return_value=object()),
             patch.dict("os.environ", {}, clear=True),
+            patch.object(Path, "home", return_value=Path(tempfile.gettempdir())),
         ):
             result = probe_codebuddy_cli()
         self.assertTrue(result["installed"])
@@ -191,6 +192,7 @@ class CodeBuddySdkClientTests(unittest.TestCase):
             result = client.run(
                 prompt="analyze supplied context",
                 model="hy3",
+                reasoning_effort="high",
                 idle_timeout_seconds=5,
                 max_task_duration_seconds=30,
                 on_dispatch_accepted=accept,
@@ -209,6 +211,7 @@ class CodeBuddySdkClientTests(unittest.TestCase):
         self.assertEqual(options["setting_sources"], [])
         self.assertEqual(options["env"]["CODEBUDDY_INTERNET_ENVIRONMENT"], "internal")
         self.assertEqual(options["model"], "hy3")
+        self.assertEqual(options["effort"], "high")
         import uuid
         self.assertEqual(str(uuid.UUID(accepted[0])), accepted[0])
         self.assertLess(FakeSdkClient.events.index("accepted"), FakeSdkClient.events.index("query"))
@@ -450,6 +453,16 @@ class CodeBuddyCaptainDispatchTests(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertEqual(result["reason_code"], "CONTEXT_REQUIRED")
         self.assertFalse(result["dispatch_performed"])
+
+    def test_context_window_parameter_is_rejected_before_task_creation(self) -> None:
+        launch = _FakeLaunchService()
+        result = self.dispatcher(launch)(self.request(
+            model="deepseek-v4-flash",
+            model_parameters=ModelParameters(context_window_tokens=200000),
+        ))
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["reason_code"], "MODEL_PARAMETERS_UNSUPPORTED")
+        self.assertEqual(launch.requests, [])
 
     def test_context_drift_blocks_before_task_creation(self) -> None:
         launch = _FakeLaunchService()

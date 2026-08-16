@@ -71,7 +71,7 @@ _EVIDENCE_REF_KINDS = frozenset({"url", "trusted_file"})
 _CAPABILITY_TIERS = frozenset({"L0", "L1", "L2", "L3", "UNCLASSIFIED", "DYNAMIC"})
 _TIER_AUTHORITIES = frozenset({"standard_v1", "standard_v1_uncalibrated", "provider_dynamic"})
 _RETIRED_ROUTES = frozenset({"qoder:auto"})
-_DYNAMIC_LABELS = {"qoder:ultimate": "Ultimate", "qoder:performance": "Performance", "qoder:efficient": "Efficient", "qoder:Lite": "Lite"}
+_DYNAMIC_LABELS = {"qoder:ultimate": "Ultimate", "qoder:performance": "Performance", "qoder:efficient": "Efficient", "qoder:lite": "Lite"}
 _MAX_PROFILES = 256
 _MAX_LIST_ITEMS = 32
 _MAX_TEXT_LENGTH = 320
@@ -816,4 +816,3 @@ class ModelRoutingProfiles:
             raise
         result["sha256"] = reloaded.sha256
         return result
-

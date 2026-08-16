@@ -70,7 +70,7 @@ class ModelRoutingProfilesTests(unittest.TestCase):
         root = Path(self._tmpdir())
         root.mkdir(parents=True, exist_ok=True)
         (root / "model_routing_profiles.json").write_text(
-            '{"schema":"tp-voyager.model_routing_profiles/v1","profiles":{"qoder:Lite":{"capability_tier":"L0"},"qoder:Lite":{"capability_tier":"L1"}}}',
+            '{"schema":"tp-voyager.model_routing_profiles/v1","profiles":{"qoder:lite":{"capability_tier":"L0"},"qoder:lite":{"capability_tier":"L1"}}}',
             encoding="utf-8",
         )
         with self.assertRaises(ModelRoutingProfileError):
@@ -91,12 +91,12 @@ class ModelRoutingProfilesTests(unittest.TestCase):
             "codebuddy:kimi-k3-2", "codebuddy:kimi-k2.7", "codebuddy:kimi-k2.6",
             "codebuddy:deepseek-v4-pro", "codebuddy:deepseek-v4-flash", "codebuddy:glm-5.3",
             "qoder:ultimate", "qoder:performance", "qoder:efficient",
-            "qoder:Lite", "qoder:cmodel", "qoder:qmodel_38max", "qoder:qmodel_latest",
+            "qoder:lite", "qoder:cmodel", "qoder:qmodel_38max", "qoder:qmodel_latest",
             "qoder:qmodel", "qoder:kmodel_latest", "qoder:kmodel", "qoder:gm51model",
             "qoder:dmodel", "qoder:dfmodel", "qoder:mmodel",
         }
         self.assertEqual(set(profiles.route_ids()), expected)
-        lite = profiles.get("qoder:Lite")
+        lite = profiles.get("qoder:lite")
         self.assertEqual(lite["capability_tier"], "DYNAMIC")
         self.assertEqual(lite["provider_tier_label"], "Lite")
         self.assertEqual(lite["tier_authority"], "provider_dynamic")
@@ -127,7 +127,7 @@ class ModelRoutingProfilesTests(unittest.TestCase):
         (root / "model_routing_profiles.json").write_bytes(example.read_bytes())
         profiles = ModelRoutingProfiles.load(root)
         self.assertEqual(set(profiles.route_ids()), {
-            "qoder:Lite", "codebuddy:hy3", "codebuddy:deepseek-v4-flash", "qoder:qmodel_38max"
+            "qoder:lite", "codebuddy:hy3", "codebuddy:deepseek-v4-flash", "qoder:qmodel_38max"
         })
 
     def test_initialize_installs_bundled_baseline_without_overwriting_operator_file(self) -> None:
@@ -249,7 +249,7 @@ class ModelRoutingProfilesTests(unittest.TestCase):
         for name, payload in {
             "unknown": {
                 "schema": "tp-voyager.model_routing_profiles/v1",
-                "profiles": {"qoder:Lite": {"capability_tier": "L0", "score": 10}},
+                "profiles": {"qoder:lite": {"capability_tier": "L0", "score": 10}},
             },
             "route": {
                 "schema": "tp-voyager.model_routing_profiles/v1",
@@ -429,7 +429,7 @@ class RoutableModelCatalogTests(unittest.TestCase):
         service = CrewRegistryService(
             {"qoder": CrewProvider(_crew_descriptor("qoder"), models=lambda: [model])},
             model_policy_loader=lambda: SimpleNamespace(
-                allowed_models=frozenset({"qoder:Lite"}), sha256="policy123"
+                allowed_models=frozenset({"qoder:lite"}), sha256="policy123"
             ),
             routing_profiles_loader=lambda: ModelRoutingProfiles(),
         )

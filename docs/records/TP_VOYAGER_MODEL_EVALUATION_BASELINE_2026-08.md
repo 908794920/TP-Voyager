@@ -28,7 +28,7 @@ This record describes the persisted Standard v1 scorecard snapshot shipped on th
 | `qoder:ultimate` | Ultimate | DYNAMIC | provider_dynamic | null |
 | `qoder:performance` | Performance | DYNAMIC | provider_dynamic | null |
 | `qoder:efficient` | Efficient | DYNAMIC | provider_dynamic | null |
-| `qoder:Lite` | Lite | DYNAMIC | provider_dynamic | null |
+| `qoder:lite` | Lite | DYNAMIC | provider_dynamic | null |
 
 `qoder:auto` is retired and absent.
 

@@ -60,7 +60,7 @@ See `docs/MODEL_EVALUATION_STANDARD.md` for migration guarantees.
     "allowed_models": [
       "codebuddy:hy3",
       "codebuddy:deepseek-v4-flash",
-      "qoder:Lite",
+      "qoder:lite",
       "qoder:qmodel_38max"
     ]
   }
@@ -68,6 +68,35 @@ See `docs/MODEL_EVALUATION_STANDARD.md` for migration guarantees.
 ```
 
 A high Tier does not authorize a route, and an allowed route does not imply a high Tier.
+
+The dispatch identifier is case-sensitive. The live Qoder Lite route is
+`qoder:lite`; its Provider display label is `Lite` and is not a route ID.
+
+## 3.1 Execution parameters and Usage
+
+`task_dispatch` may carry `model_parameters` only with an explicit model:
+
+```json
+{"reasoning_effort":"medium","context_window_tokens":200000}
+```
+
+Before creating a task, Runtime checks the selected model's current Provider
+descriptor. The requested effort must be declared for that model; for Qoder,
+the requested context window must exactly match a declared context value.
+Missing, unknown, or unsupported capability facts reject the request without
+creating a task.
+
+CodeBuddy supports `reasoning_effort` on its controlled SDK route but does not
+expose a controlled per-session context-window setting. Qoder starts the ACP
+session with the official `qodercli --context-window <tokens>` option and uses
+ACP configuration only for thought level. Neither backend silently ignores or
+changes a requested setting.
+
+`task_result.usage` is Provider-observed evidence, not a price calculator. It
+returns actual `input_tokens`, `output_tokens`, `credits_used`,
+`reported_cost`, and `currency` only when supplied by the Provider. Otherwise
+the status is `provider_omitted`; an unrecognized Provider payload is reported
+as `protocol_unrecognized`.
 
 ## 4. Model Evaluation Standard v1
 

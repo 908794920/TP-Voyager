@@ -54,6 +54,7 @@ class FakeAcpProcess:
         self.pid = 4321
         self.returncode = None
         self.config_requests: list[tuple[str, str]] = []
+        self.prompt_requests = 0
         self.initialize_params: list[dict] = []
         self.commands: list[list[str]] = []
 
@@ -92,6 +93,13 @@ class FakeAcpProcess:
                             {"name": "High", "value": "high"},
                         ],
                     },
+                    {
+                        "id": "context-window",
+                        "category": "context_window",
+                        "options": [
+                            {"name": "200K", "value": "200000"},
+                        ],
+                    },
                 ],
             }
         elif method == "session/set_config_option":
@@ -99,6 +107,7 @@ class FakeAcpProcess:
             self.config_requests.append((params["configId"], params["value"]))
             result = {"configOptions": []}
         elif method == "session/prompt":
+            self.prompt_requests += 1
             self.stdout.push(
                 {
                     "jsonrpc": "2.0",
@@ -139,18 +148,20 @@ class QoderAcpProtocolTests(unittest.TestCase):
         fake = FakeAcpProcess()
         activity: list[str] = []
         with (
-            patch("agent_runtime.backends.qoder.acp_client.popen_command", return_value=fake),
+            patch("agent_runtime.backends.qoder.acp_client.popen_command", return_value=fake) as spawn,
             patch("agent_runtime.backends.qoder.acp_client.terminate_process_tree"),
         ):
             client = QoderAcpClient(
                 cwd=str(Path.cwd()),
                 cli_path="qodercli",
                 on_activity=lambda item: activity.append(item.kind),
+                context_window_tokens=200000,
             )
             result = client.run(
                 prompt="do work",
                 model="model-2",
                 reasoning_effort="high",
+                context_window_tokens=200000,
                 idle_timeout_seconds=5,
                 max_task_duration_seconds=10,
                 on_dispatch_accepted=lambda session_id: self.assertEqual(
@@ -163,9 +174,11 @@ class QoderAcpProtocolTests(unittest.TestCase):
             fake.config_requests,
             [("active-model", "model-2"), ("thought-depth", "high")],
         )
+        self.assertEqual(list(spawn.call_args.args[0]), ["qodercli", "--acp", "--context-window", "200000"])
         self.assertEqual(result.answer, "protocol answer")
         self.assertTrue(result.model_applied)
         self.assertTrue(result.reasoning_effort_applied)
+        self.assertTrue(result.context_window_tokens_applied)
         self.assertEqual(result.usage["inputTokens"], 12)
         self.assertEqual(result.usage["outputTokens"], 3)
         self.assertGreaterEqual(activity.count("stream_activity"), 2)
@@ -207,6 +220,96 @@ class QoderAcpProtocolTests(unittest.TestCase):
                 {"options": [{"kind": "allow_once", "optionId": "allow"}]},
             )
             self.assertEqual(permission, {"outcome": {"outcome": "cancelled"}})
+            client.close()
+
+    def test_requested_context_window_is_a_cli_start_option_not_an_acp_config_option(self) -> None:
+        fake = FakeAcpProcess()
+        original_handle = fake.handle
+
+        def without_config_options(message: dict) -> None:
+            if message.get("method") == "session/new":
+                request_id = message.get("id")
+                fake.stdout.push({
+                    "jsonrpc": "2.0", "id": request_id,
+                    "result": {"sessionId": "session-protocol", "configOptions": []},
+                })
+                return
+            original_handle(message)
+
+        fake.handle = without_config_options  # type: ignore[method-assign]
+        with (
+            patch("agent_runtime.backends.qoder.acp_client.popen_command", return_value=fake),
+            patch("agent_runtime.backends.qoder.acp_client.terminate_process_tree"),
+        ):
+            client = QoderAcpClient(
+                cwd=str(Path.cwd()), cli_path="qodercli", on_activity=lambda item: None,
+                context_window_tokens=200000,
+            )
+            result = client.run(
+                prompt="inspect", model="model-2", context_window_tokens=200000,
+                idle_timeout_seconds=5, max_task_duration_seconds=10,
+                on_dispatch_accepted=lambda session_id: None,
+            )
+            client.close()
+        self.assertEqual(fake.prompt_requests, 1)
+        self.assertTrue(result.context_window_tokens_applied)
+
+    def test_requested_effort_without_declared_acp_option_rejects_before_prompt(self) -> None:
+        fake = FakeAcpProcess()
+        original_handle = fake.handle
+
+        def without_thought_level(message: dict) -> None:
+            if message.get("method") == "session/new":
+                request_id = message.get("id")
+                fake.stdout.push({
+                    "jsonrpc": "2.0", "id": request_id,
+                    "result": {
+                        "sessionId": "session-protocol",
+                        "configOptions": [{
+                            "id": "active-model", "category": "model",
+                            "options": [{"name": "Model Two", "value": "model-2"}],
+                        }],
+                    },
+                })
+                return
+            original_handle(message)
+
+        fake.handle = without_thought_level  # type: ignore[method-assign]
+        with (
+            patch("agent_runtime.backends.qoder.acp_client.popen_command", return_value=fake),
+            patch("agent_runtime.backends.qoder.acp_client.terminate_process_tree"),
+        ):
+            client = QoderAcpClient(cwd=str(Path.cwd()), cli_path="qodercli", on_activity=lambda item: None)
+            with self.assertRaisesRegex(Exception, "thinking effort"):
+                client.run(
+                    prompt="inspect", model="model-2", reasoning_effort="medium",
+                    idle_timeout_seconds=5, max_task_duration_seconds=10,
+                    on_dispatch_accepted=lambda session_id: None,
+                )
+            client.close()
+        self.assertEqual(fake.prompt_requests, 0)
+
+    def test_denied_agent_callback_records_content_free_diagnostic(self) -> None:
+        fake = FakeAcpProcess()
+        with (
+            patch("agent_runtime.backends.qoder.acp_client.popen_command", return_value=fake),
+            patch("agent_runtime.backends.qoder.acp_client.terminate_process_tree"),
+        ):
+            client = QoderAcpClient(
+                cwd=str(Path.cwd()), cli_path="qodercli", on_activity=lambda item: None,
+                read_only=True, allow_permissions=False,
+            )
+            client._handle_agent_request({
+                "jsonrpc": "2.0", "id": 99, "method": "terminal/create", "params": {},
+            })
+            self.assertEqual(
+                client.agent_request_diagnostics(),
+                [{"method": "terminal/create", "error": "PermissionError"}],
+            )
+            with self.assertRaisesRegex(
+                Exception, r"agent_callback=terminal/create:PermissionError"
+            ):
+                client._unwrap_response({"error": {"message": "PermissionError"}})
             client.close()
 
     def test_patch_policy_bounds_paths_commands_and_unknown_permissions(self) -> None:

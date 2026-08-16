@@ -13,7 +13,7 @@ from typing import Any, Callable, Mapping
 
 from agent_runtime.application.crew import CrewRegistryService
 from agent_runtime.application.dispatch.policy import DispatchModelPolicyError, GlobalDispatchModelPolicy
-from agent_runtime.domain.dispatch import CaptainDispatchRequest
+from agent_runtime.domain.dispatch import CaptainDispatchRequest, ModelParameters
 from agent_runtime.domain.crew_outcome import OUTCOME_PROMPT_CONTRACT
 from agent_runtime.persistence.errors import RuntimePersistenceError
 
@@ -43,6 +43,99 @@ class CaptainDispatchService:
         }
         self._global_model_policy = global_model_policy
         self._artifact_loader = artifact_loader
+
+    def _validate_model_parameters(
+        self,
+        *,
+        crew: str,
+        model: str,
+        parameters: ModelParameters | None,
+    ) -> tuple[str, str] | None:
+        """Fail closed when the live selected-model facts cannot support a setting."""
+        if parameters is None:
+            return None
+        if not model:
+            return (
+                "MODEL_PARAMETERS_CAPABILITY_UNKNOWN",
+                "model_parameters require an explicit model with current provider capability facts",
+            )
+        try:
+            descriptor = next(
+                (item for item in self._registry.models(crew) if item.model_id == model),
+                None,
+            )
+        except ValueError:
+            descriptor = None
+        if descriptor is None:
+            return (
+                "MODEL_PARAMETERS_CAPABILITY_UNKNOWN",
+                "selected model is not present in the current provider capability catalog",
+            )
+        metadata = descriptor.metadata if isinstance(descriptor.metadata, dict) else {}
+        if parameters.reasoning_effort:
+            efforts = self._supported_efforts(metadata)
+            if not self._effort_support_known(metadata):
+                return (
+                    "MODEL_PARAMETERS_CAPABILITY_UNKNOWN",
+                    "selected model does not declare current reasoning-effort capability",
+                )
+            if parameters.reasoning_effort not in efforts:
+                return (
+                    "MODEL_PARAMETERS_UNSUPPORTED_EFFORT",
+                    "requested reasoning_effort is not supported by the selected model",
+                )
+        if parameters.context_window_tokens is not None and crew == "qoder":
+            windows = self._context_windows(metadata)
+            if not windows:
+                return (
+                    "MODEL_PARAMETERS_CAPABILITY_UNKNOWN",
+                    "selected Qoder model does not declare current context-window capability",
+                )
+            if parameters.context_window_tokens not in windows:
+                return (
+                    "MODEL_PARAMETERS_UNSUPPORTED_CONTEXT",
+                    "requested context_window_tokens is not supported by the selected model",
+                )
+        return None
+
+    @staticmethod
+    def _supported_efforts(metadata: Mapping[str, Any]) -> set[str]:
+        direct = metadata.get("supported_efforts")
+        if isinstance(direct, (list, tuple)):
+            return {str(item).strip().lower() for item in direct if str(item).strip()}
+        thinking = metadata.get("thinking_config")
+        if not isinstance(thinking, dict):
+            return set()
+        for key in ("supported_efforts", "reasoning_efforts", "efforts"):
+            values = thinking.get(key)
+            if isinstance(values, (list, tuple)):
+                return {str(item).strip().lower() for item in values if str(item).strip()}
+        enabled = thinking.get("enabled")
+        if isinstance(enabled, dict) and isinstance(enabled.get("efforts"), dict):
+            return {str(item).strip().lower() for item in enabled["efforts"] if str(item).strip()}
+        return set()
+
+    @staticmethod
+    def _effort_support_known(metadata: Mapping[str, Any]) -> bool:
+        return (
+            "supported_efforts" in metadata
+            or "effort_support_status" in metadata
+            or isinstance(metadata.get("thinking_config"), dict)
+        )
+
+    @staticmethod
+    def _context_windows(metadata: Mapping[str, Any]) -> set[int]:
+        config = metadata.get("context_config")
+        if not isinstance(config, dict):
+            return set()
+        windows: set[int] = set()
+        for item in config.values():
+            if not isinstance(item, dict):
+                continue
+            count = item.get("token_count")
+            if isinstance(count, int) and not isinstance(count, bool) and count > 0:
+                windows.add(count)
+        return windows
 
     def dispatch(self, request: CaptainDispatchRequest) -> dict[str, Any]:
         objective = str(request.objective or "").strip()
@@ -98,6 +191,15 @@ class CaptainDispatchService:
                     crew=crew,
                     task_kind=kind,
                 )
+
+        parameter_error = self._validate_model_parameters(
+            crew=crew,
+            model=selected_model,
+            parameters=request.model_parameters,
+        )
+        if parameter_error is not None:
+            reason_code, message = parameter_error
+            return self._reject(reason_code, message, crew=crew, task_kind=kind)
             if selected_model not in request.model_policy.allowed_models and selected_model_key not in request.model_policy.allowed_models:
                 return self._reject(
                     "MODEL_NOT_ALLOWED",

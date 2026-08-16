@@ -16,7 +16,7 @@ Crew
 └── Qoder CLI
 ```
 
-> 当前版本：**v1.0.7 — Unified User Configuration & TP-Voyager Home**
+> 当前版本：**v1.0.7 — User Configuration, Dispatch Hardening & TP-Voyager Home**
 
 ## 为什么需要 TP-Voyager
 
@@ -30,7 +30,7 @@ TP-Voyager 把这些问题收在执行层：
 - **Verification + Evidence**：把测试、Patch、Usage、执行结果变成可追溯事实；
 - **小型 Captain Surface**：正常只需要 6 个 MCP 工具，不要求 Captain 理解 Runtime 内部实现。
 
-## v1.0.7：统一用户配置
+## v1.0.7：统一配置与受控执行
 
 TP-Voyager 的机器级配置统一放在用户目录：
 
@@ -69,7 +69,7 @@ Routable Model Catalog
 Captain 自己选 Crew / Model / Effort
 ```
 
-TP-Voyager **不自动给模型打综合分，也不替 Captain 选模型**；真正执行仍必须显式下发 Crew / model，`reasoning_effort` 只有当前 Backend route 明确支持时才传。详细配置见 [模型路由目录](docs/MODEL_ROUTING.md)。
+TP-Voyager **不自动给模型打综合分，也不替 Captain 选模型**；真正执行仍必须显式下发 Crew / model。可选执行设置统一放入 `model_parameters`：`reasoning_effort` 只有当前 Backend route 明确支持时才传；Qoder 的 `context_window_tokens` 通过官方 `qodercli --context-window <tokens>` 在 ACP 会话启动前固定下发。详细配置见 [模型路由目录](docs/MODEL_ROUTING.md)。
 
 ## 支持的 Crew
 
@@ -144,7 +144,7 @@ $env:TP_VOYAGER_PYTHON = "D:\path\to\python.exe"
   },
   "dispatch": {
     "allowed_models": [
-      "qoder:Lite",
+      "qoder:lite",
       "qoder:qmodel_38max",
       "codebuddy:hy3",
       "codebuddy:deepseek-v4-flash"
@@ -198,6 +198,14 @@ task_result + Verification / Evidence
       ↓
 Captain 验收
 ```
+
+`task_dispatch` 的可选 `model_parameters` 必须绑定显式 `model`，例如
+`{"reasoning_effort":"high"}`，或 Qoder 的
+`{"reasoning_effort":"medium","context_window_tokens":200000}`。结果会同时保留请求值和后端实际应用状态；不会自动降级、替换模型或重试。
+
+当 Captain 提供参数时，TP-Voyager 还会用当前 Provider 动态目录在创建任务前验证：思考档必须在该模型声明的 effort 列表中；Qoder 上下文必须是该模型声明的 context-window 值。目录未知、不支持或不兼容均会明确拒绝。`task_result.usage` 只显示 Provider 实报的 `input_tokens`、`output_tokens`、`credits_used`、`reported_cost` 和 `currency`；若没有实报，返回 `{"status":"provider_omitted"}`，绝不按模型倍率估算。
+
+Qoder 的可下发 ID 为小写的 `qoder:lite`（任务中的 `model="lite"`）；`Lite` 只是 Provider 展示名称。不要把显示名称写入 allowlist 或 dispatch 请求。
 
 `crew_recommend` 只做 **Crew 受控能力/健康度** 的辅助判断，不是模型自动路由器。
 

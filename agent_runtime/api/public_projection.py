@@ -19,6 +19,8 @@ def result_summary(task: TaskState) -> dict[str, Any] | None:
         "backend": result.get("backend") or task.route or None,
         "stop_reason": result.get("stopReason") or task.terminal_reason,
         "reasoning_effort_applied": result.get("reasoning_effort_applied"),
+        "context_window_tokens_requested": result.get("context_window_tokens_requested"),
+        "context_window_tokens_applied": result.get("context_window_tokens_applied"),
     }
     verification = result.get("verification")
     if isinstance(verification, dict):
@@ -116,5 +118,4 @@ def public_task(task: TaskState) -> dict[str, Any]:
         "result_summary": result_summary(task) if task.state == "completed" else None,
         "error": safe_public_error(task.error, task.terminal_reason),
     }
-
 

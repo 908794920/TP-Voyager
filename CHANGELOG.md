@@ -4,6 +4,11 @@
 
 ### v1.0.7 Hardening Closure
 
+- Added `model_parameters` preflight against the current selected-model catalog. Unsupported or unknown reasoning effort and Qoder context windows fail before task creation; Runtime never substitutes, downgrades, or retries a model.
+- Qoder applies `context_window_tokens` through the official per-session `qodercli --context-window` startup flag and accepts requested thinking effort only after ACP configuration acknowledges it. `task_result` records requested and applied state.
+- Public task Usage is now an explicit Provider-evidence projection: observed quantities are returned when supplied; missing Provider data is `provider_omitted`, and unrecognized protocol shapes remain distinct. TP-Voyager does not estimate tokens, credits, or cost.
+- Canonicalized the Qoder Lite dispatch route to `qoder:lite`; `Lite` remains only the Provider display label. Default configuration, bundled routing profiles, examples, and tests use the same ID.
+- Made Qoder server integration tests use an isolated TP-Voyager Home so their policy behavior does not depend on an operator's local configuration.
 - Fixed component-prefix path authorization so dot-prefixed siblings such as `.src`, `.env`, and `.github` cannot alias Captain-approved `src`, `env`, or `github`; CodeBuddy, Qoder, and final Verification now share one canonical matcher.
 - Added a transactional, lease-fenced backend dispatch acceptance gate. A stale worker must pass owner/generation/DB-time expiry, task-version, non-terminal, and backend-session checks in one transaction before a real Provider prompt may be sent. Worker-owned lifecycle/activity writes are lease fenced as well.
 - Qoder bounded read-only execution now runs from a Runtime-owned snapshot containing only resolved `read_scope` files. This is workspace-exposure isolation, not an OS sandbox.
@@ -33,7 +38,7 @@ Unified User Configuration + TP-Voyager Home。把用户机器相关配置从散
 - `dispatch_model_policy.json`、`model_evidence_roots.json`、`trusted_instruction_roots.json` 与 worker-root 专用环境变量退出当前配置面；模型授权改由 `config.json.dispatch` 独占，能力资料仍独立保留在 `model_routing_profiles.json`；
 - Runtime 增加 `runtime.max_concurrent_tasks` admission guard，默认 4；并发达到上限时新任务以 `RUNTIME_BUSY` 明确拒绝，不静默无限起 worker thread；
 - Captain Codex Desktop manifest 不再绑定 Crew CLI 机器路径，安装 binding 只保留宿主安装必需信息；
-- Qoder Lite 的 dispatch/model-route 标识统一为 `qoder:Lite`，避免 policy/catalog/profile 出现大小写重复 route；
+- Qoder Lite 的 dispatch/model-route 标识统一为 `qoder:lite`，避免 policy/catalog/profile 出现大小写重复 route；
 - 正式版本号、Captain Skill、CodeBuddy catalog clientInfo、文档与启动脚本统一为 v1.0.7 / TP-Voyager 命名；内部 Python package `agent_runtime` 保持不变；
 - 移除 standalone Runtime Home migration utility 与旧路径自动选择；当前版本不读取 `.agent-runtime` / `AGENT_RUNTIME_*` / WorkBuddy Home。
 

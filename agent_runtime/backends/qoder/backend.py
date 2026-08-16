@@ -5,6 +5,7 @@ from __future__ import annotations
 import shutil
 import tempfile
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -35,6 +36,24 @@ class _LiveExecution:
     session_id: str = ""
     client: QoderAcpClient | None = None
     cancel_pending: bool = False
+
+
+def _cleanup_read_scope_snapshot(snapshot: tempfile.TemporaryDirectory[str]) -> bool:
+    """Best-effort cleanup that never converts a completed Crew task to failed.
+
+    On Windows, ``taskkill /T`` can return just before a Qoder descendant has
+    released the snapshot directory.  Retrying the narrow cleanup briefly
+    handles that normal race.  A remaining lock leaves only an OS-temp
+    directory for later cleanup; it must not erase an already obtained result.
+    """
+    for attempt in range(20):
+        try:
+            snapshot.cleanup()
+            return True
+        except PermissionError:
+            if attempt < 19:
+                time.sleep(0.1)
+    return False
 
 
 
@@ -277,6 +296,7 @@ class QoderBackend:
                     client = factory(
                         cwd=str(snapshot_root),
                         on_activity=callbacks.on_activity,
+                        context_window_tokens=request.context_window_tokens,
                         allowed_paths=resolved_files,
                         forbidden_paths=(".git", ".codebuddy", ".qoder"),
                     )
@@ -290,6 +310,7 @@ class QoderBackend:
             client = factory(
                 cwd=request.cwd,
                 on_activity=callbacks.on_activity,
+                context_window_tokens=request.context_window_tokens,
                 allowed_paths=tuple(str(item) for item in plan.get("allowed_paths", []) if isinstance(item, str)),
                 forbidden_paths=tuple(str(item) for item in plan.get("forbidden_paths", []) if isinstance(item, str)),
                 command_specs=tuple(command_specs),
@@ -313,6 +334,7 @@ class QoderBackend:
                 resume_session_id=resume_session_id,
                 model=request.model,
                 reasoning_effort=request.reasoning_effort,
+                context_window_tokens=request.context_window_tokens,
                 idle_timeout_seconds=request.idle_timeout_seconds,
                 max_task_duration_seconds=request.max_task_duration_seconds,
                 on_dispatch_accepted=accepted,
@@ -331,6 +353,7 @@ class QoderBackend:
                     "backend": "qoder",
                     "stopReason": result.stop_reason,
                     "reasoning_effort_applied": result.reasoning_effort_applied,
+                    "context_window_tokens_applied": result.context_window_tokens_applied,
                     "model_applied": result.model_applied,
                     "usage": usage_fact.to_dict() if usage_fact is not None else {},
                 },
@@ -359,4 +382,4 @@ class QoderBackend:
             client.close()
             self._unregister(request.task_id)
             if read_scope_snapshot is not None:
-                read_scope_snapshot.cleanup()
+                _cleanup_read_scope_snapshot(read_scope_snapshot)

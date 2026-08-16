@@ -128,7 +128,7 @@ class V105FlowControlTests(unittest.TestCase):
         self.assertEqual(created.outcome, "created")
         self.tasks.append_usage_evidence(
             "wb-usage",
-            usage=BackendUsage(provider="qoder", model="Lite", source="qoder_acp_usage_update", input_tokens=123, output_tokens=45).to_dict(),
+            usage=BackendUsage(provider="qoder", model="lite", source="qoder_acp_usage_update", input_tokens=123, output_tokens=45).to_dict(),
         )
         snapshot = self.tasks.get_run_control("run-usage")
         self.assertEqual(snapshot.input_tokens_consumed, 123)
@@ -139,7 +139,7 @@ class V105FlowControlTests(unittest.TestCase):
         trusted_root = self.root / "trusted"
         trusted_root.mkdir()
         instruction = trusted_root / "review.md"
-        instruction.write_text("Review only the requested scope.\n", encoding="utf-8")
+        instruction.write_bytes(b"Review only the requested scope.\n")
         digest = hashlib.sha256(instruction.read_bytes()).hexdigest()
         ref = TrustedInstructionRef("ai-work", "review.md", digest, 4096)
         resolved = resolve_trusted_instruction_refs((ref,), {"ai-work": trusted_root})
@@ -176,7 +176,7 @@ class V105FlowControlTests(unittest.TestCase):
         self.assertEqual(first.outcome, "created")
         self.tasks.append_usage_evidence(
             "wb-token-one",
-            usage=BackendUsage(provider="qoder", model="Lite", source="qoder_acp_usage_update", input_tokens=1000).to_dict(),
+            usage=BackendUsage(provider="qoder", model="lite", source="qoder_acp_usage_update", input_tokens=1000).to_dict(),
         )
         second = self._create("wb-token-two", step="s2", spec=spec, max_runtime=30.0)
         self.assertEqual(second.outcome, "budget_rejected")

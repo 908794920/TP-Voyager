@@ -57,7 +57,7 @@ class GlobalPolicyTests(unittest.TestCase):
             payload = VoyagerUserConfig.defaults(root).to_dict()
             text = json.dumps(payload)
             text = text.replace(
-                '"allowed_models": ["qoder:Lite", "qoder:qmodel_38max", "codebuddy:hy3", "codebuddy:deepseek-v4-flash"]',
+                '"allowed_models": ["qoder:lite", "qoder:qmodel_38max", "codebuddy:hy3", "codebuddy:deepseek-v4-flash"]',
                 '"allowed_models": ["codebuddy:hy3"], "allowed_models": ["codebuddy:kimi"]',
             )
             Path(root, "config.json").write_text(text, encoding="utf-8")

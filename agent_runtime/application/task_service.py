@@ -130,6 +130,7 @@ SAFE_METADATA_KEYS = (
     "model",
     "identity",
     "reasoning_effort",
+    "context_window_tokens",
     "resume_session_id",
     "review_target",
     "resume_review",

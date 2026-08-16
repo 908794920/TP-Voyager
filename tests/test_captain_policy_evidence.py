@@ -43,7 +43,7 @@ class CaptainPolicyEvidenceTests(unittest.TestCase):
     def test_usage_evidence_records_only_provider_reported_values(self) -> None:
         usage = BackendUsage(
             provider="qoder",
-            model="Lite",
+            model="lite",
             source="qoder_acp_usage_update",
             input_tokens=120,
             output_tokens=30,
@@ -97,7 +97,7 @@ class CaptainPolicyEvidenceTests(unittest.TestCase):
         backend = QoderBackend(read_only_acp_client_factory=lambda **kwargs: Client())
         request = BackendStartRequest(
             task_id="wb-timeout", attempt_id="at-timeout", runtime_session_id="rs-timeout",
-            prompt="inspect", cwd=str(self.root), model="Lite",
+            prompt="inspect", cwd=str(self.root), model="lite",
             metadata={"route": "acp_read_only"},
         )
         with self.assertRaises(BackendTimeoutError):
@@ -290,10 +290,10 @@ class CaptainPolicyEvidenceTests(unittest.TestCase):
         dynamic_service = CrewRegistryService(
             {"qoder": CrewProvider(
                 crew("qoder"),
-                models=lambda: [ModelDescriptor("qoder", "Lite", available=True, source="test_live")],
+                models=lambda: [ModelDescriptor("qoder", "lite", available=True, source="test_live")],
             )},
             model_policy_loader=lambda: SimpleNamespace(
-                allowed_models=frozenset({"qoder:Lite"}), sha256="policy"
+                allowed_models=frozenset({"qoder:lite"}), sha256="policy"
             ),
             routing_profiles_loader=lambda: profiles,
         )

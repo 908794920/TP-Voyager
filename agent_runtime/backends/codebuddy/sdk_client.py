@@ -140,6 +140,7 @@ class CodeBuddySdkClient:
         prompt: str,
         resume_session_id: str = "",
         model: str = "",
+        reasoning_effort: str = "",
         idle_timeout_seconds: float,
         max_task_duration_seconds: float,
         on_dispatch_accepted: Callable[[str], None],
@@ -158,6 +159,7 @@ class CodeBuddySdkClient:
                     prompt=prompt,
                     resume_session_id=resume_session_id,
                     model=model,
+                    reasoning_effort=reasoning_effort,
                     idle_timeout_seconds=float(idle_timeout_seconds),
                     max_task_duration_seconds=float(max_task_duration_seconds),
                     on_dispatch_accepted=on_dispatch_accepted,
@@ -200,6 +202,7 @@ class CodeBuddySdkClient:
         prompt: str,
         resume_session_id: str,
         model: str,
+        reasoning_effort: str,
         idle_timeout_seconds: float,
         max_task_duration_seconds: float,
         on_dispatch_accepted: Callable[[str], None],
@@ -214,6 +217,7 @@ class CodeBuddySdkClient:
             sdk,
             resume_session_id=resume_session_id,
             model=model,
+            reasoning_effort=reasoning_effort,
             session_id=dispatch_id,
         )
         client = sdk.CodeBuddySDKClient(options=options)
@@ -394,6 +398,7 @@ class CodeBuddySdkClient:
         *,
         resume_session_id: str,
         model: str,
+        reasoning_effort: str = "",
         session_id: str = "",
     ) -> Any:
         env: dict[str, str] = {}
@@ -486,6 +491,7 @@ class CodeBuddySdkClient:
         kwargs: dict[str, Any] = {
             "cwd": str(self.cwd),
             "model": model.strip() or None,
+            "effort": reasoning_effort.strip() or None,
             "resume": resume_session_id.strip() or None,
             "session_id": session_id.strip() or None,
             "max_turns": 30,
@@ -500,6 +506,13 @@ class CodeBuddySdkClient:
         }
         if self.cli_path:
             kwargs["codebuddy_code_path"] = self.cli_path
+        if reasoning_effort.strip():
+            # The SDK documents effort alongside a thinking configuration.
+            # Use its adaptive mode so the requested effort is carried without
+            # inventing a fixed token budget that the Captain did not select.
+            adaptive = getattr(sdk, "ThinkingConfigAdaptive", None)
+            if callable(adaptive):
+                kwargs["thinking"] = adaptive(type="adaptive")
         return sdk.CodeBuddyAgentOptions(**kwargs)
 
     async def _cancel_async(self, client: Any) -> None:

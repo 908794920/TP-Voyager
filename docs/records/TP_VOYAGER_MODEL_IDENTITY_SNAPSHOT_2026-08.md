@@ -28,7 +28,7 @@ The visible-name set below is the operator-supplied current-account snapshot. **
 | Ultimate | `qoder:ultimate` | `qoder-ultimate-tier` | FOUND / DYNAMIC |
 | Performance | `qoder:performance` | `qoder-performance-tier` | FOUND / DYNAMIC |
 | Efficient | `qoder:efficient` | `qoder-efficient-tier` | FOUND / DYNAMIC |
-| Lite | `qoder:Lite` | `qoder-lite-tier` | FOUND / DYNAMIC |
+| Lite | `qoder:lite` | `qoder-lite-tier` | FOUND / DYNAMIC |
 | Cantus | `qoder:cmodel` | `cantus` | FOUND route / public identity ambiguous |
 | Qwen3.8-Max | `qoder:qmodel_38max` | `qwen3.8-max` | FOUND route / public exact version ambiguous |
 | Qwen3.7-Max | `qoder:qmodel_latest` | `qwen3.7-max` | FOUND |

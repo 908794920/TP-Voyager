@@ -346,7 +346,7 @@ def test_current_bundled_baseline_retires_auto_and_persists_standard_scorecards(
 
     assert "qoder:auto" not in routes
     assert {p.route_id for p in dynamic} == {
-        "qoder:ultimate", "qoder:performance", "qoder:efficient", "qoder:Lite"
+        "qoder:ultimate", "qoder:performance", "qoder:efficient", "qoder:lite"
     }
     assert "codebuddy:glm-5.3" in routes
     assert profiles.schema == "tp-voyager.model_routing_profiles/v2"

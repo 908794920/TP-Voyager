@@ -135,7 +135,7 @@ class VoyagerUserConfigV107Tests(unittest.TestCase):
         self.assertEqual(
             config.dispatch.allowed_models,
             (
-                "qoder:Lite",
+                "qoder:lite",
                 "qoder:qmodel_38max",
                 "codebuddy:hy3",
                 "codebuddy:deepseek-v4-flash",

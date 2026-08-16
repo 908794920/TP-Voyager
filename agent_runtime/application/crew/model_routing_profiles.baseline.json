@@ -3161,7 +3161,7 @@
       },
       "tier_authority": "standard_v1"
     },
-    "qoder:Lite": {
+    "qoder:lite": {
       "canonical_family": "qoder-lite-tier",
       "provider_identity": "dynamic_tier",
       "capability_tier": "DYNAMIC",

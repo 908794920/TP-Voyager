@@ -705,12 +705,47 @@ class ScopeSegmentSpec:
 
 
 @dataclass(frozen=True)
+class ModelParameters:
+    """Captain-selected optional execution settings for an explicit model."""
+
+    reasoning_effort: str = ""
+    context_window_tokens: int | None = None
+
+    @classmethod
+    def from_dict(cls, value: object) -> "ModelParameters":
+        if not isinstance(value, dict):
+            raise ValueError("model_parameters must be an object")
+        unknown = set(value) - {"reasoning_effort", "context_window_tokens"}
+        if unknown:
+            raise ValueError("model_parameters contains unsupported keys")
+        effort = str(value.get("reasoning_effort") or "").strip().lower()
+        if effort and effort not in {"low", "medium", "high", "xhigh", "max"}:
+            raise ValueError("model_parameters.reasoning_effort is invalid")
+        context = value.get("context_window_tokens")
+        if context is not None:
+            if isinstance(context, bool) or not isinstance(context, int):
+                raise ValueError("model_parameters.context_window_tokens must be an integer")
+            if context < 1 or context > 2_000_000:
+                raise ValueError("model_parameters.context_window_tokens is outside the bounded limit")
+        return cls(reasoning_effort=effort, context_window_tokens=context)
+
+    def to_dict(self) -> dict[str, Any]:
+        data: dict[str, Any] = {}
+        if self.reasoning_effort:
+            data["reasoning_effort"] = self.reasoning_effort
+        if self.context_window_tokens is not None:
+            data["context_window_tokens"] = self.context_window_tokens
+        return data
+
+
+@dataclass(frozen=True)
 class CaptainDispatchRequest:
     objective: str
     crew: str
     task_kind: str
     cwd: str = ""
     model: str = ""
+    model_parameters: ModelParameters | None = None
     access_mode: str = "read_only"
     idempotency_key: str = ""
     context_id: str = ""
@@ -746,6 +781,8 @@ class CaptainDispatchRequest:
     def routing_metadata(self) -> dict[str, Any]:
         """Return bounded routing facts safe to persist with the durable Session."""
         data: dict[str, Any] = {}
+        if self.model_parameters is not None:
+            data["model_parameters"] = self.model_parameters.to_dict()
         if self.model_policy is not None:
             data["model_policy"] = self.model_policy.to_dict()
         if self.read_scope is not None:

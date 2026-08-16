@@ -141,8 +141,8 @@ class CodeBuddyAcpCatalogProbe:
                 available=True, source="codebuddy_acp_account_live", observed_at=observed_at,
                 metadata={"catalog_status": "complete", "entitlement_status": "account_live",
                           "current": model_id == current_model_id,
-                          "supported_efforts": [],
-                          "effort_support_status": "unsupported_by_controlled_backend",
+                          "supported_efforts": ["low", "medium", "high", "xhigh"],
+                          "effort_support_status": "controlled_sdk_documented",
                           "billing": {"status": "reference_only", "multiplier_raw": raw_multiplier,
                                       "multiplier": multiplier, "calculation_allowed": False}},
             ))

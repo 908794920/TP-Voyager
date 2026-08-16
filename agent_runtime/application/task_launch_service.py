@@ -35,6 +35,7 @@ class TaskLaunchRequest:
     timeout_seconds: int = 300
     model: str = ""
     reasoning_effort: str = ""
+    context_window_tokens: int | None = None
     route: str = ""
     identity: str = ""
     resume_task_id: str = ""
@@ -97,6 +98,7 @@ class TaskLaunchService:
             timeout_seconds=request.timeout_seconds,
             model=request.model,
             reasoning_effort=request.reasoning_effort,
+            context_window_tokens=request.context_window_tokens,
             idempotency_key=request.idempotency_key,
             idle_timeout_seconds=request.idle_timeout_seconds,
             max_task_duration_seconds=request.max_task_duration_seconds,

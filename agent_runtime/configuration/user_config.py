@@ -20,7 +20,7 @@ from typing import Any
 
 _SCHEMA = "tp-voyager.config/v1"
 _DEFAULT_ALLOWED_MODELS = (
-    "qoder:Lite",
+    "qoder:lite",
     "qoder:qmodel_38max",
     "codebuddy:hy3",
     "codebuddy:deepseek-v4-flash",

@@ -294,3 +294,34 @@ A Python MCP client alone does not satisfy H1/H2/H11/H12. Those items must be ex
 真实 Codex Desktop Captain Host + 真实 MCP stdio + CodeBuddy CLI 2.133.1 + Qoder CLI 1.1.17。A2~I 矩阵 11 项全 PASS，`task_result(run_id, step_key)` 在 MCP/Captain 重启后恢复同一 Durable Task 成立，`git diff --check` 通过。
 
 v1.0.5 已满足 stable gate 条件，`v1.0.5-rc` 提升为 `v1.0.5 stable`。历史额度失败保留为 superseded 证据，不构成当前阻断。
+
+## v1.0.7 Release Gate
+
+v1.0.7 inherits prior stable safety gates and additionally requires:
+
+```text
+- a fresh default config, routing baseline, examples, and live provider catalog agree on the exact Qoder Lite dispatch ID qoder:lite
+- model_parameters bind to an explicit model and unsupported/unknown effort or Qoder context windows reject before task creation
+- Qoder receives context_window_tokens through the official CLI session-start option and confirms requested thought level before accepting a prompt
+- task_result distinguishes provider-observed Usage from provider_omitted and protocol_unrecognized; no token, Credit, or cost estimate may be derived from catalog multipliers
+- server integration tests use an isolated TP_VOYAGER_HOME and never depend on the release operator's user config
+```
+
+Observed v1.0.7 Captain-Host evidence (2026-08-16): a bounded read-only Qoder
+task, `wb-644ecc1e613a`, completed with `qmodel_38max`,
+`reasoning_effort=medium`, and `context_window_tokens=200000`. Its result
+recorded both requested settings as applied. The Provider returned no Usage
+quantities, so `task_result.usage` was exactly `{"status":"provider_omitted"}`;
+this is an absence of Provider evidence, not zero consumption.
+
+Before creating the release tag, run the full release-candidate suite against
+the final tree and retain its output with the release record:
+
+```powershell
+.\scripts\run_tests.cmd smoke
+.\scripts\run_tests.cmd current
+python -m agent_runtime.testing.runner regression
+python -m agent_runtime.testing.runner stress
+python skills\tp-voyager-captain\install_codex_desktop.py --check
+git diff --check
+```
