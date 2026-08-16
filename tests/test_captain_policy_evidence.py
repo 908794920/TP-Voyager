@@ -274,10 +274,10 @@ class CaptainPolicyEvidenceTests(unittest.TestCase):
         fixed_service = CrewRegistryService(
             {"codebuddy": CrewProvider(
                 crew("codebuddy"),
-                models=lambda: [ModelDescriptor("codebuddy", "deepseek-v4-pro", available=True, source="test_live")],
+                models=lambda: [ModelDescriptor("codebuddy", "glm-5.2", available=True, source="test_live")],
             )},
             model_policy_loader=lambda: SimpleNamespace(
-                allowed_models=frozenset({"codebuddy:deepseek-v4-pro"}), sha256="policy"
+                allowed_models=frozenset({"codebuddy:glm-5.2"}), sha256="policy"
             ),
             routing_profiles_loader=lambda: profiles,
         )
@@ -285,7 +285,7 @@ class CaptainPolicyEvidenceTests(unittest.TestCase):
         self.assertEqual(fixed["capability_tier"], "L2")
         self.assertEqual(fixed["tier_authority"], "standard_v1")
         self.assertEqual(fixed["scorecard"]["tier"], "L2")
-        self.assertEqual(fixed["legacy_capability_tier"], "L2")
+        self.assertEqual(fixed["legacy_capability_tier"], "L3")
 
         dynamic_service = CrewRegistryService(
             {"qoder": CrewProvider(

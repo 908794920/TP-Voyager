@@ -42,9 +42,8 @@ Provider claims, model-level composite intelligence indices, preference Elo, leg
 | `glm-5.1` | L2 | high | clears L2 bands in Terminal-Bench + SWE-Atlas-QnA |
 | `qwen3.7-plus` | L2 | high | clears L2 bands in Terminal-Bench + SWE-Atlas-QnA |
 | `kimi-k2.6` | L1 | high | formal Primary exists; does not satisfy two-family L2 threshold |
-| `deepseek-v4-pro` | L2 | high | clears L2 bands in Terminal-Bench + SWE-Atlas-QnA |
 
-All other fixed models are `UNCLASSIFIED` in this snapshot due insufficient compatible Primary evidence, regardless of legacy tier or provider marketing claim.
+All other fixed models are `UNCLASSIFIED` in this snapshot due insufficient compatible Primary evidence, regardless of legacy tier or provider marketing claim. DeepSeek V4 Pro is specifically excluded from the current calibrated cohort because the current route is `DeepSeek-V4-Pro-0813`, while the previously captured AA Coding Agent rows belong to the earlier preview lineage and cannot be promoted across the release boundary.
 
 ## Stability checks
 

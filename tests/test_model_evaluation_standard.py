@@ -476,3 +476,48 @@ def test_migration_post_replace_validation_failure_restores_original_file(tmp_pa
 if __name__ == "__main__":
     unittest.main()
 
+def test_fresh_release_identity_audit_keeps_current_deepseek_and_glm53_separate_from_predecessors(tmp_path):
+    from agent_runtime.application.crew.routing_profiles import ModelRoutingProfiles
+
+    profiles = ModelRoutingProfiles.load(tmp_path)
+
+    flash = profiles.get("codebuddy:deepseek-v4-flash")
+    assert flash is not None
+    assert flash["provider_identity"] == "operator_confirmed"
+    assert flash["capability_tier"] == "UNCLASSIFIED"
+    flash_aa = [e for e in flash["standard_evidence"] if e["source_id"] == "artificial_analysis_model"]
+    assert len(flash_aa) == 1
+    assert flash_aa[0]["model"]["tested_model"] == "DeepSeek V4 Flash 0731 (Reasoning, Max Effort)"
+    assert flash_aa[0]["benchmark"]["version"] == "v4.1.1"
+    assert flash_aa[0]["result"] == {"metric": "intelligence_index", "value": 52, "scale": "index"}
+
+    pro = profiles.get("codebuddy:deepseek-v4-pro")
+    assert pro is not None
+    assert pro["provider_identity"] == "operator_confirmed"
+    assert pro["capability_tier"] == "UNCLASSIFIED"
+    assert pro["scorecard"]["tier"] == "UNCLASSIFIED"
+    assert pro["scorecard"]["coverage"] == "low"
+    assert not [e for e in pro["standard_evidence"] if e["source_role"] == "primary"]
+    assert any(
+        e["model"]["tested_model"] == "DeepSeek-V4-Pro-0813"
+        and e["result"]["metric"] == "release_status"
+        for e in pro["standard_evidence"]
+    )
+
+    qoder_pro = profiles.get("qoder:dmodel")
+    assert qoder_pro is not None
+    assert qoder_pro["capability_tier"] == "UNCLASSIFIED"
+    assert not [e for e in qoder_pro["standard_evidence"] if e["source_role"] == "primary"]
+
+    glm53 = profiles.get("codebuddy:glm-5.3")
+    assert glm53 is not None
+    assert glm53["provider_identity"] == "provider_declared"
+    assert glm53["capability_tier"] == "UNCLASSIFIED"
+    assert any(
+        e["model"]["tested_model"] == "GLM-5.3"
+        and e["result"]["metric"] == "release_status"
+        for e in glm53["standard_evidence"]
+    )
+    assert not any("identity" in boundary.lower() and "not captured" in boundary.lower()
+                   for boundary in glm53["risk_boundaries"])
+

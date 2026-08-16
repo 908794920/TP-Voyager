@@ -23,9 +23,9 @@
       ],
       "risk_boundaries": [
         "text-only model",
+        "current route identity is operator-confirmed as the DeepSeek-V4-Flash-0731 official release (2026-07-31)",
         "architecture/final technical decisions require Captain review",
-        "high-stakes factual conclusions require verification",
-        "formal Standard v1 tier is UNCLASSIFIED because compatible Primary evidence is insufficient"
+        "formal Standard v1 tier remains UNCLASSIFIED because no compatible current Primary coding-agent evidence is captured"
       ],
       "benchmark_evidence": [
         {
@@ -60,18 +60,18 @@
       "standard_evidence": [
         {
           "evidence_schema": "tp-voyager.model_evidence/v1",
-          "evidence_id": "aa-ii-v4.1-deepseek-v4-flash",
+          "evidence_id": "aa-ii-v4.1.1-deepseek-v4-flash-0731",
           "source_id": "artificial_analysis_model",
           "source_role": "supplemental",
           "subject_type": "model_only",
           "model": {
-            "tested_model": "DeepSeek V4 Flash (Reasoning, Max Effort)",
+            "tested_model": "DeepSeek V4 Flash 0731 (Reasoning, Max Effort)",
             "canonical_family": "deepseek-v4-flash",
             "model_match": "exact"
           },
           "benchmark": {
             "id": "artificial-analysis-intelligence-index",
-            "version": "v4.1",
+            "version": "v4.1.1",
             "task_count": null
           },
           "execution": {
@@ -79,12 +79,12 @@
             "agent_version": null,
             "harness": null,
             "harness_version": null,
-            "reasoning_effort": null,
+            "reasoning_effort": "max",
             "attempts_per_task": null
           },
           "result": {
             "metric": "intelligence_index",
-            "value": 40,
+            "value": 52,
             "scale": "index"
           },
           "provenance": {
@@ -92,49 +92,6 @@
             "published_at": null,
             "url": "https://artificialanalysis.ai/models/deepseek-v4-flash/",
             "methodology_url": "https://artificialanalysis.ai/methodology",
-            "primary_approved_by": null,
-            "primary_approved_at": null,
-            "approval_basis_url": null
-          },
-          "relationships": {
-            "composite_of": [],
-            "duplicate_of": null
-          }
-        },
-        {
-          "evidence_schema": "tp-voyager.model_evidence/v1",
-          "evidence_id": "provider-card-deepseek-v4-flash-20260424",
-          "source_id": "provider_official",
-          "source_role": "provider",
-          "subject_type": "provider_claim",
-          "model": {
-            "tested_model": "DeepSeek V4 Flash",
-            "canonical_family": "deepseek-v4-flash",
-            "model_match": "exact"
-          },
-          "benchmark": {
-            "id": "provider-model-card",
-            "version": "2026-04-24",
-            "task_count": null
-          },
-          "execution": {
-            "agent": null,
-            "agent_version": null,
-            "harness": null,
-            "harness_version": null,
-            "reasoning_effort": null,
-            "attempts_per_task": null
-          },
-          "result": {
-            "metric": "release_status",
-            "value": "documented",
-            "scale": "text"
-          },
-          "provenance": {
-            "observed_at": "2026-08-15",
-            "published_at": "2026-04-24",
-            "url": "https://api-docs.deepseek.com/news/news260424/",
-            "methodology_url": null,
             "primary_approved_by": null,
             "primary_approved_at": null,
             "approval_basis_url": null
@@ -185,8 +142,8 @@
     },
     "codebuddy:deepseek-v4-pro": {
       "canonical_family": "deepseek-v4-pro",
-      "provider_identity": "provider_declared",
-      "capability_tier": "L2",
+      "provider_identity": "operator_confirmed",
+      "capability_tier": "UNCLASSIFIED",
       "profile_confidence": "high",
       "specialties": [
         "reasoning",
@@ -200,7 +157,9 @@
         "code review"
       ],
       "risk_boundaries": [
-        "independent agent evidence trails current K3/GLM-5.2",
+        "current route identity is operator-confirmed as the DeepSeek-V4-Pro-0813 official release (2026-08-13)",
+        "April-preview and pre-0813 benchmark rows are predecessor/historical evidence and do not determine the current release Tier",
+        "formal Standard v1 tier is UNCLASSIFIED until exact 0813 Primary coding-agent evidence is captured",
         "Captain retains architecture authority"
       ],
       "benchmark_evidence": [
@@ -208,8 +167,8 @@
           "evidence_schema": "legacy_v1",
           "source": "livebench",
           "release": "2026-06-25",
-          "tested_model": "DeepSeek V4 Pro",
-          "model_match": "exact",
+          "tested_model": "DeepSeek V4 Pro (preview)",
+          "model_match": "predecessor",
           "metrics": {
             "overall": 71.6,
             "coding": 70.0,
@@ -221,8 +180,8 @@
           "evidence_schema": "legacy_v1",
           "source": "artificial_analysis",
           "release": "2026-08-13",
-          "tested_model": "DeepSeek V4 Pro",
-          "model_match": "exact",
+          "tested_model": "DeepSeek V4 Pro (April preview)",
+          "model_match": "predecessor",
           "metrics": {
             "intelligence_index": 44
           },
@@ -233,7 +192,7 @@
           "source": "arena_coding",
           "release": "2026-08-13",
           "tested_model": "DeepSeek V4 Pro",
-          "model_match": "exact",
+          "model_match": "near_exact",
           "metrics": {
             "arena_score": 1502,
             "confidence_interval": 7
@@ -252,190 +211,18 @@
       "standard_evidence": [
         {
           "evidence_schema": "tp-voyager.model_evidence/v1",
-          "evidence_id": "aa-cai-v1.3-deepseek-v4-pro-repository",
-          "source_id": "artificial_analysis_coding_agent",
-          "source_role": "primary",
-          "subject_type": "model_agent",
-          "model": {
-            "tested_model": "DeepSeek V4 Pro (high)",
-            "canonical_family": "deepseek-v4-pro",
-            "model_match": "exact"
-          },
-          "benchmark": {
-            "id": "deep-swe",
-            "version": "AA-CAI-v1.3",
-            "task_count": 113
-          },
-          "execution": {
-            "agent": "Claude Code",
-            "agent_version": null,
-            "harness": "Claude Code",
-            "harness_version": "AA-CAI-v1.3",
-            "reasoning_effort": "high",
-            "attempts_per_task": 3
-          },
-          "result": {
-            "metric": "pass@1",
-            "value": 9.0,
-            "scale": "percent"
-          },
-          "provenance": {
-            "observed_at": "2026-08-15",
-            "published_at": null,
-            "url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli",
-            "methodology_url": "https://artificialanalysis.ai/methodology/coding-agents-benchmarking",
-            "primary_approved_by": "research-review:openai-gpt-5.6-sol-2026-08-15",
-            "primary_approved_at": "2026-08-15T09:00:00Z",
-            "approval_basis_url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli"
-          },
-          "relationships": {
-            "composite_of": [],
-            "duplicate_of": null
-          }
-        },
-        {
-          "evidence_schema": "tp-voyager.model_evidence/v1",
-          "evidence_id": "aa-cai-v1.3-deepseek-v4-pro-terminal",
-          "source_id": "artificial_analysis_coding_agent",
-          "source_role": "primary",
-          "subject_type": "model_agent",
-          "model": {
-            "tested_model": "DeepSeek V4 Pro (high)",
-            "canonical_family": "deepseek-v4-pro",
-            "model_match": "exact"
-          },
-          "benchmark": {
-            "id": "terminal-bench",
-            "version": "AA-CAI-v1.3",
-            "task_count": 84
-          },
-          "execution": {
-            "agent": "Claude Code",
-            "agent_version": null,
-            "harness": "Claude Code",
-            "harness_version": "AA-CAI-v1.3",
-            "reasoning_effort": "high",
-            "attempts_per_task": 3
-          },
-          "result": {
-            "metric": "pass@1",
-            "value": 66.0,
-            "scale": "percent"
-          },
-          "provenance": {
-            "observed_at": "2026-08-15",
-            "published_at": null,
-            "url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli",
-            "methodology_url": "https://artificialanalysis.ai/methodology/coding-agents-benchmarking",
-            "primary_approved_by": "research-review:openai-gpt-5.6-sol-2026-08-15",
-            "primary_approved_at": "2026-08-15T09:00:00Z",
-            "approval_basis_url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli"
-          },
-          "relationships": {
-            "composite_of": [],
-            "duplicate_of": null
-          }
-        },
-        {
-          "evidence_schema": "tp-voyager.model_evidence/v1",
-          "evidence_id": "aa-cai-v1.3-deepseek-v4-pro-qna",
-          "source_id": "artificial_analysis_coding_agent",
-          "source_role": "primary",
-          "subject_type": "model_agent",
-          "model": {
-            "tested_model": "DeepSeek V4 Pro (high)",
-            "canonical_family": "deepseek-v4-pro",
-            "model_match": "exact"
-          },
-          "benchmark": {
-            "id": "swe-atlas-qna",
-            "version": "AA-CAI-v1.3",
-            "task_count": 124
-          },
-          "execution": {
-            "agent": "Claude Code",
-            "agent_version": null,
-            "harness": "Claude Code",
-            "harness_version": "AA-CAI-v1.3",
-            "reasoning_effort": "high",
-            "attempts_per_task": 3
-          },
-          "result": {
-            "metric": "pass@1",
-            "value": 20.0,
-            "scale": "percent"
-          },
-          "provenance": {
-            "observed_at": "2026-08-15",
-            "published_at": null,
-            "url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli",
-            "methodology_url": "https://artificialanalysis.ai/methodology/coding-agents-benchmarking",
-            "primary_approved_by": "research-review:openai-gpt-5.6-sol-2026-08-15",
-            "primary_approved_at": "2026-08-15T09:00:00Z",
-            "approval_basis_url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli"
-          },
-          "relationships": {
-            "composite_of": [],
-            "duplicate_of": null
-          }
-        },
-        {
-          "evidence_schema": "tp-voyager.model_evidence/v1",
-          "evidence_id": "aa-ii-v4.1-deepseek-v4-pro",
-          "source_id": "artificial_analysis_model",
+          "evidence_id": "release-deepseek-v4-pro-0813",
+          "source_id": "independent_release_reporting",
           "source_role": "supplemental",
           "subject_type": "model_only",
           "model": {
-            "tested_model": "DeepSeek V4 Pro (Reasoning, Max Effort)",
+            "tested_model": "DeepSeek-V4-Pro-0813",
             "canonical_family": "deepseek-v4-pro",
             "model_match": "exact"
           },
           "benchmark": {
-            "id": "artificial-analysis-intelligence-index",
-            "version": "v4.1",
-            "task_count": null
-          },
-          "execution": {
-            "agent": null,
-            "agent_version": null,
-            "harness": null,
-            "harness_version": null,
-            "reasoning_effort": null,
-            "attempts_per_task": null
-          },
-          "result": {
-            "metric": "intelligence_index",
-            "value": 44,
-            "scale": "index"
-          },
-          "provenance": {
-            "observed_at": "2026-08-15",
-            "published_at": null,
-            "url": "https://artificialanalysis.ai/models/deepseek-v4-pro/",
-            "methodology_url": "https://artificialanalysis.ai/methodology",
-            "primary_approved_by": null,
-            "primary_approved_at": null,
-            "approval_basis_url": null
-          },
-          "relationships": {
-            "composite_of": [],
-            "duplicate_of": null
-          }
-        },
-        {
-          "evidence_schema": "tp-voyager.model_evidence/v1",
-          "evidence_id": "provider-card-deepseek-v4-pro-20260424",
-          "source_id": "provider_official",
-          "source_role": "provider",
-          "subject_type": "provider_claim",
-          "model": {
-            "tested_model": "DeepSeek V4 Pro",
-            "canonical_family": "deepseek-v4-pro",
-            "model_match": "exact"
-          },
-          "benchmark": {
-            "id": "provider-model-card",
-            "version": "2026-04-24",
+            "id": "release-confirmation",
+            "version": "2026-08-13",
             "task_count": null
           },
           "execution": {
@@ -448,13 +235,13 @@
           },
           "result": {
             "metric": "release_status",
-            "value": "documented",
+            "value": "officially_launched",
             "scale": "text"
           },
           "provenance": {
             "observed_at": "2026-08-15",
-            "published_at": "2026-04-24",
-            "url": "https://api-docs.deepseek.com/news/news260424/",
+            "published_at": "2026-08-13",
+            "url": "https://www.reuters.com/world/china/deepseek-releases-official-v4-pro-model-it-steps-up-expansion-2026-08-13/",
             "methodology_url": null,
             "primary_approved_by": null,
             "primary_approved_at": null,
@@ -473,67 +260,19 @@
         "evaluated_at": "2026-08-15",
         "dimensions": {
           "repository_engineering": {
-            "status": "measured",
-            "evidence_ids": [
-              "aa-cai-v1.3-deepseek-v4-pro-repository"
-            ],
-            "measurements": [
-              {
-                "evidence_id": "aa-cai-v1.3-deepseek-v4-pro-repository",
-                "source_id": "artificial_analysis_coding_agent",
-                "source_role": "primary",
-                "benchmark_id": "deep-swe",
-                "benchmark_version": "AA-CAI-v1.3",
-                "metric": "pass@1",
-                "value": 9.0,
-                "scale": "percent",
-                "numeric_percent": 9.0,
-                "calibration_compatible": true,
-                "primary": true
-              }
-            ]
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
           },
           "terminal_agentic": {
-            "status": "measured",
-            "evidence_ids": [
-              "aa-cai-v1.3-deepseek-v4-pro-terminal"
-            ],
-            "measurements": [
-              {
-                "evidence_id": "aa-cai-v1.3-deepseek-v4-pro-terminal",
-                "source_id": "artificial_analysis_coding_agent",
-                "source_role": "primary",
-                "benchmark_id": "terminal-bench",
-                "benchmark_version": "AA-CAI-v1.3",
-                "metric": "pass@1",
-                "value": 66.0,
-                "scale": "percent",
-                "numeric_percent": 66.0,
-                "calibration_compatible": true,
-                "primary": true
-              }
-            ]
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
           },
           "codebase_understanding": {
-            "status": "measured",
-            "evidence_ids": [
-              "aa-cai-v1.3-deepseek-v4-pro-qna"
-            ],
-            "measurements": [
-              {
-                "evidence_id": "aa-cai-v1.3-deepseek-v4-pro-qna",
-                "source_id": "artificial_analysis_coding_agent",
-                "source_role": "primary",
-                "benchmark_id": "swe-atlas-qna",
-                "benchmark_version": "AA-CAI-v1.3",
-                "metric": "pass@1",
-                "value": 20.0,
-                "scale": "percent",
-                "numeric_percent": 20.0,
-                "calibration_compatible": true,
-                "primary": true
-              }
-            ]
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
           },
           "general_coding": {
             "status": "N/A",
@@ -546,9 +285,9 @@
             "measurements": []
           }
         },
-        "coverage": "high",
-        "confidence": "high",
-        "tier": "L2"
+        "coverage": "low",
+        "confidence": "low",
+        "tier": "UNCLASSIFIED"
       },
       "tier_authority": "standard_v1"
     },
@@ -1326,23 +1065,158 @@
       "canonical_family": "glm-5.3",
       "provider_identity": "provider_declared",
       "capability_tier": "UNCLASSIFIED",
-      "profile_confidence": "low",
+      "profile_confidence": "medium",
       "specialties": [
+        "coding_agent",
+        "security_analysis",
         "current_backend_visible",
-        "evidence_pending"
+        "fresh_release"
       ],
       "recommended_tasks": [
-        "manual model evaluation",
-        "bounded implementation with strong verification"
+        "complex implementation with verification",
+        "repository investigation",
+        "code review",
+        "security-oriented code review"
       ],
       "risk_boundaries": [
-        "current CodeBuddy account visibility is confirmed but public exact-model evidence was not captured in this refresh",
+        "GLM-5.3 was formally announced on 2026-08-14 and current CodeBuddy account visibility is confirmed",
+        "reported CyberGym/ExploitBench values are provider claims relayed by independent reporting and are supplemental, not Primary",
         "do not inherit GLM-5.2 scores",
-        "formal Standard v1 tier is UNCLASSIFIED because compatible Primary evidence is insufficient"
+        "formal Standard v1 tier is UNCLASSIFIED until compatible independent Primary coding-agent evidence is captured"
       ],
       "benchmark_evidence": [],
       "evidence_refs": [],
-      "standard_evidence": [],
+      "standard_evidence": [
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "release-glm-5.3-20260814",
+          "source_id": "independent_release_reporting",
+          "source_role": "supplemental",
+          "subject_type": "model_only",
+          "model": {
+            "tested_model": "GLM-5.3",
+            "canonical_family": "glm-5.3",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "release-confirmation",
+            "version": "2026-08-14",
+            "task_count": null
+          },
+          "execution": {
+            "agent": null,
+            "agent_version": null,
+            "harness": null,
+            "harness_version": null,
+            "reasoning_effort": null,
+            "attempts_per_task": null
+          },
+          "result": {
+            "metric": "release_status",
+            "value": "formally_announced",
+            "scale": "text"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": "2026-08-14",
+            "url": "https://www.reuters.com/technology/chinas-zai-says-new-model-nears-anthropics-mythos-5-cyber-defence-tests-2026-08-14/",
+            "methodology_url": null,
+            "primary_approved_by": null,
+            "primary_approved_at": null,
+            "approval_basis_url": null
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "zai-claim-glm-5.3-cybergym-20260814",
+          "source_id": "independent_release_reporting",
+          "source_role": "supplemental",
+          "subject_type": "provider_claim",
+          "model": {
+            "tested_model": "GLM-5.3",
+            "canonical_family": "glm-5.3",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "cybergym",
+            "version": "provider-reported-2026-08-14",
+            "task_count": null
+          },
+          "execution": {
+            "agent": null,
+            "agent_version": null,
+            "harness": null,
+            "harness_version": null,
+            "reasoning_effort": null,
+            "attempts_per_task": null
+          },
+          "result": {
+            "metric": "score",
+            "value": 84.5,
+            "scale": "percent"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": "2026-08-14",
+            "url": "https://www.reuters.com/technology/chinas-zai-says-new-model-nears-anthropics-mythos-5-cyber-defence-tests-2026-08-14/",
+            "methodology_url": null,
+            "primary_approved_by": null,
+            "primary_approved_at": null,
+            "approval_basis_url": null
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        },
+        {
+          "evidence_schema": "tp-voyager.model_evidence/v1",
+          "evidence_id": "zai-claim-glm-5.3-exploitbench-20260814",
+          "source_id": "independent_release_reporting",
+          "source_role": "supplemental",
+          "subject_type": "provider_claim",
+          "model": {
+            "tested_model": "GLM-5.3",
+            "canonical_family": "glm-5.3",
+            "model_match": "exact"
+          },
+          "benchmark": {
+            "id": "exploitbench",
+            "version": "provider-reported-2026-08-14",
+            "task_count": null
+          },
+          "execution": {
+            "agent": null,
+            "agent_version": null,
+            "harness": null,
+            "harness_version": null,
+            "reasoning_effort": null,
+            "attempts_per_task": null
+          },
+          "result": {
+            "metric": "score",
+            "value": 54.4,
+            "scale": "percent"
+          },
+          "provenance": {
+            "observed_at": "2026-08-15",
+            "published_at": "2026-08-14",
+            "url": "https://www.reuters.com/technology/chinas-zai-says-new-model-nears-anthropics-mythos-5-cyber-defence-tests-2026-08-14/",
+            "methodology_url": null,
+            "primary_approved_by": null,
+            "primary_approved_at": null,
+            "approval_basis_url": null
+          },
+          "relationships": {
+            "composite_of": [],
+            "duplicate_of": null
+          }
+        }
+      ],
       "scorecard": {
         "schema": "tp-voyager.model_scorecard/v1",
         "rules_version": "tp-voyager.model_tier_rules/v1",
@@ -3244,9 +3118,9 @@
       ],
       "risk_boundaries": [
         "text-only model",
+        "current route identity is operator-confirmed as the DeepSeek-V4-Flash-0731 official release (2026-07-31)",
         "architecture/final technical decisions require Captain review",
-        "high-stakes factual conclusions require verification",
-        "formal Standard v1 tier is UNCLASSIFIED because compatible Primary evidence is insufficient"
+        "formal Standard v1 tier remains UNCLASSIFIED because no compatible current Primary coding-agent evidence is captured"
       ],
       "benchmark_evidence": [
         {
@@ -3281,18 +3155,18 @@
       "standard_evidence": [
         {
           "evidence_schema": "tp-voyager.model_evidence/v1",
-          "evidence_id": "aa-ii-v4.1-deepseek-v4-flash",
+          "evidence_id": "aa-ii-v4.1.1-deepseek-v4-flash-0731",
           "source_id": "artificial_analysis_model",
           "source_role": "supplemental",
           "subject_type": "model_only",
           "model": {
-            "tested_model": "DeepSeek V4 Flash (Reasoning, Max Effort)",
+            "tested_model": "DeepSeek V4 Flash 0731 (Reasoning, Max Effort)",
             "canonical_family": "deepseek-v4-flash",
             "model_match": "exact"
           },
           "benchmark": {
             "id": "artificial-analysis-intelligence-index",
-            "version": "v4.1",
+            "version": "v4.1.1",
             "task_count": null
           },
           "execution": {
@@ -3300,12 +3174,12 @@
             "agent_version": null,
             "harness": null,
             "harness_version": null,
-            "reasoning_effort": null,
+            "reasoning_effort": "max",
             "attempts_per_task": null
           },
           "result": {
             "metric": "intelligence_index",
-            "value": 40,
+            "value": 52,
             "scale": "index"
           },
           "provenance": {
@@ -3313,49 +3187,6 @@
             "published_at": null,
             "url": "https://artificialanalysis.ai/models/deepseek-v4-flash/",
             "methodology_url": "https://artificialanalysis.ai/methodology",
-            "primary_approved_by": null,
-            "primary_approved_at": null,
-            "approval_basis_url": null
-          },
-          "relationships": {
-            "composite_of": [],
-            "duplicate_of": null
-          }
-        },
-        {
-          "evidence_schema": "tp-voyager.model_evidence/v1",
-          "evidence_id": "provider-card-deepseek-v4-flash-20260424",
-          "source_id": "provider_official",
-          "source_role": "provider",
-          "subject_type": "provider_claim",
-          "model": {
-            "tested_model": "DeepSeek V4 Flash",
-            "canonical_family": "deepseek-v4-flash",
-            "model_match": "exact"
-          },
-          "benchmark": {
-            "id": "provider-model-card",
-            "version": "2026-04-24",
-            "task_count": null
-          },
-          "execution": {
-            "agent": null,
-            "agent_version": null,
-            "harness": null,
-            "harness_version": null,
-            "reasoning_effort": null,
-            "attempts_per_task": null
-          },
-          "result": {
-            "metric": "release_status",
-            "value": "documented",
-            "scale": "text"
-          },
-          "provenance": {
-            "observed_at": "2026-08-15",
-            "published_at": "2026-04-24",
-            "url": "https://api-docs.deepseek.com/news/news260424/",
-            "methodology_url": null,
             "primary_approved_by": null,
             "primary_approved_at": null,
             "approval_basis_url": null
@@ -3406,8 +3237,8 @@
     },
     "qoder:dmodel": {
       "canonical_family": "deepseek-v4-pro",
-      "provider_identity": "provider_declared",
-      "capability_tier": "L2",
+      "provider_identity": "operator_confirmed",
+      "capability_tier": "UNCLASSIFIED",
       "profile_confidence": "high",
       "specialties": [
         "reasoning",
@@ -3421,7 +3252,9 @@
         "code review"
       ],
       "risk_boundaries": [
-        "independent agent evidence trails current K3/GLM-5.2",
+        "current route identity is operator-confirmed as the DeepSeek-V4-Pro-0813 official release (2026-08-13)",
+        "April-preview and pre-0813 benchmark rows are predecessor/historical evidence and do not determine the current release Tier",
+        "formal Standard v1 tier is UNCLASSIFIED until exact 0813 Primary coding-agent evidence is captured",
         "Captain retains architecture authority"
       ],
       "benchmark_evidence": [
@@ -3429,8 +3262,8 @@
           "evidence_schema": "legacy_v1",
           "source": "livebench",
           "release": "2026-06-25",
-          "tested_model": "DeepSeek V4 Pro",
-          "model_match": "exact",
+          "tested_model": "DeepSeek V4 Pro (preview)",
+          "model_match": "predecessor",
           "metrics": {
             "overall": 71.6,
             "coding": 70.0,
@@ -3442,8 +3275,8 @@
           "evidence_schema": "legacy_v1",
           "source": "artificial_analysis",
           "release": "2026-08-13",
-          "tested_model": "DeepSeek V4 Pro",
-          "model_match": "exact",
+          "tested_model": "DeepSeek V4 Pro (April preview)",
+          "model_match": "predecessor",
           "metrics": {
             "intelligence_index": 44
           },
@@ -3454,7 +3287,7 @@
           "source": "arena_coding",
           "release": "2026-08-13",
           "tested_model": "DeepSeek V4 Pro",
-          "model_match": "exact",
+          "model_match": "near_exact",
           "metrics": {
             "arena_score": 1502,
             "confidence_interval": 7
@@ -3473,190 +3306,18 @@
       "standard_evidence": [
         {
           "evidence_schema": "tp-voyager.model_evidence/v1",
-          "evidence_id": "aa-cai-v1.3-deepseek-v4-pro-repository",
-          "source_id": "artificial_analysis_coding_agent",
-          "source_role": "primary",
-          "subject_type": "model_agent",
-          "model": {
-            "tested_model": "DeepSeek V4 Pro (high)",
-            "canonical_family": "deepseek-v4-pro",
-            "model_match": "exact"
-          },
-          "benchmark": {
-            "id": "deep-swe",
-            "version": "AA-CAI-v1.3",
-            "task_count": 113
-          },
-          "execution": {
-            "agent": "Claude Code",
-            "agent_version": null,
-            "harness": "Claude Code",
-            "harness_version": "AA-CAI-v1.3",
-            "reasoning_effort": "high",
-            "attempts_per_task": 3
-          },
-          "result": {
-            "metric": "pass@1",
-            "value": 9.0,
-            "scale": "percent"
-          },
-          "provenance": {
-            "observed_at": "2026-08-15",
-            "published_at": null,
-            "url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli",
-            "methodology_url": "https://artificialanalysis.ai/methodology/coding-agents-benchmarking",
-            "primary_approved_by": "research-review:openai-gpt-5.6-sol-2026-08-15",
-            "primary_approved_at": "2026-08-15T09:00:00Z",
-            "approval_basis_url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli"
-          },
-          "relationships": {
-            "composite_of": [],
-            "duplicate_of": null
-          }
-        },
-        {
-          "evidence_schema": "tp-voyager.model_evidence/v1",
-          "evidence_id": "aa-cai-v1.3-deepseek-v4-pro-terminal",
-          "source_id": "artificial_analysis_coding_agent",
-          "source_role": "primary",
-          "subject_type": "model_agent",
-          "model": {
-            "tested_model": "DeepSeek V4 Pro (high)",
-            "canonical_family": "deepseek-v4-pro",
-            "model_match": "exact"
-          },
-          "benchmark": {
-            "id": "terminal-bench",
-            "version": "AA-CAI-v1.3",
-            "task_count": 84
-          },
-          "execution": {
-            "agent": "Claude Code",
-            "agent_version": null,
-            "harness": "Claude Code",
-            "harness_version": "AA-CAI-v1.3",
-            "reasoning_effort": "high",
-            "attempts_per_task": 3
-          },
-          "result": {
-            "metric": "pass@1",
-            "value": 66.0,
-            "scale": "percent"
-          },
-          "provenance": {
-            "observed_at": "2026-08-15",
-            "published_at": null,
-            "url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli",
-            "methodology_url": "https://artificialanalysis.ai/methodology/coding-agents-benchmarking",
-            "primary_approved_by": "research-review:openai-gpt-5.6-sol-2026-08-15",
-            "primary_approved_at": "2026-08-15T09:00:00Z",
-            "approval_basis_url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli"
-          },
-          "relationships": {
-            "composite_of": [],
-            "duplicate_of": null
-          }
-        },
-        {
-          "evidence_schema": "tp-voyager.model_evidence/v1",
-          "evidence_id": "aa-cai-v1.3-deepseek-v4-pro-qna",
-          "source_id": "artificial_analysis_coding_agent",
-          "source_role": "primary",
-          "subject_type": "model_agent",
-          "model": {
-            "tested_model": "DeepSeek V4 Pro (high)",
-            "canonical_family": "deepseek-v4-pro",
-            "model_match": "exact"
-          },
-          "benchmark": {
-            "id": "swe-atlas-qna",
-            "version": "AA-CAI-v1.3",
-            "task_count": 124
-          },
-          "execution": {
-            "agent": "Claude Code",
-            "agent_version": null,
-            "harness": "Claude Code",
-            "harness_version": "AA-CAI-v1.3",
-            "reasoning_effort": "high",
-            "attempts_per_task": 3
-          },
-          "result": {
-            "metric": "pass@1",
-            "value": 20.0,
-            "scale": "percent"
-          },
-          "provenance": {
-            "observed_at": "2026-08-15",
-            "published_at": null,
-            "url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli",
-            "methodology_url": "https://artificialanalysis.ai/methodology/coding-agents-benchmarking",
-            "primary_approved_by": "research-review:openai-gpt-5.6-sol-2026-08-15",
-            "primary_approved_at": "2026-08-15T09:00:00Z",
-            "approval_basis_url": "https://artificialanalysis.ai/agents/coding-agents/comparisons/claude-code-vs-kimi-code-cli"
-          },
-          "relationships": {
-            "composite_of": [],
-            "duplicate_of": null
-          }
-        },
-        {
-          "evidence_schema": "tp-voyager.model_evidence/v1",
-          "evidence_id": "aa-ii-v4.1-deepseek-v4-pro",
-          "source_id": "artificial_analysis_model",
+          "evidence_id": "release-deepseek-v4-pro-0813",
+          "source_id": "independent_release_reporting",
           "source_role": "supplemental",
           "subject_type": "model_only",
           "model": {
-            "tested_model": "DeepSeek V4 Pro (Reasoning, Max Effort)",
+            "tested_model": "DeepSeek-V4-Pro-0813",
             "canonical_family": "deepseek-v4-pro",
             "model_match": "exact"
           },
           "benchmark": {
-            "id": "artificial-analysis-intelligence-index",
-            "version": "v4.1",
-            "task_count": null
-          },
-          "execution": {
-            "agent": null,
-            "agent_version": null,
-            "harness": null,
-            "harness_version": null,
-            "reasoning_effort": null,
-            "attempts_per_task": null
-          },
-          "result": {
-            "metric": "intelligence_index",
-            "value": 44,
-            "scale": "index"
-          },
-          "provenance": {
-            "observed_at": "2026-08-15",
-            "published_at": null,
-            "url": "https://artificialanalysis.ai/models/deepseek-v4-pro/",
-            "methodology_url": "https://artificialanalysis.ai/methodology",
-            "primary_approved_by": null,
-            "primary_approved_at": null,
-            "approval_basis_url": null
-          },
-          "relationships": {
-            "composite_of": [],
-            "duplicate_of": null
-          }
-        },
-        {
-          "evidence_schema": "tp-voyager.model_evidence/v1",
-          "evidence_id": "provider-card-deepseek-v4-pro-20260424",
-          "source_id": "provider_official",
-          "source_role": "provider",
-          "subject_type": "provider_claim",
-          "model": {
-            "tested_model": "DeepSeek V4 Pro",
-            "canonical_family": "deepseek-v4-pro",
-            "model_match": "exact"
-          },
-          "benchmark": {
-            "id": "provider-model-card",
-            "version": "2026-04-24",
+            "id": "release-confirmation",
+            "version": "2026-08-13",
             "task_count": null
           },
           "execution": {
@@ -3669,13 +3330,13 @@
           },
           "result": {
             "metric": "release_status",
-            "value": "documented",
+            "value": "officially_launched",
             "scale": "text"
           },
           "provenance": {
             "observed_at": "2026-08-15",
-            "published_at": "2026-04-24",
-            "url": "https://api-docs.deepseek.com/news/news260424/",
+            "published_at": "2026-08-13",
+            "url": "https://www.reuters.com/world/china/deepseek-releases-official-v4-pro-model-it-steps-up-expansion-2026-08-13/",
             "methodology_url": null,
             "primary_approved_by": null,
             "primary_approved_at": null,
@@ -3694,67 +3355,19 @@
         "evaluated_at": "2026-08-15",
         "dimensions": {
           "repository_engineering": {
-            "status": "measured",
-            "evidence_ids": [
-              "aa-cai-v1.3-deepseek-v4-pro-repository"
-            ],
-            "measurements": [
-              {
-                "evidence_id": "aa-cai-v1.3-deepseek-v4-pro-repository",
-                "source_id": "artificial_analysis_coding_agent",
-                "source_role": "primary",
-                "benchmark_id": "deep-swe",
-                "benchmark_version": "AA-CAI-v1.3",
-                "metric": "pass@1",
-                "value": 9.0,
-                "scale": "percent",
-                "numeric_percent": 9.0,
-                "calibration_compatible": true,
-                "primary": true
-              }
-            ]
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
           },
           "terminal_agentic": {
-            "status": "measured",
-            "evidence_ids": [
-              "aa-cai-v1.3-deepseek-v4-pro-terminal"
-            ],
-            "measurements": [
-              {
-                "evidence_id": "aa-cai-v1.3-deepseek-v4-pro-terminal",
-                "source_id": "artificial_analysis_coding_agent",
-                "source_role": "primary",
-                "benchmark_id": "terminal-bench",
-                "benchmark_version": "AA-CAI-v1.3",
-                "metric": "pass@1",
-                "value": 66.0,
-                "scale": "percent",
-                "numeric_percent": 66.0,
-                "calibration_compatible": true,
-                "primary": true
-              }
-            ]
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
           },
           "codebase_understanding": {
-            "status": "measured",
-            "evidence_ids": [
-              "aa-cai-v1.3-deepseek-v4-pro-qna"
-            ],
-            "measurements": [
-              {
-                "evidence_id": "aa-cai-v1.3-deepseek-v4-pro-qna",
-                "source_id": "artificial_analysis_coding_agent",
-                "source_role": "primary",
-                "benchmark_id": "swe-atlas-qna",
-                "benchmark_version": "AA-CAI-v1.3",
-                "metric": "pass@1",
-                "value": 20.0,
-                "scale": "percent",
-                "numeric_percent": 20.0,
-                "calibration_compatible": true,
-                "primary": true
-              }
-            ]
+            "status": "N/A",
+            "evidence_ids": [],
+            "measurements": []
           },
           "general_coding": {
             "status": "N/A",
@@ -3767,9 +3380,9 @@
             "measurements": []
           }
         },
-        "coverage": "high",
-        "confidence": "high",
-        "tier": "L2"
+        "coverage": "low",
+        "confidence": "low",
+        "tier": "UNCLASSIFIED"
       },
       "tier_authority": "standard_v1"
     },

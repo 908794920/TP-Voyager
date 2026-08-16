@@ -224,6 +224,21 @@
       "url": "https://github.com/bigcode-project/bigcodebench",
       "methodology_url": "https://github.com/bigcode-project/bigcodebench"
     },
+    "independent_release_reporting": {
+      "status": "active",
+      "role": "supplemental",
+      "source_type": "independent",
+      "dimensions": [],
+      "requires": [
+        "exact_model_identity",
+        "provenance_url",
+        "observed_at"
+      ],
+      "composite_of": [],
+      "freshness_policy_days": 60,
+      "url": null,
+      "methodology_url": null
+    },
     "provider_official": {
       "status": "active",
       "role": "provider",

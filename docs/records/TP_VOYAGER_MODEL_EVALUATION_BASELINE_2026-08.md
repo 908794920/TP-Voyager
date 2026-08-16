@@ -5,11 +5,11 @@ This record describes the persisted Standard v1 scorecard snapshot shipped on th
 | Canonical model | Legacy tier | Standard tier | Coverage | Confidence | Basis |
 |---|---|---|---|---|---|
 | `cantus` | UNCLASSIFIED | UNCLASSIFIED | low | low | insufficient compatible Primary evidence |
-| `deepseek-v4-flash` | L3 | UNCLASSIFIED | low | low | insufficient compatible Primary evidence |
-| `deepseek-v4-pro` | L2 | L2 | high | high | compliant Primary scorecard |
+| `deepseek-v4-flash` | L3 | UNCLASSIFIED | low | low | exact `DeepSeek-V4-Flash-0731`; current AA v4.1.1 supplemental score = 52; no compatible Primary coding-agent evidence |
+| `deepseek-v4-pro` | L2 | UNCLASSIFIED | low | low | exact `DeepSeek-V4-Pro-0813`; pre-0813 Primary rows retired from current scoring; fresh exact 0813 Primary evidence pending |
 | `glm-5.1` | L2 | L2 | high | high | compliant Primary scorecard |
 | `glm-5.2` | L3 | L2 | high | high | compliant Primary scorecard |
-| `glm-5.3` | — | UNCLASSIFIED | low | low | insufficient compatible Primary evidence |
+| `glm-5.3` | — | UNCLASSIFIED | low | low | exact formal GLM-5.3 release confirmed; provider-reported security claims are supplemental; independent Primary evidence pending |
 | `glm-5v-turbo` | L1 | UNCLASSIFIED | low | low | insufficient compatible Primary evidence |
 | `hy3` | L1 | UNCLASSIFIED | low | low | insufficient compatible Primary evidence |
 | `kimi-k2.6` | L2 | L1 | high | high | compliant Primary scorecard |
@@ -39,3 +39,7 @@ The migration retained all 47 legacy benchmark rows associated with non-retired 
 ## Persisted snapshot rule
 
 Scorecards are persisted maintenance-time snapshots. Runtime `load()` validates them; it does not recompute benchmark scores on every read. When rules are calibrated and a scorecard exists, `capability_tier` must equal `scorecard.tier` or loading fails closed.
+
+## Fresh-release correction
+
+This snapshot distinguishes **model/release identity** from **benchmark coverage**. DeepSeek V4 Flash 0731, DeepSeek V4 Pro 0813, and GLM-5.3 are treated as exact current model identities. `UNCLASSIFIED` for these models means compatible current Primary evidence is insufficient; it does **not** mean the model identity is ambiguous or unofficial.

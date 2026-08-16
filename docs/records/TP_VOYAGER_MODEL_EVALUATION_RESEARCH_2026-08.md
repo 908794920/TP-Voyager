@@ -24,10 +24,10 @@ The three direct benchmark columns indicate whether a separate exact public row 
 |---|---|---|---|---|---|---|
 | `cantus` | IDENTITY_AMBIGUOUS | IDENTITY_AMBIGUOUS | IDENTITY_AMBIGUOUS | IDENTITY_AMBIGUOUS | IDENTITY_AMBIGUOUS | IDENTITY_AMBIGUOUS |
 | `deepseek-v4-flash` | NOT_LISTED | NOT_LISTED | NOT_LISTED | NOT_LISTED | FOUND | FOUND |
-| `deepseek-v4-pro` | FOUND | NOT_LISTED | NOT_LISTED | NOT_LISTED | FOUND | FOUND |
+| `deepseek-v4-pro` | NOT_LISTED | NOT_LISTED | NOT_LISTED | NOT_LISTED | NOT_LISTED | FOUND |
 | `glm-5.1` | FOUND | NOT_LISTED | NOT_LISTED | NOT_LISTED | FOUND | FOUND |
 | `glm-5.2` | FOUND | NOT_LISTED | NOT_LISTED | NOT_LISTED | FOUND | FOUND |
-| `glm-5.3` | IDENTITY_AMBIGUOUS | IDENTITY_AMBIGUOUS | IDENTITY_AMBIGUOUS | IDENTITY_AMBIGUOUS | IDENTITY_AMBIGUOUS | IDENTITY_AMBIGUOUS |
+| `glm-5.3` | NOT_LISTED | NOT_LISTED | NOT_LISTED | NOT_LISTED | NOT_LISTED | FOUND |
 | `glm-5v-turbo` | NOT_LISTED | NOT_LISTED | NOT_LISTED | NOT_LISTED | NOT_LISTED | FOUND |
 | `hy3` | NOT_LISTED | NOT_LISTED | NOT_LISTED | NOT_LISTED | FOUND | FOUND |
 | `kimi-k2.6` | FOUND | NOT_LISTED | NOT_LISTED | NOT_LISTED | FOUND | FOUND |
@@ -41,22 +41,26 @@ The three direct benchmark columns indicate whether a separate exact public row 
 
 ## Formal Primary cohort in this refresh
 
-The following six canonical models have compliant current Primary evidence captured in a single calibrated methodology domain, with three benchmark components each:
+The following five canonical models have compliant current Primary evidence captured in a single calibrated methodology domain, with three benchmark components each:
 
 - `kimi-k3`
 - `glm-5.2`
 - `glm-5.1`
 - `qwen3.7-plus`
 - `kimi-k2.6`
-- `deepseek-v4-pro`
 
 Every Primary record contains exact canonical identity, benchmark/version, agent/harness, attempts, result scale, provenance URL, observation time, and explicit approval trail. Other models remain `UNCLASSIFIED` unless compliant Primary evidence exists; provider claims and supplemental composite indices are retained but cannot fill the Primary gap.
 
 ## Ambiguity notes
 
-- `glm-5.3`: current backend visibility is operator-confirmed, but an exact public vendor model record was not captured during this refresh. Do not inherit GLM-5.2 scores.
+- `glm-5.3`: exact formal model identity is now confirmed (2026-08-14 announcement) and CodeBuddy visibility is confirmed. Current Primary coding-agent rows were not found in this refresh; this is a **coverage gap, not an identity ambiguity**. Do not inherit GLM-5.2 scores.
 - `qwen3.8-max`: current Qoder display is `Qwen3.8-Max`, while public Qwen Code material observed during the refresh explicitly references `qwen3.8-max-preview`; this is not treated as exact equivalence.
 - `cantus`: no reliable public provider identity was established. It remains identity-ambiguous for external benchmark matching.
+
+## Fresh-release identity notes
+
+- `deepseek-v4-flash`: exact current release is `DeepSeek-V4-Flash-0731` (2026-07-31). Artificial Analysis currently exposes an exact 0731 model-level page; no compatible Primary coding-agent row was captured, so Tier remains `UNCLASSIFIED`.
+- `deepseek-v4-pro`: exact current release is `DeepSeek-V4-Pro-0813` (2026-08-13). The previously ingested Artificial Analysis Coding Agent / model-page rows correspond to the earlier preview lineage and are no longer valid current Primary evidence for 0813; they are retained only as historical/legacy context.
 
 ## Provenance approval semantics
 

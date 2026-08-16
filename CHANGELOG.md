@@ -4,6 +4,8 @@
 
 ### Model Evaluation Standard v1 (v1.0.7 baseline maintenance)
 
+- Fresh-release identity audit corrected current-model treatment: DeepSeek V4 Flash is pinned to the 0731 official release, DeepSeek V4 Pro to the 0813 official release, and GLM-5.3 is an exact formally announced model; predecessor/preview evidence no longer determines current-release Tier.
+
 - Added versioned Source Registry, immutable Standard Evidence records, persisted Scorecards, and calibrated Tier Rules.
 - Routing-profile loader now accepts v1/v2; v1 reads are non-mutating and explicit `model-routing-migrate` provides atomic/idempotent persistence.
 - Fixed-model Tier authority is `Scorecard.tier`; legacy static Tier is historical only.

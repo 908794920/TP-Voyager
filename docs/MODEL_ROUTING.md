@@ -150,10 +150,11 @@ The current account snapshot contains 16 fixed canonical models. Formal Standard
 | `glm-5.1` | L2 | compliant current Primary |
 | `qwen3.7-plus` | L2 | compliant current Primary |
 | `kimi-k2.6` | L1 | compliant current Primary |
-| `deepseek-v4-pro` | L2 | compliant current Primary |
 | all other fixed models in the current cohort | UNCLASSIFIED | insufficient compatible Primary evidence |
 
 `UNCLASSIFIED` is intentional. Provider claims, legacy Tier, model-level composite intelligence indices, or a preference leaderboard cannot fill a missing Primary-evidence requirement.
+
+Fresh-release audit rule: an exact new release may be fully routable and still be `UNCLASSIFIED` while independent benchmark providers catch up. Current examples are `DeepSeek-V4-Flash-0731`, `DeepSeek-V4-Pro-0813`, and GLM-5.3. Do not inherit predecessor scores across those release boundaries.
 
 Detailed research and calibration records live under `docs/records/`.
 
@@ -200,17 +201,17 @@ This provenance mechanism is independent of Standard Evidence score computation.
 
 ## 11. Catalog projection
 
-A fixed-model route can project:
+A fixed-model route with calibrated evidence can project:
 
 ```json
 {
-  "route_id": "codebuddy:deepseek-v4-pro",
+  "route_id": "codebuddy:glm-5.2",
   "allowlist_status": "allowed",
   "routable": true,
   "capability_profile": {
-    "canonical_family": "deepseek-v4-pro",
+    "canonical_family": "glm-5.2",
     "capability_tier": "L2",
-    "legacy_capability_tier": "L2",
+    "legacy_capability_tier": "L3",
     "tier_authority": "standard_v1",
     "scorecard": {
       "coverage": "high",
