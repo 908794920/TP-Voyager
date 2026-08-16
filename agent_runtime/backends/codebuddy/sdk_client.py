@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 import os
-import subprocess
+import shlex
 import threading
 import time
 import uuid
@@ -22,7 +22,7 @@ from types import ModuleType
 from typing import Any, Callable
 
 from agent_runtime.backends.base import BackendActivity
-from agent_runtime.domain.dispatch import CommandSpec
+from agent_runtime.domain.dispatch import CommandSpec, relative_path_matches_any
 from agent_runtime.backends.codebuddy.process import resolve_codebuddy_internet_environment
 from agent_runtime.backends.errors import (
     BackendCancelledError,
@@ -370,12 +370,7 @@ class CodeBuddySdkClient:
 
     @staticmethod
     def _matches(path: str, prefixes: tuple[str, ...]) -> bool:
-        normalized = path.replace("\\", "/").lstrip("./")
-        for prefix in prefixes:
-            root = prefix.replace("\\", "/").strip().lstrip("./").rstrip("/")
-            if not root or normalized == root or normalized.startswith(root + "/"):
-                return True
-        return False
+        return relative_path_matches_any(path, prefixes)
 
     def _path_allowed(self, raw: object, *, write: bool) -> bool:
         rel = self._relative_path(raw)
@@ -390,7 +385,7 @@ class CodeBuddySdkClient:
     def _allowed_command_texts(self) -> set[str]:
         values: set[str] = set()
         for spec in self.command_specs:
-            values.add(subprocess.list2cmdline(list(spec.argv)).strip())
+            values.add(shlex.join(list(spec.argv)).strip())
         return values
 
     def _build_options(
@@ -456,7 +451,7 @@ class CodeBuddySdkClient:
                     not has_env_override
                     and not background
                     and any(
-                        subprocess.list2cmdline(list(spec.argv)).strip() == command
+                        shlex.join(list(spec.argv)).strip() == command
                         and spec.cwd == requested_cwd
                         for spec in self.command_specs
                     )

@@ -7,6 +7,7 @@ score models, select models, or change dispatch authorization.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date, datetime
 import json
 from pathlib import Path
 from typing import Any, Mapping
@@ -85,6 +86,22 @@ def _text(value: object, field: str, *, required: bool = True, limit: int = 800)
         raise ModelEvaluationError(f"{field} is invalid")
     return value
 
+
+
+def _iso_date_text(value: object, field: str, *, required: bool = False) -> str | None:
+    text = _text(value, field, required=required, limit=64)
+    if text is None:
+        return None
+    try:
+        if "T" in text or " " in text:
+            datetime.fromisoformat(text.replace("Z", "+00:00"))
+        elif len(text) == 7 and text[4] == "-":
+            date.fromisoformat(text + "-01")
+        else:
+            date.fromisoformat(text)
+    except ValueError as exc:
+        raise ModelEvaluationError(f"{field} must be an ISO-8601 date/time") from exc
+    return text
 
 def _url(value: object, field: str, *, required: bool = True) -> str | None:
     text = _text(value, field, required=required, limit=1200)
@@ -231,12 +248,12 @@ def validate_standard_evidence(
 
     provenance = _object(record.get("provenance"), "provenance", _PROVENANCE_KEYS)
     normalized_provenance = {
-        "observed_at": _text(provenance.get("observed_at"), "provenance.observed_at", required=False, limit=64),
-        "published_at": _text(provenance.get("published_at"), "provenance.published_at", required=False, limit=64),
+        "observed_at": _iso_date_text(provenance.get("observed_at"), "provenance.observed_at", required=False),
+        "published_at": _iso_date_text(provenance.get("published_at"), "provenance.published_at", required=False),
         "url": _url(provenance.get("url"), "provenance.url", required=False),
         "methodology_url": _url(provenance.get("methodology_url"), "provenance.methodology_url", required=False),
         "primary_approved_by": _text(provenance.get("primary_approved_by"), "provenance.primary_approved_by", required=False, limit=160),
-        "primary_approved_at": _text(provenance.get("primary_approved_at"), "provenance.primary_approved_at", required=False, limit=64),
+        "primary_approved_at": _iso_date_text(provenance.get("primary_approved_at"), "provenance.primary_approved_at", required=False),
         "approval_basis_url": _url(provenance.get("approval_basis_url"), "provenance.approval_basis_url", required=False),
     }
 

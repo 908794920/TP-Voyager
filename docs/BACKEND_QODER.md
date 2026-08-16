@@ -22,8 +22,9 @@ acp_patch
 - 不向 Worker 开放写文件能力；
 - 不开放 Terminal；
 - 权限升级请求 fail-closed；
-- 读取必须落在 Runtime 解析后的 concrete `read_scope`；
+- Runtime 将 concrete `read_scope` materialize 到一次性 snapshot，并以该 snapshot 作为 Qoder cwd；源 Passenger repo 不再作为 bounded read-only route 的工作目录；
 - v1.0.3 起只读终态不扫描/归属源工作区既有 Git diff。
+- 该机制提供 **workspace-exposure isolation**，不是 OS sandbox：Qoder 仍以宿主用户权限运行，因此 TP-Voyager 不宣称能防御恶意本机二进制主动访问宿主机任意绝对路径。
 
 ## `acp_patch`
 

@@ -207,6 +207,14 @@ class ModelEvaluationStandardTests(unittest.TestCase):
 
     def test_v2_scorecard_is_persisted_snapshot_and_tier_mismatch_fails_closed(self) -> None:
         home = self._home()
+        registry = ModelEvaluationSourceRegistry.load_bundled()
+        rules = load_tier_rules()
+        evidence = [
+            _primary_component_evidence(evidence_id="e1", benchmark_id="deep-swe", version="1.1", value=64.0),
+            _primary_component_evidence(evidence_id="e2", benchmark_id="terminal-bench", version="2.1", value=70.0),
+            _primary_component_evidence(evidence_id="e3", benchmark_id="swe-atlas-qna", version="2026-08", value=35.0),
+        ]
+        scorecard = build_scorecard("kimi-k3", evidence, registry, rules, evaluated_at="2026-08-15")
         payload = {
             "schema": "tp-voyager.model_routing_profiles/v2",
             "updated_at": "2026-08-15",
@@ -217,34 +225,19 @@ class ModelEvaluationStandardTests(unittest.TestCase):
                     "canonical_family": "kimi-k3",
                     "provider_identity": "provider_declared",
                     "legacy_capability_tier": "L3",
-                    "capability_tier": "L3",
+                    "capability_tier": scorecard["tier"],
                     "tier_authority": "standard_v1",
-                    "scorecard": {
-                        "schema": "tp-voyager.model_scorecard/v1",
-                        "rules_version": "tp-voyager.model_tier_rules/v1",
-                        "rules_status": "calibrated",
-                        "evaluated_at": "2026-08-15",
-                        "dimensions": {
-                            "repository_engineering": {"status": "measured", "evidence_ids": ["e1"]},
-                            "terminal_agentic": {"status": "measured", "evidence_ids": ["e2"]},
-                            "codebase_understanding": {"status": "measured", "evidence_ids": ["e3"]},
-                            "general_coding": {"status": "N/A", "evidence_ids": []},
-                            "multimodal_coding": {"status": "N/A", "evidence_ids": []},
-                        },
-                        "coverage": "high",
-                        "confidence": "high",
-                        "tier": "L3",
-                    },
-                    "standard_evidence": [],
+                    "scorecard": scorecard,
+                    "standard_evidence": evidence,
                 }
             },
         }
         path = home / "model_routing_profiles.json"
         path.write_text(json.dumps(payload), encoding="utf-8")
         loaded = ModelRoutingProfiles.load(home)
-        self.assertEqual(loaded.get("codebuddy:kimi-k3-2")["scorecard"]["tier"], "L3")
+        self.assertEqual(loaded.get("codebuddy:kimi-k3-2")["scorecard"]["tier"], scorecard["tier"])
         bad = json.loads(json.dumps(payload))
-        bad["profiles"]["codebuddy:kimi-k3-2"]["capability_tier"] = "L2"
+        bad["profiles"]["codebuddy:kimi-k3-2"]["capability_tier"] = "L2" if scorecard["tier"] != "L2" else "L1"
         path.write_text(json.dumps(bad), encoding="utf-8")
         with self.assertRaises(ModelRoutingProfileError):
             ModelRoutingProfiles.load(home)
@@ -521,3 +514,65 @@ def test_fresh_release_identity_audit_keeps_current_deepseek_and_glm53_separate_
     assert not any("identity" in boundary.lower() and "not captured" in boundary.lower()
                    for boundary in glm53["risk_boundaries"])
 
+
+
+def test_scorecard_snapshot_is_bound_to_profile_evidence(tmp_path):
+    baseline = json.loads(ModelRoutingProfiles.bundled_baseline_path().read_text(encoding="utf-8"))
+    target = next(
+        route for route, profile in baseline["profiles"].items()
+        if profile.get("scorecard") is not None and profile.get("standard_evidence")
+    )
+    baseline["profiles"][target]["standard_evidence"] = []
+    (tmp_path / "model_routing_profiles.json").write_text(
+        json.dumps(baseline, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    with pytest.raises(ModelRoutingProfileError, match="scorecard.*evidence|binding"):
+        ModelRoutingProfiles.load(tmp_path)
+
+
+def test_scorecard_derived_output_cannot_be_tampered_even_when_input_digests_match(tmp_path):
+    baseline = json.loads(ModelRoutingProfiles.bundled_baseline_path().read_text(encoding="utf-8"))
+    target = next(
+        route for route, profile in baseline["profiles"].items()
+        if profile.get("scorecard") is not None and profile.get("standard_evidence")
+    )
+    profile = baseline["profiles"][target]
+    original_tier = profile["scorecard"]["tier"]
+    forged_tier = "L3" if original_tier != "L3" else "L2"
+    profile["scorecard"]["tier"] = forged_tier
+    profile["capability_tier"] = forged_tier
+    (tmp_path / "model_routing_profiles.json").write_text(
+        json.dumps(baseline, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    with pytest.raises(ModelRoutingProfileError, match="scorecard.*derived|binding|rebuild"):
+        ModelRoutingProfiles.load(tmp_path)
+
+
+def test_stale_primary_evidence_is_not_primary_for_tier():
+    registry = ModelEvaluationSourceRegistry.load_bundled()
+    rules = load_tier_rules()
+    stale = _primary_component_evidence(
+        evidence_id="k3-deepswe-stale", benchmark_id="deep-swe", version="AA-CAI-v1.3", value=99.0
+    )
+    stale["provenance"]["observed_at"] = "2020-01-01"
+    scorecard = build_scorecard("kimi-k3", [stale], registry, rules, evaluated_at="2026-08-15")
+    measurement = scorecard["dimensions"]["repository_engineering"]["measurements"][0]
+    assert measurement["freshness_status"] == "stale"
+    assert measurement["primary"] is False
+    assert scorecard["tier"] == "UNCLASSIFIED"
+
+
+def test_invalid_evidence_dates_fail_closed():
+    registry = ModelEvaluationSourceRegistry.load_bundled()
+    record = _primary_component_evidence(
+        evidence_id="k3-bad-date", benchmark_id="deep-swe", version="AA-CAI-v1.3", value=64.0
+    )
+    record["provenance"]["observed_at"] = "not-a-date"
+    with pytest.raises(ModelEvaluationError, match="observed_at"):
+        validate_standard_evidence(record, registry)
+
+
+def test_scorecard_builder_default_evaluation_date_is_not_hard_coded():
+    import inspect
+    signature = inspect.signature(build_scorecard)
+    assert signature.parameters["evaluated_at"].default is None

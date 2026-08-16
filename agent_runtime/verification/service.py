@@ -24,7 +24,7 @@ from agent_runtime.domain.enums import (
     TrustState,
 )
 from agent_runtime.domain.evidence import Evidence
-from agent_runtime.domain.dispatch import CommandSpec
+from agent_runtime.domain.dispatch import CommandSpec, relative_path_matches_prefix
 from agent_runtime.domain.ids import new_evidence_id
 
 
@@ -124,11 +124,7 @@ class VerificationReport:
 
 
 def _matches_prefix(path: str, prefix: str) -> bool:
-    path = path.replace("\\", "/").lstrip("./")
-    prefix = prefix.replace("\\", "/").strip().lstrip("./").rstrip("/")
-    if not prefix:
-        return True
-    return path == prefix or path.startswith(prefix + "/")
+    return relative_path_matches_prefix(path, prefix)
 
 
 def _safe_expected_path(cwd: Path, relpath: str) -> Path | None:

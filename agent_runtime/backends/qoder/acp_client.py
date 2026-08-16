@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from agent_runtime.backends.base import BackendActivity
-from agent_runtime.domain.dispatch import CommandSpec
+from agent_runtime.domain.dispatch import CommandSpec, relative_path_matches_any
 from agent_runtime.backends.errors import (
     BackendCancelledError,
     BackendProtocolError,
@@ -670,12 +670,7 @@ class QoderAcpClient:
 
     @staticmethod
     def _matches(path: str, prefixes: tuple[str, ...]) -> bool:
-        normalized = path.replace("\\", "/").lstrip("./")
-        for prefix in prefixes:
-            root = prefix.replace("\\", "/").strip().lstrip("./").rstrip("/")
-            if not root or normalized == root or normalized.startswith(root + "/"):
-                return True
-        return False
+        return relative_path_matches_any(path, prefixes)
 
     def _safe_path(self, raw: str, *, write: bool = False) -> Path:
         path = Path(raw)

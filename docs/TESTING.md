@@ -95,7 +95,7 @@ Smoke 全绿
 + Usage Evidence 只保存 provider 实际返回字段
 + Qoder timeout/cancel 前已观察到的 Usage 不因无最终 Result 而丢失
 + model_policy 不做自动选择/fallback
-+ read_scope 对 CodeBuddy/Qoder 都 fail-closed
++ read_scope 对 CodeBuddy fail-closed；Qoder bounded read-only 使用 Runtime snapshot 限制 cwd 暴露，并对 ACP callback 路径继续 fail-closed
 + worker_profile_ref SHA-256 不匹配必须拒绝
 + 默认 Captain MCP Surface 仍为 6 tools
 ```

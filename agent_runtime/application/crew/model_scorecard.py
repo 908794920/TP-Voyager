@@ -7,7 +7,9 @@ snapshot; it does not recalculate model scores on every read.
 
 from __future__ import annotations
 
+import hashlib
 import json
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -18,6 +20,7 @@ from .model_evaluation import (
 )
 
 SCORECARD_SCHEMA = "tp-voyager.model_scorecard/v1"
+BUILDER_VERSION = "tp-voyager.model_scorecard_builder/v1"
 TIER_RULES_SCHEMA = "tp-voyager.model_tier_rules/v1"
 _RULES_FILE = "model_tier_rules.baseline.json"
 _DIMENSIONS = (
@@ -56,6 +59,55 @@ def load_tier_rules(path: str | Path | None = None) -> dict[str, Any]:
             raise ModelScorecardError("tier rules accepted_versions are invalid")
     return raw
 
+
+def _canonical_sha256(value: object) -> str:
+    payload = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def evidence_set_sha256(records: Sequence[Mapping[str, Any]]) -> str:
+    ordered = sorted((dict(item) for item in records), key=lambda item: str(item.get("evidence_id") or ""))
+    return _canonical_sha256(ordered)
+
+
+def source_registry_sha256(registry: ModelEvaluationSourceRegistry) -> str:
+    return _canonical_sha256({
+        "schema": registry.schema,
+        "updated_at": registry.updated_at,
+        "sources": registry.sources,
+    })
+
+
+def tier_rules_sha256(tier_rules: Mapping[str, Any]) -> str:
+    return _canonical_sha256(dict(tier_rules))
+
+
+def _date_only(value: str, field: str) -> date:
+    try:
+        if "T" in value or " " in value:
+            return datetime.fromisoformat(value.replace("Z", "+00:00")).date()
+        if len(value) == 7 and value[4] == "-":
+            return date.fromisoformat(value + "-01")
+        return date.fromisoformat(value)
+    except ValueError as exc:
+        raise ModelScorecardError(f"{field} must be an ISO-8601 date/time") from exc
+
+
+def _freshness(record: Mapping[str, Any], registry: ModelEvaluationSourceRegistry, evaluated: date) -> tuple[str, int | None, int, str]:
+    source = registry.source(str(record.get("source_id") or ""))
+    limit = int(source.get("freshness_policy_days") or 0)
+    observed = record.get("provenance", {}).get("observed_at") if isinstance(record.get("provenance"), Mapping) else None
+    if limit <= 0:
+        return "not_applicable", None, limit, "observed_at"
+    if not isinstance(observed, str) or not observed:
+        return "invalid", None, limit, "observed_at"
+    observed_date = _date_only(observed, "provenance.observed_at")
+    age = (evaluated - observed_date).days
+    if age < 0:
+        return "invalid", age, limit, "observed_at"
+    if age > limit:
+        return "stale", age, limit, "observed_at"
+    return "current", age, limit, "observed_at"
 
 def _numeric_percent(record: Mapping[str, Any]) -> float | None:
     result = record.get("result")
@@ -121,10 +173,12 @@ def build_scorecard(
     registry: ModelEvaluationSourceRegistry,
     tier_rules: Mapping[str, Any],
     *,
-    evaluated_at: str = "2026-08-15",
+    evaluated_at: str | None = None,
 ) -> dict[str, Any]:
     if not canonical_family or not isinstance(canonical_family, str):
         raise ModelScorecardError("canonical_family is required")
+    evaluated_at = evaluated_at or datetime.now(timezone.utc).date().isoformat()
+    evaluated_date = _date_only(evaluated_at, "evaluated_at")
     try:
         records = validate_evidence_collection(list(evidence), registry)
     except ModelEvaluationError as exc:
@@ -146,7 +200,15 @@ def build_scorecard(
         accepted_versions = tier_rules.get("accepted_versions") or {}
         allowed_versions = accepted_versions.get(benchmark_id)
         calibration_compatible = bool(allowed_versions and record["benchmark"].get("version") in allowed_versions)
-        primary = _formal_primary(record) and not is_composite and calibration_compatible
+        freshness_status, age_days, freshness_limit_days, freshness_basis = _freshness(
+            record, registry, evaluated_date
+        )
+        primary = (
+            _formal_primary(record)
+            and not is_composite
+            and calibration_compatible
+            and freshness_status == "current"
+        )
         item = {
             "evidence_id": record["evidence_id"],
             "source_id": record["source_id"],
@@ -158,6 +220,10 @@ def build_scorecard(
             "scale": record["result"]["scale"],
             "numeric_percent": _numeric_percent(record),
             "calibration_compatible": calibration_compatible,
+            "freshness_status": freshness_status,
+            "age_days": age_days,
+            "freshness_limit_days": freshness_limit_days,
+            "freshness_basis": freshness_basis,
             "primary": primary,
         }
         measurements.append({**item, "dimension": dimension})
@@ -175,10 +241,17 @@ def build_scorecard(
     coverage = "high" if primary_count >= 3 else "medium" if primary_count >= 2 else "low"
     confidence = "high" if primary_count >= 3 else "medium" if primary_count >= 2 else "low"
     tier = _tier_from_rules(measurements, dimensions, tier_rules)
+    evidence_ids = sorted(record["evidence_id"] for record in records)
     return {
         "schema": SCORECARD_SCHEMA,
         "rules_version": TIER_RULES_SCHEMA,
         "rules_status": tier_rules.get("status"),
+        "builder_version": BUILDER_VERSION,
+        "canonical_family": canonical_family,
+        "evidence_ids": evidence_ids,
+        "evidence_set_sha256": evidence_set_sha256(records),
+        "source_registry_sha256": source_registry_sha256(registry),
+        "tier_rules_sha256": tier_rules_sha256(tier_rules),
         "evaluated_at": evaluated_at,
         "dimensions": dimensions,
         "coverage": coverage,
@@ -190,11 +263,29 @@ def build_scorecard(
 def validate_scorecard(value: object) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ModelScorecardError("scorecard must be an object")
-    required = {"schema", "rules_version", "rules_status", "evaluated_at", "dimensions", "coverage", "confidence", "tier"}
+    required = {
+        "schema", "rules_version", "rules_status", "builder_version",
+        "canonical_family", "evidence_ids", "evidence_set_sha256",
+        "source_registry_sha256", "tier_rules_sha256", "evaluated_at",
+        "dimensions", "coverage", "confidence", "tier",
+    }
     if set(value) != required:
         raise ModelScorecardError("scorecard contains unsupported or missing fields")
     if value.get("schema") != SCORECARD_SCHEMA or value.get("rules_version") != TIER_RULES_SCHEMA:
         raise ModelScorecardError("scorecard schema/rules version is unsupported")
+    if value.get("builder_version") != BUILDER_VERSION:
+        raise ModelScorecardError("scorecard builder_version is unsupported")
+    canonical = value.get("canonical_family")
+    if not isinstance(canonical, str) or not canonical.strip():
+        raise ModelScorecardError("scorecard canonical_family is invalid")
+    evidence_ids = value.get("evidence_ids")
+    if not isinstance(evidence_ids, list) or any(not isinstance(item, str) or not item for item in evidence_ids) or evidence_ids != sorted(set(evidence_ids)):
+        raise ModelScorecardError("scorecard evidence_ids are invalid")
+    for field in ("evidence_set_sha256", "source_registry_sha256", "tier_rules_sha256"):
+        digest = value.get(field)
+        if not isinstance(digest, str) or len(digest) != 64 or any(ch not in "0123456789abcdef" for ch in digest.lower()):
+            raise ModelScorecardError(f"scorecard {field} is invalid")
+    _date_only(str(value.get("evaluated_at") or ""), "scorecard.evaluated_at")
     if value.get("rules_status") not in {"uncalibrated", "calibrated"}:
         raise ModelScorecardError("scorecard rules_status is unsupported")
     if value.get("tier") not in _TIERS - {"DYNAMIC"}:
@@ -216,3 +307,30 @@ def validate_scorecard(value: object) -> dict[str, Any]:
         if not isinstance(measurements, list):
             raise ModelScorecardError(f"scorecard dimension {name} measurements is invalid")
     return value
+
+def validate_scorecard_binding(
+    scorecard: Mapping[str, Any],
+    *,
+    canonical_family: str,
+    evidence: Sequence[Mapping[str, Any]],
+    registry: ModelEvaluationSourceRegistry,
+    tier_rules: Mapping[str, Any],
+) -> None:
+    """Verify a persisted scorecard is cryptographically bound to its inputs."""
+    normalized = validate_scorecard(dict(scorecard))
+    if normalized["canonical_family"] != canonical_family:
+        raise ModelScorecardError("scorecard binding canonical_family mismatch")
+    records = validate_evidence_collection(list(evidence), registry)
+    if any(record["model"]["canonical_family"] != canonical_family for record in records):
+        raise ModelScorecardError("scorecard binding evidence canonical_family mismatch")
+    expected_ids = sorted(record["evidence_id"] for record in records)
+    if normalized["evidence_ids"] != expected_ids:
+        raise ModelScorecardError("scorecard binding evidence_ids mismatch")
+    expected = {
+        "evidence_set_sha256": evidence_set_sha256(records),
+        "source_registry_sha256": source_registry_sha256(registry),
+        "tier_rules_sha256": tier_rules_sha256(tier_rules),
+    }
+    for field, digest in expected.items():
+        if normalized[field] != digest:
+            raise ModelScorecardError(f"scorecard binding {field} mismatch")

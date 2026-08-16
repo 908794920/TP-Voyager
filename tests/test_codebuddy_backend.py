@@ -275,6 +275,25 @@ class CodeBuddySdkClientTests(unittest.TestCase):
         self.assertIn("WebFetch", options.kwargs["disallowed_tools"])
         self.assertNotIn("Write", options.kwargs["disallowed_tools"])
 
+    def test_bash_authorization_preserves_literal_argv_semantics(self) -> None:
+        from agent_runtime.domain.dispatch import CommandSpec
+        with tempfile.TemporaryDirectory() as tmp:
+            client = CodeBuddySdkClient(
+                cwd=tmp, on_activity=lambda activity: None, sdk_module=FakeSdkModule, region="cn",
+                access_mode="patch", allowed_paths=("src",), forbidden_paths=(".git",),
+                command_specs=(CommandSpec("literal", ("echo", "$HOME", "*", "$(whoami)")),),
+            )
+            options = client._build_options(FakeSdkModule, resume_session_id="", model="", session_id="session")
+            authorize = options.kwargs["can_use_tool"]
+            literal = asyncio.run(
+                authorize("Bash", {"command": "echo '$HOME' '*' '$(whoami)'"}, object())
+            )
+            expanded = asyncio.run(
+                authorize("Bash", {"command": "echo $HOME * $(whoami)"}, object())
+            )
+            self.assertEqual(literal.behavior, "allow")
+            self.assertEqual(expanded.behavior, "deny")
+
     def test_verification_policy_denies_write_tools_and_allows_exact_command(self) -> None:
         from agent_runtime.domain.dispatch import CommandSpec
         with tempfile.TemporaryDirectory() as tmp:

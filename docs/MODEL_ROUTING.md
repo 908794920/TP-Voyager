@@ -222,7 +222,8 @@ A fixed-model route with calibrated evidence can project:
 }
 ```
 
-The Scorecard is a **persisted maintenance snapshot**. Runtime validates it when profiles load; it does not recompute web benchmark data on every `crew_catalog` call.
+The Scorecard is a **persisted maintenance snapshot**. Runtime validates it when profiles load; it does not recompute web benchmark data on every `crew_catalog` call. It is cryptographically bound to the canonical model, exact Standard Evidence set, Source Registry, Tier Rules, and builder version; load also deterministically rebuilds the derived snapshot at its persisted `evaluated_at`, so a hand-edited Tier/dimension cannot pass merely by keeping the input digests unchanged. Source freshness policy is enforced when the snapshot is built, so stale/invalid evidence cannot remain Primary merely because it is still stored.
+
 
 ## 12. Provider effort remains separate
 

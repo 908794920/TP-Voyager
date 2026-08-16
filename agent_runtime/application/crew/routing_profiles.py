@@ -20,7 +20,9 @@ from agent_runtime.configuration import VoyagerUserConfig, VoyagerUserConfigErro
 from .model_evaluation import (
     ModelEvaluationError, ModelEvaluationSourceRegistry, validate_evidence_collection,
 )
-from .model_scorecard import ModelScorecardError, validate_scorecard
+from .model_scorecard import (
+    ModelScorecardError, build_scorecard, load_tier_rules, validate_scorecard, validate_scorecard_binding,
+)
 
 
 _SCHEMA_V1 = "tp-voyager.model_routing_profiles/v1"
@@ -580,6 +582,7 @@ class ModelRoutingProfiles:
                 if not isinstance(confidence, str) or confidence.strip() not in _CONFIDENCE:
                     raise ModelRoutingProfileError(f"{route_id}.profile_confidence is unsupported")
                 confidence = confidence.strip()
+            canonical_family = _optional_token(value.get("canonical_family"), f"{route_id}.canonical_family")
             provider_identity = _optional_token(value.get("provider_identity"), f"{route_id}.provider_identity")
             raw_capability = _optional_token(value.get("capability_tier"), f"{route_id}.capability_tier")
             is_dynamic = provider_identity == "dynamic_tier"
@@ -628,11 +631,36 @@ class ModelRoutingProfiles:
                             raise ModelRoutingProfileError(f"{route_id} persisted scorecard requires calibrated rules")
                         if tier_authority != "standard_v1" or capability_tier != scorecard.get("tier"):
                             raise ModelRoutingProfileError(f"{route_id} tier authority conflicts with persisted scorecard")
+                        try:
+                            registry = ModelEvaluationSourceRegistry.load_bundled()
+                            tier_rules = load_tier_rules()
+                            validate_scorecard_binding(
+                                scorecard,
+                                canonical_family=canonical_family or "",
+                                evidence=standard_evidence,
+                                registry=registry,
+                                tier_rules=tier_rules,
+                            )
+                            rebuilt = build_scorecard(
+                                canonical_family or "",
+                                standard_evidence,
+                                registry,
+                                tier_rules,
+                                evaluated_at=str(scorecard.get("evaluated_at") or ""),
+                            )
+                            if rebuilt != scorecard:
+                                raise ModelScorecardError(
+                                    "persisted scorecard derived output differs from deterministic rebuild"
+                                )
+                        except (ModelScorecardError, ModelEvaluationError) as exc:
+                            raise ModelRoutingProfileError(
+                                f"{route_id} scorecard binding is invalid: {exc}"
+                            ) from exc
 
             profiles.append(
                 ModelRoutingProfile(
                     route_id=route_id,
-                    canonical_family=_optional_token(value.get("canonical_family"), f"{route_id}.canonical_family"),
+                    canonical_family=canonical_family,
                     provider_identity=provider_identity,
                     capability_tier=capability_tier,
                     legacy_capability_tier=legacy_capability,

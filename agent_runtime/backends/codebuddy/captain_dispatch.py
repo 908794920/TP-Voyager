@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import subprocess
+import shlex
 from typing import Any, Callable
 
 from agent_runtime.application.context_service import (
@@ -257,7 +257,7 @@ class CodeBuddyContextReadOnlyDispatcher:
 
     @staticmethod
     def _command_text(argv: tuple[str, ...]) -> str:
-        return subprocess.list2cmdline(list(argv))
+        return shlex.join(list(argv))
 
     @classmethod
     def _build_patch_prompt(cls, objective: str, policy: PatchPolicy) -> str:

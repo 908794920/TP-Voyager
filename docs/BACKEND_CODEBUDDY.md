@@ -35,7 +35,7 @@ Captain 路径使用官方 Python SDK。
 
 - 在 Runtime-owned Git worktree 中运行；
 - 使用 SDK Host Permission Callback 做路径/命令约束；
-- 命令必须匹配 Captain 显式批准的 Policy；
+- 命令必须匹配 Captain 显式批准的 argv/cwd Policy；Bash 文本使用 shell-safe literal quoting 序列化，避免 `$VAR`、`*`、`$(...)` 等把 literal argv 改解释为 shell program；
 - 不使用 Permission Bypass。
 
 ## Captain 只读入口

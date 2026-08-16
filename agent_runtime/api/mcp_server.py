@@ -5,7 +5,6 @@ import json
 import os
 import threading
 import time
-import uuid
 from pathlib import Path
 from typing import Any
 
@@ -18,11 +17,7 @@ from agent_runtime.api.schemas import CAPTAIN_TOOL_NAMES
 from agent_runtime.domain.enums import (
     TERMINAL_STATUS_VALUES,
     EventType,
-    EventVisibility,
-    TaskRoute,
-    TaskType,
 )
-from agent_runtime.domain.event import TaskEvent
 from agent_runtime.domain.ids import new_runtime_session_id, new_task_id
 from agent_runtime.domain.lineage import TaskLineage
 from agent_runtime.domain.workflow import WorkflowStageSpec
@@ -597,7 +592,7 @@ def _note_task_activity(task: TaskState, kind: str) -> None:
     task.event_count += 1
     if kind != "stream_activity" and task.persisted:
         try:
-            _runtime_service().append_activity(task.task_id, kind)
+            _runtime_service().append_activity(task.task_id, kind, lease=task.lease)
         except RuntimePersistenceError as exc:
             # Explicit, non-silent durability failure for diagnostics.
             task.persist_error = f"activity event failed: {exc}"
@@ -606,7 +601,6 @@ def _note_task_activity(task: TaskState, kind: str) -> None:
 from agent_runtime.api.public_projection import (
     public_task as _public,
     result_summary as _result_summary,
-    safe_public_error as _safe_public_error,
 )
 
 # ---------------------------------------------------------------------------
@@ -846,6 +840,7 @@ def _persist_status_change(
             timeout_reason=timeout_reason,
             cancel_scope=cancel_scope,
             cancel_initiator=cancel_initiator,
+            lease=task.lease,
         )
         task.version += 1
     except TaskVersionConflictError as exc:
@@ -1533,42 +1528,6 @@ def _persist_failed(task: TaskState) -> bool:
         return False
 
 
-def _persist_backend_session(task: TaskState, backend_session_id: str) -> None:
-    """Record the private backend session id (never projected publicly)."""
-    if not task.persisted:
-        return
-    try:
-        _runtime_service().set_backend_session(
-            task.task_id,
-            backend_session_id=backend_session_id,
-        )
-    except RuntimePersistenceError as exc:
-        task.persist_error = str(exc)
-        raise BackendError(f"runtime persistence failed: {exc}") from exc
-
-
-def _persist_dispatch_accepted(task: TaskState, backend_session_id: str) -> None:
-    """Record dispatch acceptance without projecting the private Crew session id."""
-    if not task.persisted:
-        return
-    try:
-        with _get_runtime_database().transaction() as connection:
-            TaskService(_get_runtime_database()).events.append(
-                connection,
-                TaskEvent(
-                    event_id=uuid.uuid4().hex,
-                    task_id=task.task_id,
-                    event_type=EventType.BACKEND_DISPATCH_ACCEPTED.value,
-                    event_time=time.time(),
-                    payload_json=json.dumps({"backend_session_id": backend_session_id}, ensure_ascii=False),
-                    visibility=EventVisibility.INTERNAL.value,
-                ),
-            )
-    except RuntimePersistenceError as exc:
-        task.persist_error = str(exc)
-        raise BackendError(f"runtime persistence failed: {exc}") from exc
-
-
 def _make_backend_callbacks(
     task: TaskState,
     log_event: Any,
@@ -1581,11 +1540,18 @@ def _make_backend_callbacks(
     """
 
     def on_dispatch_accepted(backend_session_id: str) -> None:
+        if task.persisted:
+            try:
+                _runtime_service().accept_backend_dispatch(
+                    task.task_id,
+                    backend_session_id=backend_session_id,
+                    version=task.version,
+                    lease=task.lease,
+                )
+            except RuntimePersistenceError as exc:
+                task.persist_error = str(exc)
+                raise BackendError(f"runtime dispatch gate failed: {exc}") from exc
         task.backend_session_id = backend_session_id
-        # Current official Crew routes know their backend session identity
-        # before/at dispatch acceptance. Persist it before further activity.
-        _persist_backend_session(task, backend_session_id)
-        _persist_dispatch_accepted(task, backend_session_id)
         _note_task_activity(task, "session_created")
 
     def on_activity(kind: str) -> None:
@@ -1758,8 +1724,6 @@ def _run_official_cli_task(
             backend_result = backend.start(request, callbacks)
 
         task.backend_session_id = backend_result.backend_session_id or task.backend_session_id
-        if task.backend_session_id:
-            _persist_backend_session(task, task.backend_session_id)
         task.answer = backend_result.answer
         result_backend = backend_result.backend or backend_name
         task.result = {

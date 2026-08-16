@@ -191,6 +191,15 @@
         "schema": "tp-voyager.model_scorecard/v1",
         "rules_version": "tp-voyager.model_tier_rules/v1",
         "rules_status": "calibrated",
+        "builder_version": "tp-voyager.model_scorecard_builder/v1",
+        "canonical_family": "hy3",
+        "evidence_ids": [
+          "aa-ii-v4.1-hy3",
+          "provider-card-hy3-20260706"
+        ],
+        "evidence_set_sha256": "e289e5ca9fce49ae5b82187fe610cea1496058e262f18245fad9ea8847ca8bbf",
+        "source_registry_sha256": "7662526c4928f78c637504c0ae808e41c18537fafe346124de41a9a1eb745d80",
+        "tier_rules_sha256": "666b847213505ced8df9d48f5517c82e540ca2b709f799bf4698008aed7993e4",
         "evaluated_at": "2026-08-15",
         "dimensions": {
           "repository_engineering": {
@@ -369,6 +378,15 @@
         "schema": "tp-voyager.model_scorecard/v1",
         "rules_version": "tp-voyager.model_tier_rules/v1",
         "rules_status": "calibrated",
+        "builder_version": "tp-voyager.model_scorecard_builder/v1",
+        "canonical_family": "deepseek-v4-flash",
+        "evidence_ids": [
+          "aa-ii-v4.1-deepseek-v4-flash",
+          "provider-card-deepseek-v4-flash-20260424"
+        ],
+        "evidence_set_sha256": "cc2ded7541fede6a26e28ea54020dcede3ced0f00cec809f75e63dd02c80f562",
+        "source_registry_sha256": "7662526c4928f78c637504c0ae808e41c18537fafe346124de41a9a1eb745d80",
+        "tier_rules_sha256": "666b847213505ced8df9d48f5517c82e540ca2b709f799bf4698008aed7993e4",
         "evaluated_at": "2026-08-15",
         "dimensions": {
           "repository_engineering": {
@@ -476,6 +494,12 @@
         "schema": "tp-voyager.model_scorecard/v1",
         "rules_version": "tp-voyager.model_tier_rules/v1",
         "rules_status": "calibrated",
+        "builder_version": "tp-voyager.model_scorecard_builder/v1",
+        "canonical_family": "qwen3.8-max",
+        "evidence_ids": [],
+        "evidence_set_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "source_registry_sha256": "7662526c4928f78c637504c0ae808e41c18537fafe346124de41a9a1eb745d80",
+        "tier_rules_sha256": "666b847213505ced8df9d48f5517c82e540ca2b709f799bf4698008aed7993e4",
         "evaluated_at": "2026-08-15",
         "dimensions": {
           "repository_engineering": {

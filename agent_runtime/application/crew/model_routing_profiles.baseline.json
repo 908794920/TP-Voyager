@@ -106,6 +106,14 @@
         "schema": "tp-voyager.model_scorecard/v1",
         "rules_version": "tp-voyager.model_tier_rules/v1",
         "rules_status": "calibrated",
+        "builder_version": "tp-voyager.model_scorecard_builder/v1",
+        "canonical_family": "deepseek-v4-flash",
+        "evidence_ids": [
+          "aa-ii-v4.1.1-deepseek-v4-flash-0731"
+        ],
+        "evidence_set_sha256": "749f9ae4261b7a717f1983e63acd81cb6287fa9325840dbbda0343958f99f561",
+        "source_registry_sha256": "7662526c4928f78c637504c0ae808e41c18537fafe346124de41a9a1eb745d80",
+        "tier_rules_sha256": "666b847213505ced8df9d48f5517c82e540ca2b709f799bf4698008aed7993e4",
         "evaluated_at": "2026-08-15",
         "dimensions": {
           "repository_engineering": {
@@ -257,6 +265,14 @@
         "schema": "tp-voyager.model_scorecard/v1",
         "rules_version": "tp-voyager.model_tier_rules/v1",
         "rules_status": "calibrated",
+        "builder_version": "tp-voyager.model_scorecard_builder/v1",
+        "canonical_family": "deepseek-v4-pro",
+        "evidence_ids": [
+          "release-deepseek-v4-pro-0813"
+        ],
+        "evidence_set_sha256": "8f54cfbd767c3337ab9feb3d195ad0a74b7b9cf06e6297592c6c864a6348f429",
+        "source_registry_sha256": "7662526c4928f78c637504c0ae808e41c18537fafe346124de41a9a1eb745d80",
+        "tier_rules_sha256": "666b847213505ced8df9d48f5517c82e540ca2b709f799bf4698008aed7993e4",
         "evaluated_at": "2026-08-15",
         "dimensions": {
           "repository_engineering": {
@@ -619,6 +635,19 @@
         "schema": "tp-voyager.model_scorecard/v1",
         "rules_version": "tp-voyager.model_tier_rules/v1",
         "rules_status": "calibrated",
+        "builder_version": "tp-voyager.model_scorecard_builder/v1",
+        "canonical_family": "glm-5.1",
+        "evidence_ids": [
+          "aa-cai-v1.3-glm-5.1-qna",
+          "aa-cai-v1.3-glm-5.1-repository",
+          "aa-cai-v1.3-glm-5.1-terminal",
+          "aa-ii-v4.1-glm-5.1",
+          "provider-card-glm-5.1-202604",
+          "provider-claim-glm-5.1-swe-bench-pro-provider-2026-04"
+        ],
+        "evidence_set_sha256": "79aa29ca1f7db6e6c6ab592c72a1d5ee6348fcda290093db8dfbb029a13d230c",
+        "source_registry_sha256": "7662526c4928f78c637504c0ae808e41c18537fafe346124de41a9a1eb745d80",
+        "tier_rules_sha256": "666b847213505ced8df9d48f5517c82e540ca2b709f799bf4698008aed7993e4",
         "evaluated_at": "2026-08-15",
         "dimensions": {
           "repository_engineering": {
@@ -638,6 +667,10 @@
                 "scale": "percent",
                 "numeric_percent": 19.0,
                 "calibration_compatible": true,
+                "freshness_status": "current",
+                "age_days": 0,
+                "freshness_limit_days": 120,
+                "freshness_basis": "observed_at",
                 "primary": true
               }
             ]
@@ -659,6 +692,10 @@
                 "scale": "percent",
                 "numeric_percent": 65.0,
                 "calibration_compatible": true,
+                "freshness_status": "current",
+                "age_days": 0,
+                "freshness_limit_days": 120,
+                "freshness_basis": "observed_at",
                 "primary": true
               }
             ]
@@ -680,6 +717,10 @@
                 "scale": "percent",
                 "numeric_percent": 25.0,
                 "calibration_compatible": true,
+                "freshness_status": "current",
+                "age_days": 0,
+                "freshness_limit_days": 120,
+                "freshness_basis": "observed_at",
                 "primary": true
               }
             ]
@@ -979,6 +1020,18 @@
         "schema": "tp-voyager.model_scorecard/v1",
         "rules_version": "tp-voyager.model_tier_rules/v1",
         "rules_status": "calibrated",
+        "builder_version": "tp-voyager.model_scorecard_builder/v1",
+        "canonical_family": "glm-5.2",
+        "evidence_ids": [
+          "aa-cai-v1.3-glm-5.2-qna",
+          "aa-cai-v1.3-glm-5.2-repository",
+          "aa-cai-v1.3-glm-5.2-terminal",
+          "aa-ii-v4.1-glm-5.2",
+          "provider-card-glm-5.2-20260616"
+        ],
+        "evidence_set_sha256": "2b2f41f3806900ad34408b179c47361984039cbbd0a15f4a84237f3690b6aaba",
+        "source_registry_sha256": "7662526c4928f78c637504c0ae808e41c18537fafe346124de41a9a1eb745d80",
+        "tier_rules_sha256": "666b847213505ced8df9d48f5517c82e540ca2b709f799bf4698008aed7993e4",
         "evaluated_at": "2026-08-15",
         "dimensions": {
           "repository_engineering": {
@@ -998,6 +1051,10 @@
                 "scale": "percent",
                 "numeric_percent": 29.0,
                 "calibration_compatible": true,
+                "freshness_status": "current",
+                "age_days": 0,
+                "freshness_limit_days": 120,
+                "freshness_basis": "observed_at",
                 "primary": true
               }
             ]
@@ -1019,6 +1076,10 @@
                 "scale": "percent",
                 "numeric_percent": 72.0,
                 "calibration_compatible": true,
+                "freshness_status": "current",
+                "age_days": 0,
+                "freshness_limit_days": 120,
+                "freshness_basis": "observed_at",
                 "primary": true
               }
             ]
@@ -1040,6 +1101,10 @@
                 "scale": "percent",
                 "numeric_percent": 29.0,
                 "calibration_compatible": true,
+                "freshness_status": "current",
+                "age_days": 0,
+                "freshness_limit_days": 120,
+                "freshness_basis": "observed_at",
                 "primary": true
               }
             ]
@@ -1221,6 +1286,16 @@
         "schema": "tp-voyager.model_scorecard/v1",
         "rules_version": "tp-voyager.model_tier_rules/v1",
         "rules_status": "calibrated",
+        "builder_version": "tp-voyager.model_scorecard_builder/v1",
+        "canonical_family": "glm-5.3",
+        "evidence_ids": [
+          "release-glm-5.3-20260814",
+          "zai-claim-glm-5.3-cybergym-20260814",
+          "zai-claim-glm-5.3-exploitbench-20260814"
+        ],
+        "evidence_set_sha256": "46fd76e1a7ce92e6f42d534ca38328b39255c7fb76328208a7b73078f94cd587",
+        "source_registry_sha256": "7662526c4928f78c637504c0ae808e41c18537fafe346124de41a9a1eb745d80",
+        "tier_rules_sha256": "666b847213505ced8df9d48f5517c82e540ca2b709f799bf4698008aed7993e4",
         "evaluated_at": "2026-08-15",
         "dimensions": {
           "repository_engineering": {
@@ -1360,6 +1435,14 @@
         "schema": "tp-voyager.model_scorecard/v1",
         "rules_version": "tp-voyager.model_tier_rules/v1",
         "rules_status": "calibrated",
+        "builder_version": "tp-voyager.model_scorecard_builder/v1",
+        "canonical_family": "glm-5v-turbo",
+        "evidence_ids": [
+          "provider-card-glm-5v-turbo-202604"
+        ],
+        "evidence_set_sha256": "a0ff2b9b70210fc77d6e2693731d04e0fe250f7eea17f4af84e1f0df123509a1",
+        "source_registry_sha256": "7662526c4928f78c637504c0ae808e41c18537fafe346124de41a9a1eb745d80",
+        "tier_rules_sha256": "666b847213505ced8df9d48f5517c82e540ca2b709f799bf4698008aed7993e4",
         "evaluated_at": "2026-08-15",
         "dimensions": {
           "repository_engineering": {
@@ -1543,6 +1626,15 @@
         "schema": "tp-voyager.model_scorecard/v1",
         "rules_version": "tp-voyager.model_tier_rules/v1",
         "rules_status": "calibrated",
+        "builder_version": "tp-voyager.model_scorecard_builder/v1",
+        "canonical_family": "hy3",
+        "evidence_ids": [
+          "aa-ii-v4.1-hy3",
+          "provider-card-hy3-20260706"
+        ],
+        "evidence_set_sha256": "e289e5ca9fce49ae5b82187fe610cea1496058e262f18245fad9ea8847ca8bbf",
+        "source_registry_sha256": "7662526c4928f78c637504c0ae808e41c18537fafe346124de41a9a1eb745d80",
+        "tier_rules_sha256": "666b847213505ced8df9d48f5517c82e540ca2b709f799bf4698008aed7993e4",
         "evaluated_at": "2026-08-15",
         "dimensions": {
           "repository_engineering": {
@@ -1861,6 +1953,18 @@
         "schema": "tp-voyager.model_scorecard/v1",
         "rules_version": "tp-voyager.model_tier_rules/v1",
         "rules_status": "calibrated",
+        "builder_version": "tp-voyager.model_scorecard_builder/v1",
+        "canonical_family": "kimi-k2.6",
+        "evidence_ids": [
+          "aa-cai-v1.3-kimi-k2.6-qna",
+          "aa-cai-v1.3-kimi-k2.6-repository",
+          "aa-cai-v1.3-kimi-k2.6-terminal",
+          "aa-ii-v4.1-kimi-k2.6",
+          "provider-card-kimi-k2.6-20260420"
+        ],
+        "evidence_set_sha256": "ccec1cb40461d9ca61539a5c66ea768504e7f128efe45a153820a088e4e9a76f",
+        "source_registry_sha256": "7662526c4928f78c637504c0ae808e41c18537fafe346124de41a9a1eb745d80",
+        "tier_rules_sha256": "666b847213505ced8df9d48f5517c82e540ca2b709f799bf4698008aed7993e4",
         "evaluated_at": "2026-08-15",
         "dimensions": {
           "repository_engineering": {
@@ -1880,6 +1984,10 @@
                 "scale": "percent",
                 "numeric_percent": 17.0,
                 "calibration_compatible": true,
+                "freshness_status": "current",
+                "age_days": 0,
+                "freshness_limit_days": 120,
+                "freshness_basis": "observed_at",
                 "primary": true
               }
             ]
@@ -1901,6 +2009,10 @@
                 "scale": "percent",
                 "numeric_percent": 65.0,
                 "calibration_compatible": true,
+                "freshness_status": "current",
+                "age_days": 0,
+                "freshness_limit_days": 120,
+                "freshness_basis": "observed_at",
                 "primary": true
               }
             ]
@@ -1922,6 +2034,10 @@
                 "scale": "percent",
                 "numeric_percent": 16.0,
                 "calibration_compatible": true,
+                "freshness_status": "current",
+                "age_days": 0,
+                "freshness_limit_days": 120,
+                "freshness_basis": "observed_at",
                 "primary": true
               }
             ]
@@ -2089,6 +2205,15 @@
         "schema": "tp-voyager.model_scorecard/v1",
         "rules_version": "tp-voyager.model_tier_rules/v1",
         "rules_status": "calibrated",
+        "builder_version": "tp-voyager.model_scorecard_builder/v1",
+        "canonical_family": "kimi-k2.7-code",
+        "evidence_ids": [
+          "aa-ii-v4.1-kimi-k2.7-code",
+          "provider-card-kimi-k2.7-code-20260612"
+        ],
+        "evidence_set_sha256": "92e3b12a15c3734a9966cd57c662ee8285396df46f0cb41c70e1a76e26616cc4",
+        "source_registry_sha256": "7662526c4928f78c637504c0ae808e41c18537fafe346124de41a9a1eb745d80",
+        "tier_rules_sha256": "666b847213505ced8df9d48f5517c82e540ca2b709f799bf4698008aed7993e4",
         "evaluated_at": "2026-08-15",
         "dimensions": {
           "repository_engineering": {
@@ -2413,6 +2538,18 @@
         "schema": "tp-voyager.model_scorecard/v1",
         "rules_version": "tp-voyager.model_tier_rules/v1",
         "rules_status": "calibrated",
+        "builder_version": "tp-voyager.model_scorecard_builder/v1",
+        "canonical_family": "kimi-k3",
+        "evidence_ids": [
+          "aa-cai-v1.3-kimi-k3-qna",
+          "aa-cai-v1.3-kimi-k3-repository",
+          "aa-cai-v1.3-kimi-k3-terminal",
+          "aa-ii-v4.1-kimi-k3",
+          "provider-card-kimi-k3-20260716"
+        ],
+        "evidence_set_sha256": "d23b07e9d4c00113f3b1fe05e3ea4cf3429791fad9bb4a20f8e910208bac242d",
+        "source_registry_sha256": "7662526c4928f78c637504c0ae808e41c18537fafe346124de41a9a1eb745d80",
+        "tier_rules_sha256": "666b847213505ced8df9d48f5517c82e540ca2b709f799bf4698008aed7993e4",
         "evaluated_at": "2026-08-15",
         "dimensions": {
           "repository_engineering": {
@@ -2432,6 +2569,10 @@
                 "scale": "percent",
                 "numeric_percent": 64.0,
                 "calibration_compatible": true,
+                "freshness_status": "current",
+                "age_days": 0,
+                "freshness_limit_days": 120,
+                "freshness_basis": "observed_at",
                 "primary": true
               }
             ]
@@ -2453,6 +2594,10 @@
                 "scale": "percent",
                 "numeric_percent": 84.0,
                 "calibration_compatible": true,
+                "freshness_status": "current",
+                "age_days": 0,
+                "freshness_limit_days": 120,
+                "freshness_basis": "observed_at",
                 "primary": true
               }
             ]
@@ -2474,6 +2619,10 @@
                 "scale": "percent",
                 "numeric_percent": 37.0,
                 "calibration_compatible": true,
+                "freshness_status": "current",
+                "age_days": 0,
+                "freshness_limit_days": 120,
+                "freshness_basis": "observed_at",
                 "primary": true
               }
             ]
@@ -2682,6 +2831,16 @@
         "schema": "tp-voyager.model_scorecard/v1",
         "rules_version": "tp-voyager.model_tier_rules/v1",
         "rules_status": "calibrated",
+        "builder_version": "tp-voyager.model_scorecard_builder/v1",
+        "canonical_family": "minimax-m2.7",
+        "evidence_ids": [
+          "aa-ii-v4.1-minimax-m2.7",
+          "provider-card-minimax-m2.7-20260318",
+          "provider-claim-minimax-m2.7-terminal-bench-2-0"
+        ],
+        "evidence_set_sha256": "51b50f2cbf2029dc1cfe1f54f1008574805efedd623209b1354f0d416b7f3470",
+        "source_registry_sha256": "7662526c4928f78c637504c0ae808e41c18537fafe346124de41a9a1eb745d80",
+        "tier_rules_sha256": "666b847213505ced8df9d48f5517c82e540ca2b709f799bf4698008aed7993e4",
         "evaluated_at": "2026-08-15",
         "dimensions": {
           "repository_engineering": {
@@ -2706,6 +2865,10 @@
                 "scale": "percent",
                 "numeric_percent": 57.0,
                 "calibration_compatible": false,
+                "freshness_status": "current",
+                "age_days": 0,
+                "freshness_limit_days": 365,
+                "freshness_basis": "observed_at",
                 "primary": false
               }
             ]
@@ -2934,6 +3097,16 @@
         "schema": "tp-voyager.model_scorecard/v1",
         "rules_version": "tp-voyager.model_tier_rules/v1",
         "rules_status": "calibrated",
+        "builder_version": "tp-voyager.model_scorecard_builder/v1",
+        "canonical_family": "minimax-m3",
+        "evidence_ids": [
+          "aa-ii-v4.1-minimax-m3",
+          "provider-card-minimax-m3-20260601",
+          "provider-claim-minimax-m3-terminal-bench-2-1"
+        ],
+        "evidence_set_sha256": "641a4444a1cd998e1faa3268631b7a1929fef8babc97b2acd290174b0626ca07",
+        "source_registry_sha256": "7662526c4928f78c637504c0ae808e41c18537fafe346124de41a9a1eb745d80",
+        "tier_rules_sha256": "666b847213505ced8df9d48f5517c82e540ca2b709f799bf4698008aed7993e4",
         "evaluated_at": "2026-08-15",
         "dimensions": {
           "repository_engineering": {
@@ -2958,6 +3131,10 @@
                 "scale": "percent",
                 "numeric_percent": 66.0,
                 "calibration_compatible": false,
+                "freshness_status": "current",
+                "age_days": 0,
+                "freshness_limit_days": 365,
+                "freshness_basis": "observed_at",
                 "primary": false
               }
             ]
@@ -3065,6 +3242,12 @@
         "schema": "tp-voyager.model_scorecard/v1",
         "rules_version": "tp-voyager.model_tier_rules/v1",
         "rules_status": "calibrated",
+        "builder_version": "tp-voyager.model_scorecard_builder/v1",
+        "canonical_family": "cantus",
+        "evidence_ids": [],
+        "evidence_set_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "source_registry_sha256": "7662526c4928f78c637504c0ae808e41c18537fafe346124de41a9a1eb745d80",
+        "tier_rules_sha256": "666b847213505ced8df9d48f5517c82e540ca2b709f799bf4698008aed7993e4",
         "evaluated_at": "2026-08-15",
         "dimensions": {
           "repository_engineering": {
@@ -3201,6 +3384,14 @@
         "schema": "tp-voyager.model_scorecard/v1",
         "rules_version": "tp-voyager.model_tier_rules/v1",
         "rules_status": "calibrated",
+        "builder_version": "tp-voyager.model_scorecard_builder/v1",
+        "canonical_family": "deepseek-v4-flash",
+        "evidence_ids": [
+          "aa-ii-v4.1.1-deepseek-v4-flash-0731"
+        ],
+        "evidence_set_sha256": "749f9ae4261b7a717f1983e63acd81cb6287fa9325840dbbda0343958f99f561",
+        "source_registry_sha256": "7662526c4928f78c637504c0ae808e41c18537fafe346124de41a9a1eb745d80",
+        "tier_rules_sha256": "666b847213505ced8df9d48f5517c82e540ca2b709f799bf4698008aed7993e4",
         "evaluated_at": "2026-08-15",
         "dimensions": {
           "repository_engineering": {
@@ -3352,6 +3543,14 @@
         "schema": "tp-voyager.model_scorecard/v1",
         "rules_version": "tp-voyager.model_tier_rules/v1",
         "rules_status": "calibrated",
+        "builder_version": "tp-voyager.model_scorecard_builder/v1",
+        "canonical_family": "deepseek-v4-pro",
+        "evidence_ids": [
+          "release-deepseek-v4-pro-0813"
+        ],
+        "evidence_set_sha256": "8f54cfbd767c3337ab9feb3d195ad0a74b7b9cf06e6297592c6c864a6348f429",
+        "source_registry_sha256": "7662526c4928f78c637504c0ae808e41c18537fafe346124de41a9a1eb745d80",
+        "tier_rules_sha256": "666b847213505ced8df9d48f5517c82e540ca2b709f799bf4698008aed7993e4",
         "evaluated_at": "2026-08-15",
         "dimensions": {
           "repository_engineering": {
@@ -3695,6 +3894,18 @@
         "schema": "tp-voyager.model_scorecard/v1",
         "rules_version": "tp-voyager.model_tier_rules/v1",
         "rules_status": "calibrated",
+        "builder_version": "tp-voyager.model_scorecard_builder/v1",
+        "canonical_family": "glm-5.2",
+        "evidence_ids": [
+          "aa-cai-v1.3-glm-5.2-qna",
+          "aa-cai-v1.3-glm-5.2-repository",
+          "aa-cai-v1.3-glm-5.2-terminal",
+          "aa-ii-v4.1-glm-5.2",
+          "provider-card-glm-5.2-20260616"
+        ],
+        "evidence_set_sha256": "2b2f41f3806900ad34408b179c47361984039cbbd0a15f4a84237f3690b6aaba",
+        "source_registry_sha256": "7662526c4928f78c637504c0ae808e41c18537fafe346124de41a9a1eb745d80",
+        "tier_rules_sha256": "666b847213505ced8df9d48f5517c82e540ca2b709f799bf4698008aed7993e4",
         "evaluated_at": "2026-08-15",
         "dimensions": {
           "repository_engineering": {
@@ -3714,6 +3925,10 @@
                 "scale": "percent",
                 "numeric_percent": 29.0,
                 "calibration_compatible": true,
+                "freshness_status": "current",
+                "age_days": 0,
+                "freshness_limit_days": 120,
+                "freshness_basis": "observed_at",
                 "primary": true
               }
             ]
@@ -3735,6 +3950,10 @@
                 "scale": "percent",
                 "numeric_percent": 72.0,
                 "calibration_compatible": true,
+                "freshness_status": "current",
+                "age_days": 0,
+                "freshness_limit_days": 120,
+                "freshness_basis": "observed_at",
                 "primary": true
               }
             ]
@@ -3756,6 +3975,10 @@
                 "scale": "percent",
                 "numeric_percent": 29.0,
                 "calibration_compatible": true,
+                "freshness_status": "current",
+                "age_days": 0,
+                "freshness_limit_days": 120,
+                "freshness_basis": "observed_at",
                 "primary": true
               }
             ]
@@ -3923,6 +4146,15 @@
         "schema": "tp-voyager.model_scorecard/v1",
         "rules_version": "tp-voyager.model_tier_rules/v1",
         "rules_status": "calibrated",
+        "builder_version": "tp-voyager.model_scorecard_builder/v1",
+        "canonical_family": "kimi-k2.7-code",
+        "evidence_ids": [
+          "aa-ii-v4.1-kimi-k2.7-code",
+          "provider-card-kimi-k2.7-code-20260612"
+        ],
+        "evidence_set_sha256": "92e3b12a15c3734a9966cd57c662ee8285396df46f0cb41c70e1a76e26616cc4",
+        "source_registry_sha256": "7662526c4928f78c637504c0ae808e41c18537fafe346124de41a9a1eb745d80",
+        "tier_rules_sha256": "666b847213505ced8df9d48f5517c82e540ca2b709f799bf4698008aed7993e4",
         "evaluated_at": "2026-08-15",
         "dimensions": {
           "repository_engineering": {
@@ -4247,6 +4479,18 @@
         "schema": "tp-voyager.model_scorecard/v1",
         "rules_version": "tp-voyager.model_tier_rules/v1",
         "rules_status": "calibrated",
+        "builder_version": "tp-voyager.model_scorecard_builder/v1",
+        "canonical_family": "kimi-k3",
+        "evidence_ids": [
+          "aa-cai-v1.3-kimi-k3-qna",
+          "aa-cai-v1.3-kimi-k3-repository",
+          "aa-cai-v1.3-kimi-k3-terminal",
+          "aa-ii-v4.1-kimi-k3",
+          "provider-card-kimi-k3-20260716"
+        ],
+        "evidence_set_sha256": "d23b07e9d4c00113f3b1fe05e3ea4cf3429791fad9bb4a20f8e910208bac242d",
+        "source_registry_sha256": "7662526c4928f78c637504c0ae808e41c18537fafe346124de41a9a1eb745d80",
+        "tier_rules_sha256": "666b847213505ced8df9d48f5517c82e540ca2b709f799bf4698008aed7993e4",
         "evaluated_at": "2026-08-15",
         "dimensions": {
           "repository_engineering": {
@@ -4266,6 +4510,10 @@
                 "scale": "percent",
                 "numeric_percent": 64.0,
                 "calibration_compatible": true,
+                "freshness_status": "current",
+                "age_days": 0,
+                "freshness_limit_days": 120,
+                "freshness_basis": "observed_at",
                 "primary": true
               }
             ]
@@ -4287,6 +4535,10 @@
                 "scale": "percent",
                 "numeric_percent": 84.0,
                 "calibration_compatible": true,
+                "freshness_status": "current",
+                "age_days": 0,
+                "freshness_limit_days": 120,
+                "freshness_basis": "observed_at",
                 "primary": true
               }
             ]
@@ -4308,6 +4560,10 @@
                 "scale": "percent",
                 "numeric_percent": 37.0,
                 "calibration_compatible": true,
+                "freshness_status": "current",
+                "age_days": 0,
+                "freshness_limit_days": 120,
+                "freshness_basis": "observed_at",
                 "primary": true
               }
             ]
@@ -4531,6 +4787,16 @@
         "schema": "tp-voyager.model_scorecard/v1",
         "rules_version": "tp-voyager.model_tier_rules/v1",
         "rules_status": "calibrated",
+        "builder_version": "tp-voyager.model_scorecard_builder/v1",
+        "canonical_family": "minimax-m3",
+        "evidence_ids": [
+          "aa-ii-v4.1-minimax-m3",
+          "provider-card-minimax-m3-20260601",
+          "provider-claim-minimax-m3-terminal-bench-2-1"
+        ],
+        "evidence_set_sha256": "641a4444a1cd998e1faa3268631b7a1929fef8babc97b2acd290174b0626ca07",
+        "source_registry_sha256": "7662526c4928f78c637504c0ae808e41c18537fafe346124de41a9a1eb745d80",
+        "tier_rules_sha256": "666b847213505ced8df9d48f5517c82e540ca2b709f799bf4698008aed7993e4",
         "evaluated_at": "2026-08-15",
         "dimensions": {
           "repository_engineering": {
@@ -4555,6 +4821,10 @@
                 "scale": "percent",
                 "numeric_percent": 66.0,
                 "calibration_compatible": false,
+                "freshness_status": "current",
+                "age_days": 0,
+                "freshness_limit_days": 365,
+                "freshness_basis": "observed_at",
                 "primary": false
               }
             ]
@@ -4883,6 +5153,18 @@
         "schema": "tp-voyager.model_scorecard/v1",
         "rules_version": "tp-voyager.model_tier_rules/v1",
         "rules_status": "calibrated",
+        "builder_version": "tp-voyager.model_scorecard_builder/v1",
+        "canonical_family": "qwen3.7-plus",
+        "evidence_ids": [
+          "aa-cai-v1.3-qwen3.7-plus-qna",
+          "aa-cai-v1.3-qwen3.7-plus-repository",
+          "aa-cai-v1.3-qwen3.7-plus-terminal",
+          "aa-ii-v4.1-qwen3.7-plus",
+          "provider-card-qwen3.7-plus-20260601"
+        ],
+        "evidence_set_sha256": "a9eba75b691056f1975a6950cc7c061cf43230072b1eb0f6f254ffd9e75b4e80",
+        "source_registry_sha256": "7662526c4928f78c637504c0ae808e41c18537fafe346124de41a9a1eb745d80",
+        "tier_rules_sha256": "666b847213505ced8df9d48f5517c82e540ca2b709f799bf4698008aed7993e4",
         "evaluated_at": "2026-08-15",
         "dimensions": {
           "repository_engineering": {
@@ -4902,6 +5184,10 @@
                 "scale": "percent",
                 "numeric_percent": 19.0,
                 "calibration_compatible": true,
+                "freshness_status": "current",
+                "age_days": 0,
+                "freshness_limit_days": 120,
+                "freshness_basis": "observed_at",
                 "primary": true
               }
             ]
@@ -4923,6 +5209,10 @@
                 "scale": "percent",
                 "numeric_percent": 65.0,
                 "calibration_compatible": true,
+                "freshness_status": "current",
+                "age_days": 0,
+                "freshness_limit_days": 120,
+                "freshness_basis": "observed_at",
                 "primary": true
               }
             ]
@@ -4944,6 +5234,10 @@
                 "scale": "percent",
                 "numeric_percent": 24.0,
                 "calibration_compatible": true,
+                "freshness_status": "current",
+                "age_days": 0,
+                "freshness_limit_days": 120,
+                "freshness_basis": "observed_at",
                 "primary": true
               }
             ]
@@ -5032,6 +5326,12 @@
         "schema": "tp-voyager.model_scorecard/v1",
         "rules_version": "tp-voyager.model_tier_rules/v1",
         "rules_status": "calibrated",
+        "builder_version": "tp-voyager.model_scorecard_builder/v1",
+        "canonical_family": "qwen3.8-max",
+        "evidence_ids": [],
+        "evidence_set_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "source_registry_sha256": "7662526c4928f78c637504c0ae808e41c18537fafe346124de41a9a1eb745d80",
+        "tier_rules_sha256": "666b847213505ced8df9d48f5517c82e540ca2b709f799bf4698008aed7993e4",
         "evaluated_at": "2026-08-15",
         "dimensions": {
           "repository_engineering": {
@@ -5213,6 +5513,15 @@
         "schema": "tp-voyager.model_scorecard/v1",
         "rules_version": "tp-voyager.model_tier_rules/v1",
         "rules_status": "calibrated",
+        "builder_version": "tp-voyager.model_scorecard_builder/v1",
+        "canonical_family": "qwen3.7-max",
+        "evidence_ids": [
+          "aa-ii-v4.1-qwen3.7-max",
+          "provider-card-qwen3.7-max-20260519"
+        ],
+        "evidence_set_sha256": "272da70237789815ba84074162cbb54d1aecfc8b777c9293b2fb9b2b09cb9354",
+        "source_registry_sha256": "7662526c4928f78c637504c0ae808e41c18537fafe346124de41a9a1eb745d80",
+        "tier_rules_sha256": "666b847213505ced8df9d48f5517c82e540ca2b709f799bf4698008aed7993e4",
         "evaluated_at": "2026-08-15",
         "dimensions": {
           "repository_engineering": {

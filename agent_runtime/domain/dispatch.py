@@ -33,6 +33,44 @@ def _safe_relpath(value: object, *, field_name: str) -> str:
     return raw
 
 
+def _relative_path_parts(value: object) -> tuple[str, ...] | None:
+    """Return safe relative path components without dot-prefix rewriting.
+
+    This helper deliberately preserves component names such as ``.src`` and
+    ``.env``.  Security checks must compare path components, never use string
+    trimming such as ``lstrip("./")`` which aliases distinct names.
+    """
+    raw = str(value or "").strip().replace("\\", "/")
+    if not raw or raw.startswith("/") or (len(raw) >= 2 and raw[1] == ":"):
+        return None
+    pure = PurePosixPath(raw)
+    parts = tuple(pure.parts)
+    if not parts or any(part in {"", ".", ".."} for part in parts):
+        return None
+    return parts
+
+
+def relative_path_matches_prefix(path: object, prefix: object) -> bool:
+    """Component-prefix match for already-relative policy paths.
+
+    ``src/a.py`` matches ``src``; ``.src/a.py`` and ``..src/a.py`` do not.
+    Invalid/absolute paths fail closed.
+    """
+    path_parts = _relative_path_parts(path)
+    prefix_parts = _relative_path_parts(prefix)
+    if path_parts is None or prefix_parts is None:
+        return False
+    return (
+        len(path_parts) >= len(prefix_parts)
+        and path_parts[: len(prefix_parts)] == prefix_parts
+    )
+
+
+def relative_path_matches_any(path: object, prefixes: tuple[str, ...]) -> bool:
+    """Return True when ``path`` is inside any component-prefix root."""
+    return any(relative_path_matches_prefix(path, prefix) for prefix in prefixes)
+
+
 @dataclass(frozen=True)
 class CommandSpec:
     """One Captain-authorized command, represented as argv (never shell text)."""

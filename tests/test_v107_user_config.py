@@ -246,7 +246,7 @@ class VoyagerConfigConsumersV107Tests(unittest.TestCase):
         values.update(extra)
         return patch.dict(os.environ, values, clear=False)
 
-    def test_qoder_cli_resolution_uses_env_then_config_then_path(self) -> None:
+    def test_qoder_cli_resolution_uses_config_then_env_then_path(self) -> None:
         from agent_runtime.backends.qoder.process import resolve_qoder_cli
         configured = self.root / "configured-qoder.exe"
         override = self.root / "override-qoder.exe"
@@ -255,6 +255,11 @@ class VoyagerConfigConsumersV107Tests(unittest.TestCase):
         self._write_config(lambda p: p["crew"]["qoder"].update({"cli_path": str(configured.resolve())}))
         with self._runtime_env(), patch("agent_runtime.backends.qoder.process.shutil.which", return_value=None):
             self.assertEqual(resolve_qoder_cli(), str(configured.resolve()))
+        with self._runtime_env(QODER_CLI_PATH=str(override.resolve())), patch(
+            "agent_runtime.backends.qoder.process.shutil.which", return_value=None
+        ):
+            self.assertEqual(resolve_qoder_cli(), str(configured.resolve()))
+        self._write_config(lambda p: p["crew"]["qoder"].update({"cli_path": ""}))
         with self._runtime_env(QODER_CLI_PATH=str(override.resolve())), patch(
             "agent_runtime.backends.qoder.process.shutil.which", return_value=None
         ):

@@ -39,3 +39,7 @@ TP-Voyager 1.x 当前稳定基线
 ```
 
 历史 WorkBuddy 执行能力已经退出支持范围，仅保留必要的数据兼容逻辑。
+
+## 隔离边界
+
+TP-Voyager 的隔离目标是可信宿主机上的**受控执行边界**，不是恶意二进制安全沙箱。Patch 使用 Runtime-owned Git worktree；Qoder bounded read-only 使用只含 approved `read_scope` 文件的 Runtime snapshot 作为 cwd。Crew CLI/SDK 仍以宿主用户身份运行，因此本项目不宣称能阻止被攻陷或恶意的本机 Crew 进程主动访问宿主机其他绝对路径。

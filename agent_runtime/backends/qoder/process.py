@@ -14,14 +14,14 @@ from agent_runtime.configuration import VoyagerUserConfig, VoyagerUserConfigErro
 
 
 def resolve_qoder_cli() -> str:
-    """Resolve Qoder as env override -> user config -> PATH."""
+    """Resolve Qoder as user config -> legacy env override -> PATH."""
     try:
         crew = VoyagerUserConfig.load().crew.qoder
     except VoyagerUserConfigError as exc:
         raise BackendUnavailableError("TP-Voyager user config is invalid") from exc
     if not crew.enabled:
         raise BackendUnavailableError("Qoder Crew is disabled in TP-Voyager config")
-    configured = (os.environ.get("QODER_CLI_PATH") or "").strip() or crew.cli_path
+    configured = crew.cli_path or (os.environ.get("QODER_CLI_PATH") or "").strip()
     if configured:
         path = Path(configured).expanduser()
         if path.is_file():

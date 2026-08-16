@@ -2,6 +2,15 @@
 
 本项目从 TP-Voyager 正式基线开始记录对外版本。
 
+### v1.0.7 Hardening Closure
+
+- Fixed component-prefix path authorization so dot-prefixed siblings such as `.src`, `.env`, and `.github` cannot alias Captain-approved `src`, `env`, or `github`; CodeBuddy, Qoder, and final Verification now share one canonical matcher.
+- Added a transactional, lease-fenced backend dispatch acceptance gate. A stale worker must pass owner/generation/DB-time expiry, task-version, non-terminal, and backend-session checks in one transaction before a real Provider prompt may be sent. Worker-owned lifecycle/activity writes are lease fenced as well.
+- Qoder bounded read-only execution now runs from a Runtime-owned snapshot containing only resolved `read_scope` files. This is workspace-exposure isolation, not an OS sandbox.
+- Persisted model Scorecards are bound to canonical model identity, the exact Standard Evidence set, Source Registry, Tier Rules, and builder version. Stale/invalid Primary evidence is excluded according to Source Registry freshness policy.
+- CodeBuddy Bash command authorization now serializes Captain-approved argv with shell-safe literal quoting instead of Windows command-line quoting.
+- `requirements.txt` now includes the Qoder Agent SDK dependency already declared by `pyproject.toml`.
+
 ### Model Evaluation Standard v1 (v1.0.7 baseline maintenance)
 
 - Fresh-release identity audit corrected current-model treatment: DeepSeek V4 Flash is pinned to the 0731 official release, DeepSeek V4 Pro to the 0813 official release, and GLM-5.3 is an exact formally announced model; predecessor/preview evidence no longer determines current-release Tier.

@@ -16,6 +16,8 @@ Standard Evidence
 
 `legacy_capability_tier` is historical context only. If persisted `capability_tier` disagrees with a calibrated persisted `scorecard.tier`, profile loading fails closed.
 
+A calibrated persisted Scorecard is also bound to its inputs: `canonical_family`, ordered Evidence IDs, Evidence-set SHA-256, Source Registry SHA-256, Tier Rules SHA-256, and `builder_version`. Loading fails closed if any bound input differs from the snapshot, and deterministically rebuilds the Scorecard at its persisted `evaluated_at` to reject hand-edited derived Tier/dimensions/coverage/confidence.
+
 For a **dynamic Qoder tier**:
 
 ```text
@@ -74,6 +76,8 @@ Roles are intentionally distinct:
 - `experimental` — new source under evaluation.
 
 A source also declares the context it requires. Missing source-required context means the evidence **cannot be Primary**.
+
+A source also declares `freshness_policy_days`. Standard Evidence dates are parsed as ISO-8601, and Scorecard construction evaluates age against `evaluated_at`. Invalid, future, or stale evidence is retained for history/context but is not Primary-eligible for the current Tier.
 
 ## 4. Standard Evidence Record
 

@@ -84,6 +84,81 @@ class QoderBackendTests(unittest.TestCase):
         self.assertEqual(callbacks.accepted, ["qoder-session"])
         self.assertEqual(len(calls), 1)
 
+    def test_read_only_scope_runs_from_runtime_snapshot_not_source_repo(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "source"
+            (source / "src").mkdir(parents=True)
+            (source / "src" / "approved.py").write_text("VALUE = 1\n", encoding="utf-8")
+            (source / ".env").write_text("SECRET=1\n", encoding="utf-8")
+            observed: dict[str, Path] = {}
+
+            def factory(**kwargs):
+                cwd = Path(kwargs["cwd"])
+                observed["cwd"] = cwd
+                self.assertNotEqual(cwd.resolve(), source.resolve())
+                self.assertTrue((cwd / "src" / "approved.py").is_file())
+                self.assertFalse((cwd / ".env").exists())
+                return FakeAcpClient(cwd=kwargs["cwd"], on_activity=kwargs["on_activity"])
+
+            request = BackendStartRequest(
+                task_id="qoder-snapshot",
+                attempt_id="at-snapshot",
+                runtime_session_id="rs-snapshot",
+                prompt="read approved file",
+                cwd=str(source),
+                metadata={
+                    "route": "acp_read_only",
+                    "routing_metadata": {
+                        "read_scope": {"resolved_files": ["src/approved.py"]}
+                    },
+                },
+            )
+            result = QoderBackend(read_only_acp_client_factory=factory).start(request, Callbacks())
+            self.assertEqual(result.answer, "qoder answer")
+            snapshot = observed["cwd"]
+            self.assertFalse(snapshot.exists(), "runtime read-scope snapshot must be cleaned after execution")
+
+    def test_read_only_snapshot_is_cleaned_if_client_factory_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "source"
+            source.mkdir()
+            approved = source / "approved.py"
+            approved.write_text("VALUE = 1\n", encoding="utf-8")
+            snapshot_root = Path(tmp) / "snapshot"
+            snapshot_root.mkdir()
+
+            class SnapshotHandle:
+                cleaned = False
+
+                def cleanup(self) -> None:
+                    self.cleaned = True
+
+            handle = SnapshotHandle()
+
+            def failing_factory(**kwargs):
+                raise RuntimeError("factory failed")
+
+            request = BackendStartRequest(
+                task_id="qoder-snapshot-factory-failure",
+                attempt_id="at-snapshot-factory-failure",
+                runtime_session_id="rs-snapshot-factory-failure",
+                prompt="read approved file",
+                cwd=str(source),
+                metadata={
+                    "route": "acp_read_only",
+                    "routing_metadata": {
+                        "read_scope": {"resolved_files": ["approved.py"]}
+                    },
+                },
+            )
+            with patch(
+                "agent_runtime.backends.qoder.backend._materialize_read_scope_snapshot",
+                return_value=(handle, snapshot_root),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "factory failed"):
+                    QoderBackend(read_only_acp_client_factory=failing_factory).start(request, Callbacks())
+            self.assertTrue(handle.cleaned, "snapshot must be cleaned when client construction fails")
+
     def test_patch_route_passes_captain_policy_to_patch_factory(self) -> None:
         calls = []
 
