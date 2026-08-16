@@ -26,54 +26,69 @@ python -m agent_runtime.server
 `scripts\start_runtime.cmd` / `scripts\run_tests.cmd` 按以下顺序选择 Python：
 
 ```text
-1. AGENT_RUNTIME_PYTHON
+1. TP_VOYAGER_PYTHON
 2. 仓库根目录 .venv\Scripts\python.exe
 3. PATH 中的 python.exe
 ```
 
 不再绑定开发者机器上的固定绝对路径。
 
-## Runtime 环境变量
+## 用户目录与统一配置
 
-当前标准变量：
-
-```text
-AGENT_RUNTIME_PYTHON
-AGENT_RUNTIME_HOME
-AGENT_RUNTIME_DB
-```
-
-建议把 Runtime Home 放在 Git 仓库之外或保持 `.gitignore` 排除。
-
-### v1.0.6 operator 模型配置
-
-Runtime Home 同时承载两类模型配置：
+当前标准启动变量：
 
 ```text
-dispatch_model_policy.json
-    → 硬约束：哪些 backend-qualified model route 可以下发
-
-model_routing_profiles.json
-    → 建议资料：能力档位、推荐任务、风险边界、suggested effort
+TP_VOYAGER_PYTHON
+TP_VOYAGER_HOME
+TP_VOYAGER_DB
 ```
 
-第二个文件不是授权策略。示例见：
+默认 Home 是 `~/.tp-voyager`，默认数据库是 `~/.tp-voyager/runtime/tp_voyager.db`。v1.0.7 是 clean break：不读取 `.agent-runtime`、`AGENT_RUNTIME_HOME`、`AGENT_RUNTIME_DB` 或 WorkBuddy Home。
+
+首次使用：
+
+```powershell
+python -m agent_runtime.cli init
+```
+
+它会创建：
 
 ```text
-docs/examples/model_routing_profiles.example.json
+~/.tp-voyager/
+├── config.json
+├── model_routing_profiles.json
+└── runtime/
+    ├── artifacts/
+    ├── workspaces/
+    └── logs/
 ```
 
-模型认知变化时只更新 operator JSON，不需要修改 Runtime Python。完整语义见 `docs/MODEL_ROUTING.md`。
-
-## CodeBuddy 中国区
-
-中国区账号使用：
+`config.json` 是机器级/用户策略的唯一普通配置事实源，包含：
 
 ```text
-CODEBUDDY_INTERNET_ENVIRONMENT=internal
+crew.qoder.enabled / cli_path
+crew.codebuddy.enabled / cli_path / internet_environment
+dispatch.allowed_models / preferred_models / task_kind_allowed_models
+trusted_roots.model_evidence / instructions
+resources.worker_profiles_root / worker_skills_root
+runtime.max_concurrent_tasks
 ```
 
-不要把登录缓存、Token、Cookie、`.env` 或本地 Credential 提交到 Git。
+Crew CLI 临时覆盖优先级：
+
+```text
+QODER_CLI_PATH / CODEBUDDY_CODE_PATH / CODEBUDDY_INTERNET_ENVIRONMENT
+        ↓
+~/.tp-voyager/config.json
+        ↓
+PATH 自动发现（CLI 路径）
+```
+
+正常长期配置应写入 `config.json`；临时环境变量适合调试/CI。Token、Cookie、登录缓存、API Key 等 Credential 不得写入 `config.json`，继续交给供应商登录缓存或 Secret 环境变量。
+
+模型能力资料继续放在独立的 `model_routing_profiles.json`；授权则只属于 `config.json.dispatch`。模型认知变化不需要修改 Runtime Python。完整语义见 `docs/MODEL_ROUTING.md`。
+
+CodeBuddy 中国区默认 `internet_environment` 为 `internal`；需要 IOA 或 public 时可在 `config.json` 设置 `ioa` / `public`，或用 `CODEBUDDY_INTERNET_ENVIRONMENT` 临时覆盖。
 
 ## Captain 日常操作
 
@@ -132,7 +147,6 @@ python -m agent_runtime.cli doctor --json
 
 `agent_runtime.cli` 继续提供 Runtime DB、任务和 Artifact 的只读诊断能力。
 
-历史 WorkBuddy Home 变量/路径仅用于旧数据迁移输入，不属于当前配置指南。
 
 
 ## repository_research 运维边界
@@ -151,3 +165,25 @@ changed_files=[]
 ```
 
 不要把 repository_research 用作下载器、构建器、依赖安装器或任意网络研究器。
+
+
+## Model Evaluation Standard v1 operations
+
+TP-Voyager v1.0.7 supports v1/v2 routing-profile files. Loading v1 is read-only and compatible; persistent upgrade is explicit:
+
+```powershell
+tp-voyager model-routing-migrate --dry-run
+tp-voyager model-routing-migrate --write
+```
+
+`--dry-run` reports source/target schema, profile counts, legacy evidence preservation and convertibility without writing. `--write` validates v2 first, writes via a temporary file + atomic replace, reloads the result, and leaves the original intact on failure. Re-running migration on v2 is idempotent.
+
+Validate the current evaluation baseline with:
+
+```powershell
+tp-voyager model-evaluation-validate
+```
+
+The validator is read-only: it does not access the network, does not query Provider live catalogs, and does not change dispatch policy. A non-zero exit is used for schema/evidence/tier-authority failures. Archived/historical evidence and research-status gaps are reporting concerns, not authorization changes.
+
+The evidence-writing procedure is documented in `docs/MODEL_EVALUATION_STANDARD.md`.

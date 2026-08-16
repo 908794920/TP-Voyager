@@ -4,8 +4,16 @@ Captain Skill 是上层 AI 使用 TP-Voyager 的操作规范。
 
 它只教 Captain **怎么查事实、怎么选择、怎么显式派遣、怎么验收**；不保存任务状态、不直接绕过 Runtime 调供应商 CLI，也不把 TP-Voyager 变成第二个规划 AI。
 
+## 自动触发
+
+无需在每个新会话输入 `$tp-voyager-captain`。对有界仓库调研、Code Review、
+故障分析、独立验证和小范围补丁，Captain 会主动判断是否应通过已挂载的 MCP
+委派 Crew；普通问答和一步即可完成的修改保持直接处理。自动触发不代表自动选模：
+Captain 仍须读取当前目录/策略、显式选择 Crew 与模型，并在失败、重试、fallback
+或扩大范围时停下等待人类决定。
+
 ```text
-Captain Skill 1.0.6
+Captain Skill 1.0.7
 ```
 
 ## Captain MCP 合约
@@ -34,7 +42,7 @@ task_result + Verification / Evidence
 Captain 接受 / 拒绝 / 决定下一步
 ```
 
-## v1.0.6 怎么选模型
+## v1.0.7 怎么选模型
 
 不要把模型名称写死在 Skill 里，也不要凭记忆猜“哪个更强”。
 
@@ -70,17 +78,19 @@ sources
 - `capability_profile` 是 operator 维护的建议资料，不是 Runtime 模型评分；
 - `reference_multiplier` 只用于相对消耗比较，`calculation_allowed=false`；
 - `usage` 才是任务实际返回的 Usage Evidence；
-- `suggested_effort` 只是模型级建议；只有当前 Provider/Backend route 明确支持该 effort 时才传入 `task_dispatch`。当前 CodeBuddy 受控 SDK route 不接受 `reasoning_effort`，不要仅凭 profile 强行下发。
+- `suggested_effort` 只是模型级建议；只有当前 Provider/Backend route 明确支持该 effort 时才传入 `task_dispatch` 的 `model_parameters`。当前 CodeBuddy 受控 SDK route 支持 `low|medium|high|xhigh`；它不支持 `context_window_tokens`，不得强行下发。Qoder 的 `context_window_tokens` 则通过官方 CLI 的每会话启动参数下发，不依赖 ACP config option。
 
 真正下发必须继续写清：
 
 ```text
 crew=...
 model=...
-reasoning_effort=...
+model_parameters={"reasoning_effort":"...","context_window_tokens":200000}
 ```
 
 TP-Voyager 不会替换失败模型，也不会自动 fallback。
+
+参数请求不是展示提示：Runtime 在创建任务前依据当前 Provider 动态目录检查模型是否支持该 effort，以及 Qoder 是否支持该精确上下文窗口。`task_result.usage` 只显示 Provider 实报的 token、Credit、费用和货币；`status=provider_omitted` 表示 Provider 未返回，绝不可自行估算。
 
 `capability_profile` 还会携带 `profile_confidence`、`benchmark_evidence`、
 `recommended_tasks`、`risk_boundaries` 和可选的 `evidence_refs`。这些资料帮助

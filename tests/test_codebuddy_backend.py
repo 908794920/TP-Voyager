@@ -20,7 +20,7 @@ from agent_runtime.backends.errors import BackendProtocolError
 from agent_runtime.application.context_service import ProjectContextService
 from agent_runtime.application.task_service import TaskService
 from agent_runtime.application.dispatch.repository_research import RepositoryResearchService
-from agent_runtime.domain.dispatch import CaptainDispatchRequest
+from agent_runtime.domain.dispatch import CaptainDispatchRequest, ModelParameters
 from agent_runtime.domain.artifact import Artifact
 from agent_runtime.domain.session import Session
 from agent_runtime.domain.task import Task
@@ -161,6 +161,7 @@ class CodeBuddyProbeTests(unittest.TestCase):
             patch("agent_runtime.backends.codebuddy.process.subprocess.run", return_value=completed),
             patch("agent_runtime.backends.codebuddy.process.importlib.util.find_spec", return_value=object()),
             patch.dict("os.environ", {}, clear=True),
+            patch.object(Path, "home", return_value=Path(tempfile.gettempdir())),
         ):
             result = probe_codebuddy_cli()
         self.assertTrue(result["installed"])
@@ -191,6 +192,7 @@ class CodeBuddySdkClientTests(unittest.TestCase):
             result = client.run(
                 prompt="analyze supplied context",
                 model="hy3",
+                reasoning_effort="high",
                 idle_timeout_seconds=5,
                 max_task_duration_seconds=30,
                 on_dispatch_accepted=accept,
@@ -209,6 +211,7 @@ class CodeBuddySdkClientTests(unittest.TestCase):
         self.assertEqual(options["setting_sources"], [])
         self.assertEqual(options["env"]["CODEBUDDY_INTERNET_ENVIRONMENT"], "internal")
         self.assertEqual(options["model"], "hy3")
+        self.assertEqual(options["effort"], "high")
         import uuid
         self.assertEqual(str(uuid.UUID(accepted[0])), accepted[0])
         self.assertLess(FakeSdkClient.events.index("accepted"), FakeSdkClient.events.index("query"))
@@ -274,6 +277,25 @@ class CodeBuddySdkClientTests(unittest.TestCase):
         self.assertEqual(options.kwargs["setting_sources"], [])
         self.assertIn("WebFetch", options.kwargs["disallowed_tools"])
         self.assertNotIn("Write", options.kwargs["disallowed_tools"])
+
+    def test_bash_authorization_preserves_literal_argv_semantics(self) -> None:
+        from agent_runtime.domain.dispatch import CommandSpec
+        with tempfile.TemporaryDirectory() as tmp:
+            client = CodeBuddySdkClient(
+                cwd=tmp, on_activity=lambda activity: None, sdk_module=FakeSdkModule, region="cn",
+                access_mode="patch", allowed_paths=("src",), forbidden_paths=(".git",),
+                command_specs=(CommandSpec("literal", ("echo", "$HOME", "*", "$(whoami)")),),
+            )
+            options = client._build_options(FakeSdkModule, resume_session_id="", model="", session_id="session")
+            authorize = options.kwargs["can_use_tool"]
+            literal = asyncio.run(
+                authorize("Bash", {"command": "echo '$HOME' '*' '$(whoami)'"}, object())
+            )
+            expanded = asyncio.run(
+                authorize("Bash", {"command": "echo $HOME * $(whoami)"}, object())
+            )
+            self.assertEqual(literal.behavior, "allow")
+            self.assertEqual(expanded.behavior, "deny")
 
     def test_verification_policy_denies_write_tools_and_allows_exact_command(self) -> None:
         from agent_runtime.domain.dispatch import CommandSpec
@@ -431,6 +453,16 @@ class CodeBuddyCaptainDispatchTests(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertEqual(result["reason_code"], "CONTEXT_REQUIRED")
         self.assertFalse(result["dispatch_performed"])
+
+    def test_context_window_parameter_is_rejected_before_task_creation(self) -> None:
+        launch = _FakeLaunchService()
+        result = self.dispatcher(launch)(self.request(
+            model="deepseek-v4-flash",
+            model_parameters=ModelParameters(context_window_tokens=200000),
+        ))
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["reason_code"], "MODEL_PARAMETERS_UNSUPPORTED")
+        self.assertEqual(launch.requests, [])
 
     def test_context_drift_blocks_before_task_creation(self) -> None:
         launch = _FakeLaunchService()
@@ -681,12 +713,15 @@ class CodeBuddyServerIntegrationTests(unittest.TestCase):
         self.assertTrue(registered["ok"], registered)
         runtime_home = Path(self.tmp.name) / "policy-home"
         runtime_home.mkdir()
-        policy_path = runtime_home / "dispatch_model_policy.json"
-        policy_path.write_text(json.dumps({
-            "require_explicit_model": True,
+        from agent_runtime.configuration.user_config import VoyagerUserConfig
+        policy_path = runtime_home / "config.json"
+        config = VoyagerUserConfig.defaults(runtime_home).to_dict()
+        config["dispatch"] = {
             "allowed_models": ["codebuddy:hy3"],
-            "task_preferences": {"preferred": ["codebuddy:hy3"]},
-        }), encoding="utf-8")
+            "preferred_models": ["codebuddy:hy3"],
+            "task_kind_allowed_models": {},
+        }
+        policy_path.write_text(json.dumps(config), encoding="utf-8")
         fake = FakeBackend(result=BackendResult(
             backend="codebuddy", stop_reason="success", answer="policy result",
             result={"backend": "codebuddy", "stopReason": "success"}, backend_session_id="cb-policy",
@@ -695,7 +730,7 @@ class CodeBuddyServerIntegrationTests(unittest.TestCase):
             objective="Inspect policy sample", crew="codebuddy", task_kind="research", model="hy3",
             cwd=str(self.cwd), context_id="ctx-policy", idempotency_key="policy-replay", timeout_seconds=10,
         )
-        with patch.dict(os.environ, {"AGENT_RUNTIME_HOME": str(runtime_home)}), patch(
+        with patch.dict(os.environ, {"TP_VOYAGER_HOME": str(runtime_home)}), patch(
             "agent_runtime.backends.codebuddy.captain_dispatch.resolve_codebuddy_cli", return_value="codebuddy"
         ), patch("agent_runtime.backends.codebuddy.captain_dispatch.load_codebuddy_sdk", return_value=object()), patch(
             "agent_runtime.server._create_codebuddy_backend", return_value=fake
@@ -704,11 +739,12 @@ class CodeBuddyServerIntegrationTests(unittest.TestCase):
             self.assertTrue(started["ok"], started)
             self.assertEqual(self.wait(started["task_id"])["state"], "completed")
             recorded_hash = started["effective_model_policy"]["policy_sha256"]
-            policy_path.write_text(json.dumps({
-                "require_explicit_model": True,
+            config["dispatch"] = {
                 "allowed_models": ["codebuddy:kimi"],
-                "task_preferences": {"preferred": ["codebuddy:kimi"]},
-            }), encoding="utf-8")
+                "preferred_models": ["codebuddy:kimi"],
+                "task_kind_allowed_models": {},
+            }
+            policy_path.write_text(json.dumps(config), encoding="utf-8")
             replay = self.server.task_dispatch(**kwargs)
             self.assertTrue(replay["ok"], replay)
             self.assertTrue(replay["replayed"])

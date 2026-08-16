@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 import os
-import subprocess
+import shlex
 import threading
 import time
 import uuid
@@ -22,7 +22,8 @@ from types import ModuleType
 from typing import Any, Callable
 
 from agent_runtime.backends.base import BackendActivity
-from agent_runtime.domain.dispatch import CommandSpec
+from agent_runtime.domain.dispatch import CommandSpec, relative_path_matches_any
+from agent_runtime.backends.codebuddy.process import resolve_codebuddy_internet_environment
 from agent_runtime.backends.errors import (
     BackendCancelledError,
     BackendProtocolError,
@@ -139,6 +140,7 @@ class CodeBuddySdkClient:
         prompt: str,
         resume_session_id: str = "",
         model: str = "",
+        reasoning_effort: str = "",
         idle_timeout_seconds: float,
         max_task_duration_seconds: float,
         on_dispatch_accepted: Callable[[str], None],
@@ -157,6 +159,7 @@ class CodeBuddySdkClient:
                     prompt=prompt,
                     resume_session_id=resume_session_id,
                     model=model,
+                    reasoning_effort=reasoning_effort,
                     idle_timeout_seconds=float(idle_timeout_seconds),
                     max_task_duration_seconds=float(max_task_duration_seconds),
                     on_dispatch_accepted=on_dispatch_accepted,
@@ -199,6 +202,7 @@ class CodeBuddySdkClient:
         prompt: str,
         resume_session_id: str,
         model: str,
+        reasoning_effort: str,
         idle_timeout_seconds: float,
         max_task_duration_seconds: float,
         on_dispatch_accepted: Callable[[str], None],
@@ -213,6 +217,7 @@ class CodeBuddySdkClient:
             sdk,
             resume_session_id=resume_session_id,
             model=model,
+            reasoning_effort=reasoning_effort,
             session_id=dispatch_id,
         )
         client = sdk.CodeBuddySDKClient(options=options)
@@ -369,12 +374,7 @@ class CodeBuddySdkClient:
 
     @staticmethod
     def _matches(path: str, prefixes: tuple[str, ...]) -> bool:
-        normalized = path.replace("\\", "/").lstrip("./")
-        for prefix in prefixes:
-            root = prefix.replace("\\", "/").strip().lstrip("./").rstrip("/")
-            if not root or normalized == root or normalized.startswith(root + "/"):
-                return True
-        return False
+        return relative_path_matches_any(path, prefixes)
 
     def _path_allowed(self, raw: object, *, write: bool) -> bool:
         rel = self._relative_path(raw)
@@ -389,7 +389,7 @@ class CodeBuddySdkClient:
     def _allowed_command_texts(self) -> set[str]:
         values: set[str] = set()
         for spec in self.command_specs:
-            values.add(subprocess.list2cmdline(list(spec.argv)).strip())
+            values.add(shlex.join(list(spec.argv)).strip())
         return values
 
     def _build_options(
@@ -398,16 +398,14 @@ class CodeBuddySdkClient:
         *,
         resume_session_id: str,
         model: str,
+        reasoning_effort: str = "",
         session_id: str = "",
     ) -> Any:
         env: dict[str, str] = {}
         # The target product uses the China CodeBuddy account environment.
         # Preserve an explicit caller override for enterprise/iOA testing, but
         # never silently switch a configured CN environment to public.
-        current_env = str(
-            os.environ.get("CODEBUDDY_INTERNET_ENVIRONMENT")
-            or ("internal" if self.region == "cn" else "public")
-        ).strip()
+        current_env = resolve_codebuddy_internet_environment().strip()
         if current_env:
             env["CODEBUDDY_INTERNET_ENVIRONMENT"] = current_env
 
@@ -458,7 +456,7 @@ class CodeBuddySdkClient:
                     not has_env_override
                     and not background
                     and any(
-                        subprocess.list2cmdline(list(spec.argv)).strip() == command
+                        shlex.join(list(spec.argv)).strip() == command
                         and spec.cwd == requested_cwd
                         for spec in self.command_specs
                     )
@@ -493,6 +491,7 @@ class CodeBuddySdkClient:
         kwargs: dict[str, Any] = {
             "cwd": str(self.cwd),
             "model": model.strip() or None,
+            "effort": reasoning_effort.strip() or None,
             "resume": resume_session_id.strip() or None,
             "session_id": session_id.strip() or None,
             "max_turns": 30,
@@ -507,6 +506,13 @@ class CodeBuddySdkClient:
         }
         if self.cli_path:
             kwargs["codebuddy_code_path"] = self.cli_path
+        if reasoning_effort.strip():
+            # The SDK documents effort alongside a thinking configuration.
+            # Use its adaptive mode so the requested effort is carried without
+            # inventing a fixed token budget that the Captain did not select.
+            adaptive = getattr(sdk, "ThinkingConfigAdaptive", None)
+            if callable(adaptive):
+                kwargs["thinking"] = adaptive(type="adaptive")
         return sdk.CodeBuddyAgentOptions(**kwargs)
 
     async def _cancel_async(self, client: Any) -> None:

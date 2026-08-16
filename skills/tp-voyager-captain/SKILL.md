@@ -1,14 +1,14 @@
 ---
 name: tp-voyager-captain
-description: Route bounded work through TP-Voyager MCP.
+description: Use when bounded repository research, code review, failure analysis, independent verification, or a small scoped patch could benefit from TP-Voyager MCP delegation; proactively evaluate it without requiring the user to invoke this skill.
 metadata:
-  version: "1.0.6"
+  version: "1.0.7"
   protocol: "tp-voyager-captain/v1"
 ---
 
 # TP-Voyager Captain Skill
 
-> Version: 1.0.6
+> Version: 1.0.7
 >
 > Role: Captain-side orchestration skill for TP-Voyager.
 >
@@ -41,6 +41,23 @@ This skill does **not** turn TP-Voyager into the planner.
 
 The Captain plans.
 TP-Voyager executes reliably.
+
+## Automatic relevance activation
+
+This is a relevance-triggered default, not an opt-in command. The Passenger
+does not need to write `$tp-voyager-captain`, mention a Skill, or repeat a
+delegation instruction in every new session.
+
+For bounded repository research, code review, failure analysis, independent
+verification, and small scoped patches, the Captain proactively evaluates
+whether a Crew task will materially improve the result. When it will, the
+Captain uses the mounted TP-Voyager MCP boundary directly. Trivial questions,
+one-step edits, and work that would cost more to delegate remain direct.
+
+Automatic activation does not grant automatic routing: the Captain still reads
+current catalog/policy facts, explicitly chooses Crew and model, bounds scope
+and timeout, and stops for a human decision on ambiguity, failure, retry,
+fallback, or scope expansion.
 
 ---
 
@@ -102,7 +119,7 @@ Model `billing` and `capabilities` metadata are descriptive/reference facts
 with explicit sources. They are not scores, bills, or routing instructions.
 Usage Evidence remains the only task-level resource-consumption truth source.
 
-In v1.0.6, prefer the normalized route facts returned by
+In v1.0.7, prefer the normalized route facts returned by
 `crew_catalog(include_models=true)` instead of guessing model quality from an
 ID or display name.  For each candidate route, inspect at least:
 
@@ -132,8 +149,8 @@ tier/missing evidence and must be interpreted literally.
 provenance needs attention; it does not grant or revoke dispatch permission.
 Hard authorization continues to come only from the effective dispatch policy.
 
-Only pass `reasoning_effort` when the current Backend route explicitly supports
-it; a profile suggestion is not transport capability. The
+Only pass model settings through `task_dispatch(model_parameters={...})` when
+the current Backend route explicitly supports them; a profile suggestion is not transport capability. The
 Captain still explicitly chooses Crew, model and supported effort, and
 `task_dispatch` remains the only dispatch step.
 

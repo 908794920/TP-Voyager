@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import subprocess
+import shlex
 from typing import Any, Callable
 
 from agent_runtime.application.context_service import (
@@ -49,6 +49,16 @@ class CodeBuddyContextReadOnlyDispatcher:
         self._max_context_bytes = int(max_context_bytes)
 
     def __call__(self, request: CaptainDispatchRequest) -> dict[str, Any]:
+        if request.model_parameters and request.model_parameters.context_window_tokens is not None:
+            return self._reject(
+                "MODEL_PARAMETERS_UNSUPPORTED",
+                "CodeBuddy controlled SDK route does not expose context_window_tokens",
+            )
+        if request.model_parameters and request.model_parameters.reasoning_effort not in {"", "low", "medium", "high", "xhigh"}:
+            return self._reject(
+                "MODEL_PARAMETERS_UNSUPPORTED",
+                "CodeBuddy controlled SDK supports reasoning_effort low, medium, high or xhigh",
+            )
         if request.access_mode == "patch":
             return self._dispatch_patch(request)
         if request.access_mode == "verification":
@@ -96,6 +106,7 @@ class CodeBuddyContextReadOnlyDispatcher:
                 cwd=request.cwd,
                 timeout_seconds=timeout,
                 model=request.model,
+                reasoning_effort=(request.model_parameters.reasoning_effort if request.model_parameters else ""),
                 idempotency_key=request.idempotency_key,
                 idle_timeout_seconds=idle,
                 max_task_duration_seconds=timeout,
@@ -151,6 +162,7 @@ class CodeBuddyContextReadOnlyDispatcher:
                 cwd=workspace.worktree_root,
                 timeout_seconds=timeout,
                 model=request.model,
+                reasoning_effort=(request.model_parameters.reasoning_effort if request.model_parameters else ""),
                 idempotency_key=request.idempotency_key,
                 idle_timeout_seconds=idle,
                 max_task_duration_seconds=timeout,
@@ -212,6 +224,7 @@ class CodeBuddyContextReadOnlyDispatcher:
                 cwd=request.cwd,
                 timeout_seconds=timeout,
                 model=request.model,
+                reasoning_effort=(request.model_parameters.reasoning_effort if request.model_parameters else ""),
                 idempotency_key=request.idempotency_key,
                 idle_timeout_seconds=idle,
                 max_task_duration_seconds=timeout,
@@ -257,7 +270,7 @@ class CodeBuddyContextReadOnlyDispatcher:
 
     @staticmethod
     def _command_text(argv: tuple[str, ...]) -> str:
-        return subprocess.list2cmdline(list(argv))
+        return shlex.join(list(argv))
 
     @classmethod
     def _build_patch_prompt(cls, objective: str, policy: PatchPolicy) -> str:

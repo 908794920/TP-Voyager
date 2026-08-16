@@ -7,8 +7,8 @@ from unittest.mock import patch
 from agent_runtime.application.crew import CrewProvider, CrewRegistryService
 from agent_runtime.application.dispatch import CaptainDispatchService
 from agent_runtime.application.voyage import VoyageOverviewService
-from agent_runtime.domain.crew import CrewDescriptor
-from agent_runtime.domain.dispatch import CaptainDispatchRequest, PatchPolicy, ReadScope, WorkerProfileRef
+from agent_runtime.domain.crew import CrewDescriptor, ModelDescriptor
+from agent_runtime.domain.dispatch import CaptainDispatchRequest, ModelParameters, PatchPolicy, ReadScope, WorkerProfileRef
 from agent_runtime.domain.task import Task
 
 
@@ -71,7 +71,7 @@ class CaptainBoundaryTests(unittest.TestCase):
         caps = ("analyze_context", "read_files", "search_code")
         registry = CrewRegistryService({"qoder": CrewProvider(_descriptor("qoder", ready=False, caps=caps))})
         service = CaptainDispatchService(registry, {"qoder": lambda request: called.append(request) or {"ok": True}})
-        result = service.dispatch(CaptainDispatchRequest("inspect", "qoder", "research", model="Lite"))
+        result = service.dispatch(CaptainDispatchRequest("inspect", "qoder", "research", model="lite"))
         self.assertFalse(result["ok"])
         self.assertEqual(result["reason_code"], "CREW_NOT_CONTROLLED_READY")
         self.assertEqual(called, [])
@@ -84,7 +84,7 @@ class CaptainBoundaryTests(unittest.TestCase):
             registry, {"qoder": lambda request: calls.append(request) or {"ok": True, "task_id": "x"}}
         )
         missing = service.dispatch(
-            CaptainDispatchRequest("fix", "qoder", "small_patch", model="Lite", access_mode="patch")
+            CaptainDispatchRequest("fix", "qoder", "small_patch", model="lite", access_mode="patch")
         )
         self.assertFalse(missing["ok"])
         self.assertEqual(missing["reason_code"], "PATCH_POLICY_REQUIRED")
@@ -95,7 +95,7 @@ class CaptainBoundaryTests(unittest.TestCase):
                 "fix",
                 "qoder",
                 "small_patch",
-                model="Lite",
+                model="lite",
                 access_mode="patch",
                 patch_policy=PatchPolicy.from_dict({"allowed_paths": ["src"]}),
             )
@@ -113,7 +113,7 @@ class CaptainBoundaryTests(unittest.TestCase):
         )
         accepted = service.dispatch(
             CaptainDispatchRequest(
-                "fix", "qoder", "small_patch", model="Lite", access_mode="patch", patch_policy=policy
+                "fix", "qoder", "small_patch", model="lite", access_mode="patch", patch_policy=policy
             )
         )
         self.assertTrue(accepted["ok"])
@@ -158,6 +158,33 @@ class CaptainBoundaryTests(unittest.TestCase):
         self.assertEqual(captured[0].context_id, "ctx-auto")
         self.assertEqual(captured[0].timeout_seconds, 600)
 
+    def test_high_level_dispatch_validates_and_forwards_model_parameters(self) -> None:
+        from agent_runtime import server
+
+        captured = []
+
+        class _Dispatch:
+            def dispatch(self, request):
+                captured.append(request)
+                return {"ok": True, "task_id": "task-parameters"}
+
+        with patch("agent_runtime.server._captain_dispatch_service", return_value=_Dispatch()):
+            missing_model = server.task_dispatch(
+                objective="inspect", crew="qoder", task_kind="research",
+                model_parameters={"reasoning_effort": "high"},
+            )
+            result = server.task_dispatch(
+                objective="inspect", crew="qoder", task_kind="research", model="qmodel_38max",
+                model_parameters={"reasoning_effort": "medium", "context_window_tokens": 200000},
+            )
+        self.assertFalse(missing_model["ok"])
+        self.assertEqual(missing_model["reason_code"], "MODEL_PARAMETERS_MODEL_REQUIRED")
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(
+            captured[0].model_parameters,
+            ModelParameters(reasoning_effort="medium", context_window_tokens=200000),
+        )
+
     def test_high_level_dispatch_rejects_ambiguous_or_irrelevant_context_files(self) -> None:
         from agent_runtime import server
 
@@ -181,7 +208,7 @@ class CaptainBoundaryTests(unittest.TestCase):
         registry = CrewRegistryService({"qoder": CrewProvider(_descriptor("qoder", ready=True, caps=caps))})
         calls = []
         service = CaptainDispatchService(registry, {"qoder": lambda request: calls.append(request) or {"ok": True, "task_id": "x"}})
-        ref = WorkerProfileRef("java-review", "1.0", "0" * 64, ("Lite",))
+        ref = WorkerProfileRef("java-review", "1.0", "0" * 64, ("lite",))
         missing = service.dispatch(CaptainDispatchRequest(
             "inspect", "qoder", "research", worker_profile_ref=ref, worker_profile_content="Review Java only.",
         ))
@@ -193,7 +220,7 @@ class CaptainBoundaryTests(unittest.TestCase):
         self.assertFalse(rejected["ok"])
         self.assertEqual(rejected["reason_code"], "MODEL_POLICY_REJECTED")
         accepted = service.dispatch(CaptainDispatchRequest(
-            "inspect", "qoder", "research", model="Lite", worker_profile_ref=ref, worker_profile_content="Review Java only.",
+            "inspect", "qoder", "research", model="lite", worker_profile_ref=ref, worker_profile_content="Review Java only.",
         ))
         self.assertTrue(accepted["ok"])
         self.assertFalse(accepted["selection_performed"])
@@ -206,18 +233,18 @@ class CaptainBoundaryTests(unittest.TestCase):
         service = CaptainDispatchService(registry, {"qoder": lambda request: calls.append(request) or {"ok": True, "task_id": "repo"}})
         routing = {"url": "https://github.com/a/b", "report_path": "reports/r.md"}
         scope = ReadScope.from_dict({"files": ["source/README.md"]})
-        missing = service.dispatch(CaptainDispatchRequest("research", "qoder", "repository_research", model="Lite"))
+        missing = service.dispatch(CaptainDispatchRequest("research", "qoder", "repository_research", model="lite"))
         self.assertFalse(missing["ok"])
         self.assertEqual(missing["reason_code"], "REPOSITORY_RESEARCH_REQUIRED")
         patch = service.dispatch(CaptainDispatchRequest(
-            "research", "qoder", "repository_research", model="Lite", access_mode="patch", repository_research=routing,
+            "research", "qoder", "repository_research", model="lite", access_mode="patch", repository_research=routing,
             read_scope=scope, resolved_read_files=("source/README.md",),
         ))
         self.assertFalse(patch["ok"])
         self.assertEqual(patch["reason_code"], "REPOSITORY_RESEARCH_READ_ONLY")
         accepted = service.dispatch(CaptainDispatchRequest(
             "research", "qoder", "repository_research", repository_research=routing, read_scope=scope,
-            resolved_read_files=("source/README.md",), model="Lite",
+            resolved_read_files=("source/README.md",), model="lite",
         ))
         self.assertTrue(accepted["ok"])
         self.assertEqual(len(calls), 1)
@@ -233,7 +260,7 @@ class CaptainBoundaryTests(unittest.TestCase):
             return {"ok": True, "task_id": "task-1"}
 
         result = CaptainDispatchService(registry, {"qoder": dispatch}).dispatch(
-            CaptainDispatchRequest("inspect", "qoder", "research", model="Lite")
+            CaptainDispatchRequest("inspect", "qoder", "research", model="lite")
         )
         self.assertTrue(result["ok"])
         self.assertEqual(result["crew"], "qoder")
@@ -241,6 +268,56 @@ class CaptainBoundaryTests(unittest.TestCase):
         self.assertFalse(result["selection_performed"])
         self.assertTrue(result["dispatch_performed"])
         self.assertEqual(len(calls), 1)
+
+    def test_dispatch_rejects_context_not_declared_by_selected_qoder_model(self) -> None:
+        caps = ("analyze_context", "read_files", "search_code")
+        registry = CrewRegistryService({
+            "qoder": CrewProvider(
+                _descriptor("qoder", ready=True, caps=caps),
+                models=lambda: [ModelDescriptor(
+                    backend="qoder", model_id="qmodel", source="provider_live",
+                    metadata={"context_config": {"200K": {"token_count": 200000}}},
+                )],
+            )
+        })
+        calls = []
+        service = CaptainDispatchService(
+            registry, {"qoder": lambda request: calls.append(request) or {"ok": True, "task_id": "x"}}
+        )
+
+        result = service.dispatch(CaptainDispatchRequest(
+            "inspect", "qoder", "research", model="qmodel",
+            model_parameters=ModelParameters(context_window_tokens=400000),
+        ))
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["reason_code"], "MODEL_PARAMETERS_UNSUPPORTED_CONTEXT")
+        self.assertEqual(calls, [])
+
+    def test_dispatch_rejects_effort_not_declared_by_selected_model(self) -> None:
+        caps = ("analyze_context", "read_files", "search_code")
+        registry = CrewRegistryService({
+            "qoder": CrewProvider(
+                _descriptor("qoder", ready=True, caps=caps),
+                models=lambda: [ModelDescriptor(
+                    backend="qoder", model_id="qmodel", source="provider_live",
+                    metadata={"thinking_config": {"enabled": {"efforts": {"medium": {}}}}},
+                )],
+            )
+        })
+        calls = []
+        service = CaptainDispatchService(
+            registry, {"qoder": lambda request: calls.append(request) or {"ok": True, "task_id": "x"}}
+        )
+
+        result = service.dispatch(CaptainDispatchRequest(
+            "inspect", "qoder", "research", model="qmodel",
+            model_parameters=ModelParameters(reasoning_effort="high"),
+        ))
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["reason_code"], "MODEL_PARAMETERS_UNSUPPORTED_EFFORT")
+        self.assertEqual(calls, [])
 
 
 if __name__ == "__main__":

@@ -5,23 +5,19 @@ import json
 import os
 import threading
 import time
-import uuid
 from pathlib import Path
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
 from agent_runtime.activity_log import ActivityLogger
+from agent_runtime.configuration import VoyagerUserConfig, VoyagerUserConfigError
 from agent_runtime.runtime.backend_callbacks import RuntimeBackendCallbacks
 from agent_runtime.api.schemas import CAPTAIN_TOOL_NAMES
 from agent_runtime.domain.enums import (
     TERMINAL_STATUS_VALUES,
     EventType,
-    EventVisibility,
-    TaskRoute,
-    TaskType,
 )
-from agent_runtime.domain.event import TaskEvent
 from agent_runtime.domain.ids import new_runtime_session_id, new_task_id
 from agent_runtime.domain.lineage import TaskLineage
 from agent_runtime.domain.workflow import WorkflowStageSpec
@@ -115,6 +111,7 @@ from agent_runtime.domain.dispatch import (
     ApplyReceipt,
     CaptainDispatchRequest,
     CommandSpec,
+    ModelParameters,
     ModelPolicy,
     PatchPolicy,
     ReadScope,
@@ -171,7 +168,7 @@ from agent_runtime.backends.registry import BackendRegistry
 
 
 ROOT = Path(__file__).resolve().parents[2]
-LOG_DIR = ROOT / "work" / "agent-runtime-logs"
+LOG_DIR = canonical_runtime_home() / "runtime" / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 mcp = FastMCP(
@@ -222,6 +219,31 @@ from agent_runtime.runtime.handles import (
 
 RUNTIME_DATABASE: Database | None = None
 RUNTIME_DATABASE_LOCK = threading.Lock()
+_RUNTIME_WORKER_SLOT_LOCK = threading.Lock()
+_RUNTIME_ACTIVE_WORKERS = 0
+
+
+def _try_acquire_runtime_worker_slot() -> bool:
+    global _RUNTIME_ACTIVE_WORKERS
+    limit = VoyagerUserConfig.load().runtime.max_concurrent_tasks
+    with _RUNTIME_WORKER_SLOT_LOCK:
+        if _RUNTIME_ACTIVE_WORKERS >= limit:
+            return False
+        _RUNTIME_ACTIVE_WORKERS += 1
+        return True
+
+
+def _release_runtime_worker_slot() -> None:
+    global _RUNTIME_ACTIVE_WORKERS
+    with _RUNTIME_WORKER_SLOT_LOCK:
+        _RUNTIME_ACTIVE_WORKERS = max(0, _RUNTIME_ACTIVE_WORKERS - 1)
+
+
+def _run_worker_with_runtime_slot(worker_target: Any, task: TaskState, timeout_seconds: float) -> None:
+    try:
+        worker_target(task, timeout_seconds)
+    finally:
+        _release_runtime_worker_slot()
 
 
 def _start_worker_thread(thread: threading.Thread) -> None:
@@ -237,8 +259,10 @@ def _start_worker_thread(thread: threading.Thread) -> None:
 
 def configure_runtime_database(path: str | Path | None) -> Database | None:
     """Inject an explicit runtime database (tests) or reset to lazy default."""
-    global RUNTIME_DATABASE, _RUNTIME_LEASE, _PLAN_EXECUTION_SERVICE
+    global RUNTIME_DATABASE, _RUNTIME_LEASE, _PLAN_EXECUTION_SERVICE, _RUNTIME_ACTIVE_WORKERS
     with RUNTIME_DATABASE_LOCK:
+        with _RUNTIME_WORKER_SLOT_LOCK:
+            _RUNTIME_ACTIVE_WORKERS = 0
         if path is None:
             RUNTIME_DATABASE = None
             # The lease service binds to the previous database/instance:
@@ -288,9 +312,22 @@ def _context_service() -> ProjectContextService:
 
 
 def _worker_profile_resolver() -> WorkerProfileResolver:
-    configured = str(os.getenv("TP_VOYAGER_WORKER_PROFILE_ROOT") or "").strip()
+    try:
+        configured = VoyagerUserConfig.load().resources.worker_profiles_root
+    except VoyagerUserConfigError as exc:
+        raise ValueError("TP-Voyager user config is invalid") from exc
     root = Path(configured).expanduser() if configured else ROOT / "skills" / "tp-voyager-captain" / "worker-profiles"
     return WorkerProfileResolver(root)
+
+
+def _worker_skill_resolver() -> WorkerSkillResolver:
+    try:
+        configured = VoyagerUserConfig.load().resources.worker_skills_root
+    except VoyagerUserConfigError as exc:
+        raise ValueError("TP-Voyager user config is invalid") from exc
+    if not configured:
+        raise ValueError("resources.worker_skills_root is not configured")
+    return WorkerSkillResolver(configured)
 
 
 def _knowledge_service() -> KnowledgeRuntimeService:
@@ -410,6 +447,7 @@ def _captain_dispatch_service() -> CaptainDispatchService:
     patch_workspaces = PatchWorkspaceService(_get_runtime_database().path.parent / "workspaces")
     return CaptainDispatchService(
         _crew_registry_service(),
+        global_model_policy=GlobalDispatchModelPolicy.load(canonical_runtime_home()),
         artifact_loader=lambda refs: tuple(
             item.content
             for item in ArtifactInputResolver(
@@ -555,7 +593,7 @@ def _note_task_activity(task: TaskState, kind: str) -> None:
     task.event_count += 1
     if kind != "stream_activity" and task.persisted:
         try:
-            _runtime_service().append_activity(task.task_id, kind)
+            _runtime_service().append_activity(task.task_id, kind, lease=task.lease)
         except RuntimePersistenceError as exc:
             # Explicit, non-silent durability failure for diagnostics.
             task.persist_error = f"activity event failed: {exc}"
@@ -564,7 +602,6 @@ def _note_task_activity(task: TaskState, kind: str) -> None:
 from agent_runtime.api.public_projection import (
     public_task as _public,
     result_summary as _result_summary,
-    safe_public_error as _safe_public_error,
 )
 
 # ---------------------------------------------------------------------------
@@ -637,6 +674,8 @@ def _task_state_from_durable(
         task.cwd = str(metadata.get("cwd") or "")
         task.model = str(metadata.get("model") or "")
         task.reasoning_effort = str(metadata.get("reasoning_effort") or "")
+        context_window = metadata.get("context_window_tokens")
+        task.context_window_tokens = context_window if isinstance(context_window, int) and not isinstance(context_window, bool) else None
         task.resume_session_id = str(metadata.get("resume_session_id") or "")
         task.idle_timeout_seconds = float(
             metadata.get("idle_timeout_seconds") or 180.0
@@ -804,6 +843,7 @@ def _persist_status_change(
             timeout_reason=timeout_reason,
             cancel_scope=cancel_scope,
             cancel_initiator=cancel_initiator,
+            lease=task.lease,
         )
         task.version += 1
     except TaskVersionConflictError as exc:
@@ -879,22 +919,11 @@ def _is_captain_read_only_task(task: TaskState) -> bool:
 
 
 def _trusted_instruction_roots() -> dict[str, str]:
-    """Load operator-owned alias -> absolute trusted-root mapping."""
-    path = _get_runtime_database().path.parent / "trusted_instruction_roots.json"
+    """Load trusted instruction aliases from the unified user config."""
     try:
-        data = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
-    except (OSError, json.JSONDecodeError):
-        raise ValueError("trusted_instruction_roots.json is invalid")
-    if not isinstance(data, dict):
-        raise ValueError("trusted_instruction_roots.json must be an object")
-    roots: dict[str, str] = {}
-    for alias, root in data.items():
-        key = str(alias or "").strip()
-        raw = str(root or "").strip()
-        if not key or not raw:
-            raise ValueError("trusted instruction root aliases and paths must be non-empty")
-        roots[key] = raw
-    return roots
+        return VoyagerUserConfig.load().trusted_roots.instructions_map()
+    except VoyagerUserConfigError as exc:
+        raise ValueError("TP-Voyager user config is invalid") from exc
 
 
 def _repository_research_captain_fingerprint(
@@ -903,6 +932,7 @@ def _repository_research_captain_fingerprint(
     crew: str,
     task_kind: str,
     model: str,
+    model_parameters: ModelParameters | None,
     access_mode: str,
     timeout_seconds: int,
     read_scope: ReadScope,
@@ -926,6 +956,7 @@ def _repository_research_captain_fingerprint(
         "crew": str(crew or "").strip().lower(),
         "task_kind": str(task_kind or "").strip().lower(),
         "model": str(model or "").strip(),
+        "model_parameters": model_parameters.to_dict() if model_parameters is not None else None,
         "access_mode": str(access_mode or "read_only").strip().lower(),
         "timeout_seconds": int(timeout_seconds),
         "read_scope": read_scope.to_dict(),
@@ -1175,6 +1206,12 @@ def _persist_completed(
             if isinstance(result.get("reasoning_effort_applied"), bool)
             else None
         ),
+        context_window_tokens_requested=task.context_window_tokens,
+        context_window_tokens_applied=(
+            result.get("context_window_tokens_applied")
+            if isinstance(result.get("context_window_tokens_applied"), bool)
+            else None
+        ),
         observability=observability,
         output=output,
         changed_files=[] if captain_read_only else list(capture.changed_files or normalized.changed_files),
@@ -1406,6 +1443,8 @@ def _persist_failed_with_partial_artifacts(task: TaskState) -> bool:
         title="",
         reasoning_effort_requested=(task.reasoning_effort or "").strip() or None,
         reasoning_effort_applied=None,
+        context_window_tokens_requested=task.context_window_tokens,
+        context_window_tokens_applied=None,
         observability={},
         output={
             "partial": True,
@@ -1502,42 +1541,6 @@ def _persist_failed(task: TaskState) -> bool:
         return False
 
 
-def _persist_backend_session(task: TaskState, backend_session_id: str) -> None:
-    """Record the private backend session id (never projected publicly)."""
-    if not task.persisted:
-        return
-    try:
-        _runtime_service().set_backend_session(
-            task.task_id,
-            backend_session_id=backend_session_id,
-        )
-    except RuntimePersistenceError as exc:
-        task.persist_error = str(exc)
-        raise BackendError(f"runtime persistence failed: {exc}") from exc
-
-
-def _persist_dispatch_accepted(task: TaskState, backend_session_id: str) -> None:
-    """Record dispatch acceptance without projecting the private Crew session id."""
-    if not task.persisted:
-        return
-    try:
-        with _get_runtime_database().transaction() as connection:
-            TaskService(_get_runtime_database()).events.append(
-                connection,
-                TaskEvent(
-                    event_id=uuid.uuid4().hex,
-                    task_id=task.task_id,
-                    event_type=EventType.BACKEND_DISPATCH_ACCEPTED.value,
-                    event_time=time.time(),
-                    payload_json=json.dumps({"backend_session_id": backend_session_id}, ensure_ascii=False),
-                    visibility=EventVisibility.INTERNAL.value,
-                ),
-            )
-    except RuntimePersistenceError as exc:
-        task.persist_error = str(exc)
-        raise BackendError(f"runtime persistence failed: {exc}") from exc
-
-
 def _make_backend_callbacks(
     task: TaskState,
     log_event: Any,
@@ -1550,11 +1553,18 @@ def _make_backend_callbacks(
     """
 
     def on_dispatch_accepted(backend_session_id: str) -> None:
+        if task.persisted:
+            try:
+                _runtime_service().accept_backend_dispatch(
+                    task.task_id,
+                    backend_session_id=backend_session_id,
+                    version=task.version,
+                    lease=task.lease,
+                )
+            except RuntimePersistenceError as exc:
+                task.persist_error = str(exc)
+                raise BackendError(f"runtime dispatch gate failed: {exc}") from exc
         task.backend_session_id = backend_session_id
-        # Current official Crew routes know their backend session identity
-        # before/at dispatch acceptance. Persist it before further activity.
-        _persist_backend_session(task, backend_session_id)
-        _persist_dispatch_accepted(task, backend_session_id)
         _note_task_activity(task, "session_created")
 
     def on_activity(kind: str) -> None:
@@ -1705,6 +1715,7 @@ def _run_official_cli_task(
                 cwd=task.cwd,
                 model=task.model,
                 reasoning_effort=task.reasoning_effort,
+                context_window_tokens=task.context_window_tokens,
                 resume_session_id=task.resume_session_id,
                 idle_timeout_seconds=task.idle_timeout_seconds,
                 max_task_duration_seconds=task.max_task_duration_seconds,
@@ -1720,6 +1731,7 @@ def _run_official_cli_task(
                 cwd=task.cwd,
                 model=task.model,
                 reasoning_effort=task.reasoning_effort,
+                context_window_tokens=task.context_window_tokens,
                 idle_timeout_seconds=task.idle_timeout_seconds,
                 max_task_duration_seconds=task.max_task_duration_seconds,
                 metadata=metadata,
@@ -1727,8 +1739,6 @@ def _run_official_cli_task(
             backend_result = backend.start(request, callbacks)
 
         task.backend_session_id = backend_result.backend_session_id or task.backend_session_id
-        if task.backend_session_id:
-            _persist_backend_session(task, task.backend_session_id)
         task.answer = backend_result.answer
         result_backend = backend_result.backend or backend_name
         task.result = {
@@ -1736,6 +1746,7 @@ def _run_official_cli_task(
             "backend": result_backend,
             "stopReason": backend_result.stop_reason,
             "reasoning_effort_requested": task.reasoning_effort or None,
+            "context_window_tokens_requested": task.context_window_tokens,
             "reasoning_effort_applied": (backend_result.result or {}).get(
                 "reasoning_effort_applied"
             ),
@@ -1836,6 +1847,7 @@ def _durable_cli_start(
     timeout_seconds: int = 300,
     model: str = "",
     reasoning_effort: str = "",
+    context_window_tokens: int | None = None,
     resume_task_id: str = "",
     idempotency_key: str = "",
     idle_timeout_seconds: int = 180,
@@ -1892,7 +1904,7 @@ def _durable_cli_start(
     except ValueError as exc:
         return {"ok": False, "error": str(exc)}
     routing = dict(routing_metadata or {})
-    allowed_routing_keys = {"read_scope", "worker_profile_ref", "worker_skill_refs", "input_artifact_refs", "trusted_instruction_refs", "captain_request_contract", "effective_model_policy", "correlation_id", "model_policy", "repository_research", "repository_snapshot_ref", "scope_segment", "run_control", "step_key", "apply_receipt", "verification_policy", "verification_subject"}
+    allowed_routing_keys = {"read_scope", "worker_profile_ref", "worker_skill_refs", "input_artifact_refs", "trusted_instruction_refs", "captain_request_contract", "effective_model_policy", "correlation_id", "model_policy", "model_parameters", "repository_research", "repository_snapshot_ref", "scope_segment", "run_control", "step_key", "apply_receipt", "verification_policy", "verification_subject"}
     if set(routing) - allowed_routing_keys:
         return {"ok": False, "error": "routing_metadata contains unsupported keys"}
     try:
@@ -1975,6 +1987,7 @@ def _durable_cli_start(
             "context_id": context_id.strip(),
             "agent_profile": agent_profile.strip(),
             "execution_mode": execution_mode.strip().lower(),
+            "context_window_tokens": context_window_tokens,
             "verification_plan": plan.to_dict(),
             "routing_metadata": {key: value for key, value in routing.items() if key != "effective_model_policy"},
         },
@@ -2012,6 +2025,7 @@ def _durable_cli_start(
         "cwd": str(working_dir),
         "model": model.strip(),
         "reasoning_effort": reasoning_effort.strip(),
+        "context_window_tokens": context_window_tokens,
         "resume_session_id": resume_session_id,
         "idle_timeout_seconds": float(idle_timeout_seconds),
         "max_task_duration_seconds": float(effective_max),
@@ -2049,6 +2063,16 @@ def _durable_cli_start(
         updated_at=now,
     )
     try:
+        slot_acquired = _try_acquire_runtime_worker_slot()
+    except VoyagerUserConfigError as exc:
+        return {"ok": False, "reason_code": "CONFIG_INVALID", "error": str(exc)}
+    if not slot_acquired:
+        return {
+            "ok": False,
+            "reason_code": "RUNTIME_BUSY",
+            "error": "runtime max_concurrent_tasks limit reached",
+        }
+    try:
         created = service.create_task(
             task=durable_task,
             session=session,
@@ -2061,8 +2085,10 @@ def _durable_cli_start(
             now=now,
         )
     except RuntimePersistenceError as exc:
+        _release_runtime_worker_slot()
         return {"ok": False, "error": f"runtime database unavailable: {exc}"}
     if created.outcome == "replayed":
+        _release_runtime_worker_slot()
         durable = service.get_task(created.task_id or "")
         return {
             "ok": True,
@@ -2074,8 +2100,10 @@ def _durable_cli_start(
             ),
         }
     if created.outcome in {"budget_rejected", "step_conflict"}:
+        _release_runtime_worker_slot()
         return {"ok": False, "reason_code": created.reason_code, "error": created.error}
     if created.outcome == "conflict":
+        _release_runtime_worker_slot()
         return {"ok": False, "reason_code": "IDEMPOTENCY_CONFLICT", "error": created.error}
 
     task = TaskState(
@@ -2085,6 +2113,7 @@ def _durable_cli_start(
         runtime=runtime,
         model=model.strip(),
         reasoning_effort=reasoning_effort.strip(),
+        context_window_tokens=context_window_tokens,
         resume_session_id=resume_session_id,
         resumed=bool(resume_session_id),
         idempotency_key=canonical_key,
@@ -2120,13 +2149,14 @@ def _durable_cli_start(
             IDEMPOTENCY_TASKS[canonical_key] = task_id
     _note_task_activity(task, "task_accepted")
     thread = threading.Thread(
-        target=worker_target,
-        args=(task, float(timeout_seconds)),
+        target=_run_worker_with_runtime_slot,
+        args=(worker_target, task, float(timeout_seconds)),
         daemon=True,
     )
     try:
         _start_worker_thread(thread)
     except RuntimeError as exc:
+        _release_runtime_worker_slot()
         task.error = str(exc)
         task.terminal_reason = "ThreadStartError"
         task.state = "failed"
@@ -2142,6 +2172,7 @@ def _qoder_start(
     timeout_seconds: int = 300,
     model: str = "",
     reasoning_effort: str = "",
+    context_window_tokens: int | None = None,
     route: str = "acp_read_only",
     resume_task_id: str = "",
     idempotency_key: str = "",
@@ -2190,6 +2221,7 @@ def _qoder_start(
         timeout_seconds=timeout_seconds,
         model=model,
         reasoning_effort=reasoning_effort,
+        context_window_tokens=context_window_tokens,
         resume_task_id=resume_task_id,
         idempotency_key=idempotency_key,
         idle_timeout_seconds=idle_timeout_seconds,
@@ -2222,6 +2254,7 @@ def _codebuddy_start(
     timeout_seconds: int = 300,
     model: str = "",
     reasoning_effort: str = "",
+    context_window_tokens: int | None = None,
     route: str = "sdk_context_read_only",
     resume_task_id: str = "",
     idempotency_key: str = "",
@@ -2262,11 +2295,13 @@ def _codebuddy_start(
             "ok": False,
             "error": "idle_timeout_seconds must be less than max_task_duration_seconds",
         }
-    if reasoning_effort.strip():
+    if context_window_tokens is not None:
         return {
             "ok": False,
-            "error": "CodeBuddy controlled route does not accept reasoning_effort yet",
+            "error": "CodeBuddy controlled route does not expose context_window_tokens",
         }
+    if reasoning_effort.strip().lower() not in {"", "low", "medium", "high", "xhigh"}:
+        return {"ok": False, "error": "CodeBuddy reasoning_effort must be low, medium, high or xhigh"}
     return _durable_cli_start(
         runtime="codebuddy",
         task_type="codebuddy",
@@ -2277,7 +2312,7 @@ def _codebuddy_start(
         cwd=cwd,
         timeout_seconds=timeout_seconds,
         model=model,
-        reasoning_effort="",
+        reasoning_effort=reasoning_effort,
         resume_task_id=resume_task_id,
         idempotency_key=idempotency_key,
         idle_timeout_seconds=idle_timeout_seconds,
@@ -2437,9 +2472,50 @@ def _usage_evidence_for_task(task_id: str) -> dict[str, Any]:
         return {}
 
 
+def _usage_projection(
+    evidence: dict[str, Any], *, observability: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Return only provider-observed usage quantities, never an estimate."""
+    provenance = (observability or {}).get("usage_provenance") if isinstance(observability, dict) else None
+    provenance_status = str(provenance.get("status") or "") if isinstance(provenance, dict) else ""
+    usage = evidence.get("usage") if isinstance(evidence, dict) else None
+    usage = usage if isinstance(usage, dict) else {}
+    output: dict[str, Any] = {}
+    for field in ("input_tokens", "output_tokens", "credits_used", "reported_cost"):
+        value = usage.get(field)
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0:
+            output[field] = value
+    currency = usage.get("currency")
+    if isinstance(currency, str) and currency.strip():
+        output["currency"] = currency.strip()[:16]
+    if output:
+        status = "observed"
+    elif provenance_status in {"provider_omitted", "protocol_unrecognized"}:
+        status = provenance_status
+    elif isinstance(evidence.get("provider_usage"), dict) and evidence.get("provider_usage"):
+        status = "protocol_unrecognized"
+    else:
+        status = "provider_omitted"
+    result: dict[str, Any] = {"status": status}
+    if isinstance(evidence, dict):
+        for field in ("provider", "model", "source"):
+            value = evidence.get(field)
+            if isinstance(value, str) and value.strip():
+                result[field] = value.strip()[:160]
+    result.update(output)
+    return result
+
+
 def _routing_projection(task: TaskState) -> dict[str, Any]:
     routing = task.routing_metadata if isinstance(task.routing_metadata, dict) else {}
     output: dict[str, Any] = {}
+    model_parameters = routing.get("model_parameters")
+    if isinstance(model_parameters, dict):
+        output["model_parameters"] = {
+            key: model_parameters.get(key)
+            for key in ("reasoning_effort", "context_window_tokens")
+            if model_parameters.get(key) is not None
+        }
     correlation_id = routing.get("correlation_id")
     if isinstance(correlation_id, str) and correlation_id:
         output["correlation_id"] = correlation_id
@@ -2573,7 +2649,7 @@ def _task_result_response(task_id: str) -> dict[str, Any]:
             "error": "Final subagent material is not available for this task state",
             **_public(task),
             **_routing_projection(task),
-            "usage": _usage_evidence_for_task(task_id),
+            "usage": _usage_projection(_usage_evidence_for_task(task_id)),
         }
     if task.result_parse_error:
         return {
@@ -2581,7 +2657,7 @@ def _task_result_response(task_id: str) -> dict[str, Any]:
             "state": "completed",
             **_public(task),
             **_routing_projection(task),
-            "usage": _usage_evidence_for_task(task_id),
+            "usage": _usage_projection(_usage_evidence_for_task(task_id)),
             "error": "Task completed, but persisted final material is unreadable",
         }
     if not (
@@ -2594,7 +2670,7 @@ def _task_result_response(task_id: str) -> dict[str, Any]:
             "state": "completed",
             **_public(task),
             **_routing_projection(task),
-            "usage": _usage_evidence_for_task(task_id),
+            "usage": _usage_projection(_usage_evidence_for_task(task_id)),
             "error": "Task completed, but final subagent material could not be recovered",
         }
     parsed = None
@@ -2636,9 +2712,9 @@ def _task_result_response(task_id: str) -> dict[str, Any]:
         "risks": parsed.risks if parsed is not None else [],
         "claims": parsed.claims if parsed is not None else [],
         "verification": parsed.verification if parsed is not None else {},
-        "usage": (
-            _usage_evidence_for_task(task_id)
-            or (parsed.usage if parsed is not None else {})
+        "usage": _usage_projection(
+            _usage_evidence_for_task(task_id) or (parsed.usage if parsed is not None else {}),
+            observability=(parsed.observability if parsed is not None else {}),
         ),
         "crew_outcome": (parsed.crew_outcome if parsed is not None else {}),
         "result_summary": _result_summary(task),
@@ -3071,6 +3147,7 @@ def task_dispatch(
     task_kind: str,
     cwd: str = "",
     model: str = "",
+    model_parameters: dict[str, Any] | None = None,
     access_mode: str = "read_only",
     idempotency_key: str = "",
     context_id: str = "",
@@ -3131,6 +3208,15 @@ def task_dispatch(
             parsed_model_policy = ModelPolicy.from_dict(model_policy)
         except (TypeError, ValueError) as exc:
             return reject("INVALID_MODEL_POLICY", str(exc))
+
+    parsed_model_parameters: ModelParameters | None = None
+    if model_parameters is not None:
+        try:
+            parsed_model_parameters = ModelParameters.from_dict(model_parameters)
+        except (TypeError, ValueError) as exc:
+            return reject("INVALID_MODEL_PARAMETERS", str(exc))
+        if not str(model or "").strip():
+            return reject("MODEL_PARAMETERS_MODEL_REQUIRED", "model_parameters requires an explicit model")
 
     parsed_research: RepositoryResearchSpec | None = None
     if repository_research is not None:
@@ -3313,6 +3399,7 @@ def task_dispatch(
         task_kind=normalized_kind,
         cwd=str(cwd or ""),
         model=str(model or "").strip(),
+        model_parameters=(parsed_model_parameters.to_dict() if parsed_model_parameters is not None else None),
         access_mode=normalized_mode,
         context_id=str(context_id or "").strip(),
         context_files=sorted(set(supplied_files)),
@@ -3375,10 +3462,7 @@ def task_dispatch(
             return reject("WORKER_PROFILE_INVALID", str(exc))
     if parsed_skills:
         try:
-            skill_root = os.environ.get("TP_VOYAGER_WORKER_SKILL_ROOT")
-            if not skill_root:
-                raise ValueError("TP_VOYAGER_WORKER_SKILL_ROOT is required")
-            skill_resolver = WorkerSkillResolver(skill_root)
+            skill_resolver = _worker_skill_resolver()
             skill_content = tuple(skill_resolver.resolve(item).content for item in parsed_skills)
         except (ValueError, WorkerProfileError) as exc:
             return reject("WORKER_SKILL_INVALID", str(exc))
@@ -3435,6 +3519,7 @@ def task_dispatch(
         # ``parsed_scope`` is guaranteed above for repository_research.
         research_request_fingerprint = _repository_research_captain_fingerprint(
             objective=objective, crew=crew, task_kind=task_kind, model=model,
+            model_parameters=parsed_model_parameters,
             access_mode=access_mode, timeout_seconds=timeout_seconds,
             read_scope=parsed_scope,  # type: ignore[arg-type]
             model_policy=parsed_model_policy, worker_profile_ref=parsed_profile,
@@ -3602,6 +3687,7 @@ def task_dispatch(
             task_kind=task_kind,
             cwd=effective_cwd,
             model=model,
+            model_parameters=parsed_model_parameters,
             access_mode=access_mode,
             idempotency_key=idempotency_key,
             context_id=effective_context_id,

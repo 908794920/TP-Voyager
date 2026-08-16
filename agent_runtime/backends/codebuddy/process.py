@@ -9,10 +9,27 @@ import shutil
 import subprocess
 
 from agent_runtime.backends.errors import BackendUnavailableError
+from agent_runtime.configuration import VoyagerUserConfig, VoyagerUserConfigError
+
+
+def _codebuddy_config():
+    try:
+        return VoyagerUserConfig.load().crew.codebuddy
+    except VoyagerUserConfigError as exc:
+        raise BackendUnavailableError("TP-Voyager user config is invalid") from exc
+
+
+def resolve_codebuddy_internet_environment() -> str:
+    crew = _codebuddy_config()
+    configured = (os.environ.get("CODEBUDDY_INTERNET_ENVIRONMENT") or "").strip().lower()
+    return configured or crew.internet_environment
 
 
 def resolve_codebuddy_cli() -> str:
-    configured = (os.environ.get("CODEBUDDY_CODE_PATH") or "").strip()
+    crew = _codebuddy_config()
+    if not crew.enabled:
+        raise BackendUnavailableError("CodeBuddy Crew is disabled in TP-Voyager config")
+    configured = (os.environ.get("CODEBUDDY_CODE_PATH") or "").strip() or crew.cli_path
     if configured:
         path = Path(configured).expanduser()
         if path.is_file():
@@ -43,7 +60,7 @@ def probe_codebuddy_cli() -> dict[str, object]:
     # TP-Voyager's accepted CodeBuddy Crew is the China account route.
     # An explicit operator override is preserved for diagnostics, but an
     # unset environment must agree with the SDK adapter's CN default.
-    env = (os.environ.get("CODEBUDDY_INTERNET_ENVIRONMENT") or "internal").strip().lower() or "internal"
+    env = resolve_codebuddy_internet_environment()
     region = "cn" if env == "internal" else ("ioa" if env == "ioa" else "international")
     auth_configured = bool(
         (os.environ.get("CODEBUDDY_AUTH_TOKEN") or "").strip()

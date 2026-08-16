@@ -39,6 +39,8 @@ class StructuredResult:
     title: str = ""
     reasoning_effort_requested: str | None = None
     reasoning_effort_applied: bool | None = None
+    context_window_tokens_requested: int | None = None
+    context_window_tokens_applied: bool | None = None
     changed_files: list[str] = field(default_factory=list)
     tests: list[dict[str, Any]] = field(default_factory=list)
     artifacts: list[dict[str, Any]] = field(default_factory=list)
@@ -61,6 +63,8 @@ class StructuredResult:
             "title": self.title,
             "reasoning_effort_requested": self.reasoning_effort_requested,
             "reasoning_effort_applied": self.reasoning_effort_applied,
+            "context_window_tokens_requested": self.context_window_tokens_requested,
+            "context_window_tokens_applied": self.context_window_tokens_applied,
             "observability": dict(self.observability),
             "output": dict(self.output),
             "changed_files": list(self.changed_files),
@@ -87,6 +91,8 @@ class ParsedResult:
     title: str
     reasoning_effort_requested: str | None
     reasoning_effort_applied: bool | None
+    context_window_tokens_requested: int | None
+    context_window_tokens_applied: bool | None
     observability: dict[str, Any]
     output: dict[str, Any]
     changed_files: list[str]
@@ -108,6 +114,8 @@ class ParsedResult:
             "stopReason": self.stop_reason,
             "reasoning_effort_requested": self.reasoning_effort_requested,
             "reasoning_effort_applied": self.reasoning_effort_applied,
+            "context_window_tokens_requested": self.context_window_tokens_requested,
+            "context_window_tokens_applied": self.context_window_tokens_applied,
             "observability": dict(self.observability),
         }
 
@@ -151,6 +159,18 @@ def parse_structured_result(result_json: str) -> ParsedResult:
                 and payload.get("reasoning_effort_applied") is not None
                 else None
             ),
+            context_window_tokens_requested=(
+                int(payload["context_window_tokens_requested"])
+                if isinstance(payload.get("context_window_tokens_requested"), int)
+                and not isinstance(payload.get("context_window_tokens_requested"), bool)
+                else None
+            ),
+            context_window_tokens_applied=(
+                bool(payload.get("context_window_tokens_applied"))
+                if "context_window_tokens_applied" in payload
+                and payload.get("context_window_tokens_applied") is not None
+                else None
+            ),
             observability=_dict_field(payload, "observability"),
             output=dict(payload),
             changed_files=[str(item) for item in payload.get("changed_files", []) if isinstance(item, str)] if isinstance(payload.get("changed_files"), list) else [],
@@ -190,6 +210,16 @@ def parse_structured_result(result_json: str) -> ParsedResult:
         raise StructuredResultParseError(
             "Structured Result reasoning_effort_applied must be a boolean or null"
         )
+    context_requested = payload.get("context_window_tokens_requested")
+    if context_requested is not None and (isinstance(context_requested, bool) or not isinstance(context_requested, int)):
+        raise StructuredResultParseError(
+            "Structured Result context_window_tokens_requested must be an integer or null"
+        )
+    context_applied = payload.get("context_window_tokens_applied")
+    if context_applied is not None and not isinstance(context_applied, bool):
+        raise StructuredResultParseError(
+            "Structured Result context_window_tokens_applied must be a boolean or null"
+        )
 
     list_fields = ("changed_files", "tests", "artifacts", "risks", "claims")
     for key in list_fields:
@@ -215,6 +245,8 @@ def parse_structured_result(result_json: str) -> ParsedResult:
         title=str(payload.get("title") or ""),
         reasoning_effort_requested=requested,
         reasoning_effort_applied=applied,
+        context_window_tokens_requested=context_requested,
+        context_window_tokens_applied=context_applied,
         observability=dict(observability),
         output=dict(output),
         changed_files=[str(item) for item in payload.get("changed_files", []) if isinstance(item, str)],

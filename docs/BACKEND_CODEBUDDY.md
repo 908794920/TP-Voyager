@@ -35,7 +35,7 @@ Captain 路径使用官方 Python SDK。
 
 - 在 Runtime-owned Git worktree 中运行；
 - 使用 SDK Host Permission Callback 做路径/命令约束；
-- 命令必须匹配 Captain 显式批准的 Policy；
+- 命令必须匹配 Captain 显式批准的 argv/cwd Policy；Bash 文本使用 shell-safe literal quoting 序列化，避免 `$VAR`、`*`、`$(...)` 等把 literal argv 改解释为 shell program；
 - 不使用 Permission Bypass。
 
 ## Captain 只读入口
@@ -85,7 +85,7 @@ calculation_allowed=false
 
 `crew_catalog(include_models=true)` 还会把该实时目录与 operator policy、`model_routing_profiles.json`、Runtime history/Usage 合并成 routable route；CodeBuddy adapter 本身不理解 L0/L1/L2/L3，也不替 Captain 选模型。
 
-当前 CodeBuddy 受控 SDK Backend 声明 `supports_reasoning_effort=false`。因此 operator profile 可以保留模型级 `suggested_effort` 作为认知资料，但 Captain 不能把它当成当前 CodeBuddy route 已支持的实时参数；只有 Backend/Provider 明确支持后才可下发 `reasoning_effort`。
+当前 CodeBuddy 受控 SDK Backend 声明 `supports_reasoning_effort=true`，并通过官方 SDK `CodeBuddyAgentOptions.effort` 支持 `low`、`medium`、`high`、`xhigh`。Captain 必须经 `task_dispatch(model_parameters={"reasoning_effort": ...})` 显式下发；结果中的 `reasoning_effort_applied` 表示 Runtime 已将该值交给 SDK。SDK 未公开受控的 per-session context-window 参数，因此 `context_window_tokens` 会在创建任务前拒绝，绝不静默忽略。
 
 ## `repository_research`
 

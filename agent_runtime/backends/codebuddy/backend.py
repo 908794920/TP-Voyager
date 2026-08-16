@@ -50,7 +50,7 @@ class CodeBuddyBackend:
             supports_resume=True,
             supports_streaming=True,
             supports_cancel=True,
-            supports_reasoning_effort=False,
+            supports_reasoning_effort=True,
             observability="standard",
         )
 
@@ -236,6 +236,7 @@ class CodeBuddyBackend:
                 prompt=request.prompt,
                 resume_session_id=resume_session_id,
                 model=request.model,
+                reasoning_effort=request.reasoning_effort,
                 idle_timeout_seconds=request.idle_timeout_seconds,
                 max_task_duration_seconds=request.max_task_duration_seconds,
                 on_dispatch_accepted=accepted,
@@ -254,6 +255,7 @@ class CodeBuddyBackend:
                     "backend": "codebuddy",
                     "stopReason": result.stop_reason,
                     "model_applied": bool(request.model) if request.model else None,
+                    "reasoning_effort_applied": bool(request.reasoning_effort) if request.reasoning_effort else None,
                     "usage": usage_fact.to_dict() if usage_fact is not None else {},
                     "total_cost_usd": result.total_cost_usd,
                 },

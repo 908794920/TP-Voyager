@@ -1,0 +1,258 @@
+{
+  "schema": "tp-voyager.model_evaluation_sources/v1",
+  "updated_at": "2026-08-15",
+  "sources": {
+    "artificial_analysis_coding_agent": {
+      "status": "active",
+      "role": "primary",
+      "source_type": "independent",
+      "dimensions": [
+        "repository_engineering",
+        "terminal_agentic",
+        "codebase_understanding"
+      ],
+      "requires": [
+        "benchmark_version",
+        "exact_model_identity",
+        "agent",
+        "harness",
+        "attempts_per_task",
+        "provenance_url",
+        "observed_at",
+        "primary_approval"
+      ],
+      "composite_of": [
+        "deep-swe",
+        "terminal-bench",
+        "swe-atlas-qna"
+      ],
+      "freshness_policy_days": 120,
+      "url": "https://artificialanalysis.ai/agents/coding",
+      "methodology_url": "https://artificialanalysis.ai/methodology/coding-agents-benchmarking"
+    },
+    "deep_swe": {
+      "status": "active",
+      "role": "primary",
+      "source_type": "independent",
+      "dimensions": [
+        "repository_engineering"
+      ],
+      "requires": [
+        "benchmark_version",
+        "exact_model_identity",
+        "agent",
+        "harness",
+        "attempts_per_task",
+        "provenance_url",
+        "observed_at",
+        "primary_approval"
+      ],
+      "composite_of": [],
+      "freshness_policy_days": 180,
+      "url": "https://github.com/datacurve-ai/deep-swe",
+      "methodology_url": "https://github.com/datacurve-ai/deep-swe"
+    },
+    "terminal_bench": {
+      "status": "active",
+      "role": "primary",
+      "source_type": "independent",
+      "dimensions": [
+        "terminal_agentic"
+      ],
+      "requires": [
+        "benchmark_version",
+        "exact_model_identity",
+        "agent",
+        "harness",
+        "reasoning_effort",
+        "attempts_per_task",
+        "provenance_url",
+        "observed_at",
+        "primary_approval"
+      ],
+      "composite_of": [],
+      "freshness_policy_days": 120,
+      "url": "https://www.tbench.ai/leaderboard",
+      "methodology_url": "https://github.com/harbor-framework/terminal-bench-2-1"
+    },
+    "swe_atlas_qna": {
+      "status": "active",
+      "role": "primary",
+      "source_type": "independent",
+      "dimensions": [
+        "codebase_understanding"
+      ],
+      "requires": [
+        "benchmark_version",
+        "exact_model_identity",
+        "agent",
+        "harness",
+        "attempts_per_task",
+        "provenance_url",
+        "observed_at",
+        "primary_approval"
+      ],
+      "composite_of": [],
+      "freshness_policy_days": 180,
+      "url": "https://github.com/scaleapi/SWE-Atlas",
+      "methodology_url": "https://github.com/scaleapi/SWE-Atlas"
+    },
+    "artificial_analysis_model": {
+      "status": "active",
+      "role": "supplemental",
+      "source_type": "independent",
+      "dimensions": [],
+      "requires": [
+        "benchmark_version",
+        "exact_model_identity",
+        "provenance_url",
+        "observed_at"
+      ],
+      "composite_of": [],
+      "freshness_policy_days": 120,
+      "url": "https://artificialanalysis.ai/models",
+      "methodology_url": "https://artificialanalysis.ai/methodology"
+    },
+    "arena_coding": {
+      "status": "active",
+      "role": "preference",
+      "source_type": "independent",
+      "dimensions": [
+        "general_coding"
+      ],
+      "requires": [
+        "benchmark_version",
+        "exact_model_identity",
+        "provenance_url",
+        "observed_at"
+      ],
+      "composite_of": [],
+      "freshness_policy_days": 90,
+      "url": "https://arena.ai/leaderboard?category=coding",
+      "methodology_url": "https://arena.ai/"
+    },
+    "arena_webdev": {
+      "status": "active",
+      "role": "preference",
+      "source_type": "independent",
+      "dimensions": [
+        "multimodal_coding"
+      ],
+      "requires": [
+        "benchmark_version",
+        "exact_model_identity",
+        "provenance_url",
+        "observed_at"
+      ],
+      "composite_of": [],
+      "freshness_policy_days": 90,
+      "url": "https://arena.ai/leaderboard",
+      "methodology_url": "https://arena.ai/"
+    },
+    "livebench": {
+      "status": "supplemental",
+      "role": "supplemental",
+      "source_type": "independent",
+      "dimensions": [
+        "general_coding",
+        "repository_engineering"
+      ],
+      "requires": [
+        "benchmark_version",
+        "exact_model_identity",
+        "provenance_url",
+        "observed_at"
+      ],
+      "composite_of": [],
+      "freshness_policy_days": 180,
+      "url": "https://livebench.ai/",
+      "methodology_url": "https://github.com/LiveBench/LiveBench"
+    },
+    "swe_bench_pro": {
+      "status": "supplemental",
+      "role": "supplemental",
+      "source_type": "independent",
+      "dimensions": [
+        "repository_engineering"
+      ],
+      "requires": [
+        "benchmark_version",
+        "exact_model_identity",
+        "agent",
+        "harness",
+        "provenance_url",
+        "observed_at"
+      ],
+      "composite_of": [],
+      "freshness_policy_days": 180,
+      "url": "https://scale.com/leaderboard/swe_bench_pro_public",
+      "methodology_url": "https://github.com/scaleapi/SWE-bench_Pro-os"
+    },
+    "livecodebench": {
+      "status": "legacy",
+      "role": "historical",
+      "source_type": "independent",
+      "dimensions": [
+        "general_coding"
+      ],
+      "requires": [
+        "benchmark_version",
+        "exact_model_identity",
+        "provenance_url",
+        "observed_at"
+      ],
+      "composite_of": [],
+      "freshness_policy_days": 365,
+      "url": "https://livecodebench.github.io/",
+      "methodology_url": "https://github.com/LiveCodeBench/LiveCodeBench"
+    },
+    "bigcodebench": {
+      "status": "archived",
+      "role": "historical",
+      "source_type": "independent",
+      "dimensions": [
+        "general_coding"
+      ],
+      "requires": [
+        "benchmark_version",
+        "exact_model_identity",
+        "provenance_url",
+        "observed_at"
+      ],
+      "composite_of": [],
+      "freshness_policy_days": 0,
+      "url": "https://github.com/bigcode-project/bigcodebench",
+      "methodology_url": "https://github.com/bigcode-project/bigcodebench"
+    },
+    "independent_release_reporting": {
+      "status": "active",
+      "role": "supplemental",
+      "source_type": "independent",
+      "dimensions": [],
+      "requires": [
+        "exact_model_identity",
+        "provenance_url",
+        "observed_at"
+      ],
+      "composite_of": [],
+      "freshness_policy_days": 60,
+      "url": null,
+      "methodology_url": null
+    },
+    "provider_official": {
+      "status": "active",
+      "role": "provider",
+      "source_type": "provider",
+      "dimensions": [],
+      "requires": [
+        "exact_model_identity",
+        "provenance_url",
+        "observed_at"
+      ],
+      "composite_of": [],
+      "freshness_policy_days": 365,
+      "url": null,
+      "methodology_url": null
+    }
+  }
+}

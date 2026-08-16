@@ -22,8 +22,9 @@ acp_patch
 - 不向 Worker 开放写文件能力；
 - 不开放 Terminal；
 - 权限升级请求 fail-closed；
-- 读取必须落在 Runtime 解析后的 concrete `read_scope`；
+- Runtime 将 concrete `read_scope` materialize 到一次性 snapshot，并以该 snapshot 作为 Qoder cwd；源 Passenger repo 不再作为 bounded read-only route 的工作目录；
 - v1.0.3 起只读终态不扫描/归属源工作区既有 Git diff。
+- 该机制提供 **workspace-exposure isolation**，不是 OS sandbox：Qoder 仍以宿主用户权限运行，因此 TP-Voyager 不宣称能防御恶意本机二进制主动访问宿主机任意绝对路径。
 
 ## `acp_patch`
 
@@ -59,6 +60,18 @@ official reference metadata
 它们不会形成模型评分，也不会用于推算某个 Task 的费用。任务真实 Token/Credit/Cost 仍以 `tp-voyager.usage/v1` Evidence 为准。
 
 v1.0.6 进一步从 SDK `context_config` 与 `thinking_config` 机械归一化 context / supported effort，并与 operator `model_routing_profiles.json`、dispatch policy、Runtime Evidence 合并。Operator 的 suggested effort 只做建议；Provider 未返回的实时能力保持 unknown。
+
+## Model Parameters
+
+Captain 可在显式 `model` 的任务上提供：
+
+```json
+{"reasoning_effort":"medium","context_window_tokens":200000}
+```
+
+`reasoning_effort` 只在 Qoder ACP 对当前会话声明 `thought_level` 选项时，才通过 `session/set_config_option` 下发。`context_window_tokens` 不是 Qoder ACP `configOptions`；Runtime 在启动 ACP 前把它传为官方 CLI 参数 `qodercli --acp --context-window <tokens>`。因此它是每个会话的启动参数，不会被当作显示字段或静默忽略。任务结果保留 requested/applied 状态；任何协议或启动失败均为显式失败，不会换模型、降级或重试。
+
+Captain 请求参数时，Runtime 先读取当前 Provider 模型目录：所选 effort 必须在 `thinking_config` 中声明；上下文值必须精确出现在 Qoder `context_config`。目录没有对应事实、或值不被该模型支持时，任务不会创建。`task_result.usage` 仅投影 Provider 实报的 token、Credit、费用和货币；未实报时状态为 `provider_omitted`，不会使用目录倍率估算。
 
 完整 route 字段见 `docs/MODEL_ROUTING.md`。
 

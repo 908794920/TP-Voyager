@@ -33,6 +33,44 @@ def _safe_relpath(value: object, *, field_name: str) -> str:
     return raw
 
 
+def _relative_path_parts(value: object) -> tuple[str, ...] | None:
+    """Return safe relative path components without dot-prefix rewriting.
+
+    This helper deliberately preserves component names such as ``.src`` and
+    ``.env``.  Security checks must compare path components, never use string
+    trimming such as ``lstrip("./")`` which aliases distinct names.
+    """
+    raw = str(value or "").strip().replace("\\", "/")
+    if not raw or raw.startswith("/") or (len(raw) >= 2 and raw[1] == ":"):
+        return None
+    pure = PurePosixPath(raw)
+    parts = tuple(pure.parts)
+    if not parts or any(part in {"", ".", ".."} for part in parts):
+        return None
+    return parts
+
+
+def relative_path_matches_prefix(path: object, prefix: object) -> bool:
+    """Component-prefix match for already-relative policy paths.
+
+    ``src/a.py`` matches ``src``; ``.src/a.py`` and ``..src/a.py`` do not.
+    Invalid/absolute paths fail closed.
+    """
+    path_parts = _relative_path_parts(path)
+    prefix_parts = _relative_path_parts(prefix)
+    if path_parts is None or prefix_parts is None:
+        return False
+    return (
+        len(path_parts) >= len(prefix_parts)
+        and path_parts[: len(prefix_parts)] == prefix_parts
+    )
+
+
+def relative_path_matches_any(path: object, prefixes: tuple[str, ...]) -> bool:
+    """Return True when ``path`` is inside any component-prefix root."""
+    return any(relative_path_matches_prefix(path, prefix) for prefix in prefixes)
+
+
 @dataclass(frozen=True)
 class CommandSpec:
     """One Captain-authorized command, represented as argv (never shell text)."""
@@ -667,12 +705,47 @@ class ScopeSegmentSpec:
 
 
 @dataclass(frozen=True)
+class ModelParameters:
+    """Captain-selected optional execution settings for an explicit model."""
+
+    reasoning_effort: str = ""
+    context_window_tokens: int | None = None
+
+    @classmethod
+    def from_dict(cls, value: object) -> "ModelParameters":
+        if not isinstance(value, dict):
+            raise ValueError("model_parameters must be an object")
+        unknown = set(value) - {"reasoning_effort", "context_window_tokens"}
+        if unknown:
+            raise ValueError("model_parameters contains unsupported keys")
+        effort = str(value.get("reasoning_effort") or "").strip().lower()
+        if effort and effort not in {"low", "medium", "high", "xhigh", "max"}:
+            raise ValueError("model_parameters.reasoning_effort is invalid")
+        context = value.get("context_window_tokens")
+        if context is not None:
+            if isinstance(context, bool) or not isinstance(context, int):
+                raise ValueError("model_parameters.context_window_tokens must be an integer")
+            if context < 1 or context > 2_000_000:
+                raise ValueError("model_parameters.context_window_tokens is outside the bounded limit")
+        return cls(reasoning_effort=effort, context_window_tokens=context)
+
+    def to_dict(self) -> dict[str, Any]:
+        data: dict[str, Any] = {}
+        if self.reasoning_effort:
+            data["reasoning_effort"] = self.reasoning_effort
+        if self.context_window_tokens is not None:
+            data["context_window_tokens"] = self.context_window_tokens
+        return data
+
+
+@dataclass(frozen=True)
 class CaptainDispatchRequest:
     objective: str
     crew: str
     task_kind: str
     cwd: str = ""
     model: str = ""
+    model_parameters: ModelParameters | None = None
     access_mode: str = "read_only"
     idempotency_key: str = ""
     context_id: str = ""
@@ -708,6 +781,8 @@ class CaptainDispatchRequest:
     def routing_metadata(self) -> dict[str, Any]:
         """Return bounded routing facts safe to persist with the durable Session."""
         data: dict[str, Any] = {}
+        if self.model_parameters is not None:
+            data["model_parameters"] = self.model_parameters.to_dict()
         if self.model_policy is not None:
             data["model_policy"] = self.model_policy.to_dict()
         if self.read_scope is not None:

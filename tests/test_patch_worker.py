@@ -190,6 +190,17 @@ class VerificationCommandSpecTests(unittest.TestCase):
 
 
 class PatchDurableIntegrationTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._runtime_home = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self._environment = patch.dict(
+            "os.environ", {"TP_VOYAGER_HOME": str(Path(self._runtime_home.name) / "home")}, clear=False
+        )
+        self._environment.start()
+
+    def tearDown(self) -> None:
+        self._environment.stop()
+        self._runtime_home.cleanup()
+
     class _PatchBackend:
         def __init__(self) -> None:
             self.starts = []
@@ -249,7 +260,7 @@ class PatchDurableIntegrationTests(unittest.TestCase):
                         objective="change VALUE to 2",
                         crew="qoder",
                         task_kind="small_patch",
-                        model="Lite",
+                        model="lite",
                         cwd=str(repo),
                         access_mode="patch",
                         timeout_seconds=30,
@@ -335,7 +346,7 @@ class PatchDurableIntegrationTests(unittest.TestCase):
                         objective="change VALUE to 2",
                         crew="qoder",
                         task_kind="small_patch",
-                        model="Lite",
+                        model="lite",
                         cwd=str(repo),
                         access_mode="patch",
                         timeout_seconds=30,
@@ -404,7 +415,7 @@ class PatchDurableIntegrationTests(unittest.TestCase):
                         objective="change VALUE to 2",
                         crew="qoder",
                         task_kind="small_patch",
-                        model="Lite",
+                        model="lite",
                         cwd=str(repo),
                         access_mode="patch",
                         timeout_seconds=30,

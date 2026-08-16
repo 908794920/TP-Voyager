@@ -17,6 +17,10 @@ from agent_runtime.domain.task import Task
 class V105ServerContractTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
+        self._environment = patch.dict(
+            "os.environ", {"TP_VOYAGER_HOME": str(Path(self.tmp.name) / "tp-voyager-home")}, clear=False
+        )
+        self._environment.start()
         self.db_path = Path(self.tmp.name) / "runtime.db"
         database = server.configure_runtime_database(self.db_path)
         assert database is not None
@@ -28,6 +32,7 @@ class V105ServerContractTests(unittest.TestCase):
         server.TASKS.clear()
         server.IDEMPOTENCY_TASKS.clear()
         server.configure_runtime_database(None)
+        self._environment.stop()
         self.tmp.cleanup()
 
     def _dispatch_qoder(self, *, run_id: str, step_key: str, max_dispatches: int) -> dict:

@@ -10,11 +10,18 @@ from pathlib import Path
 from typing import Sequence
 
 from agent_runtime.backends.errors import BackendUnavailableError
+from agent_runtime.configuration import VoyagerUserConfig, VoyagerUserConfigError
 
 
 def resolve_qoder_cli() -> str:
-    """Resolve qodercli without exposing the path through public APIs."""
-    configured = (os.environ.get("QODER_CLI_PATH") or "").strip()
+    """Resolve Qoder as user config -> legacy env override -> PATH."""
+    try:
+        crew = VoyagerUserConfig.load().crew.qoder
+    except VoyagerUserConfigError as exc:
+        raise BackendUnavailableError("TP-Voyager user config is invalid") from exc
+    if not crew.enabled:
+        raise BackendUnavailableError("Qoder Crew is disabled in TP-Voyager config")
+    configured = crew.cli_path or (os.environ.get("QODER_CLI_PATH") or "").strip()
     if configured:
         path = Path(configured).expanduser()
         if path.is_file():
@@ -56,6 +63,14 @@ def terminate_process_tree(process: subprocess.Popen[bytes], timeout: float = 5.
                 timeout=timeout,
                 check=False,
             )
+            # taskkill returns after requesting tree termination; wait for the
+            # root handle to release its cwd/files before the caller removes
+            # a disposable read-scope snapshot on Windows.
+            try:
+                process.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=timeout)
         else:
             os.killpg(process.pid, signal.SIGTERM)
             try:

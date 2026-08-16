@@ -31,6 +31,7 @@ _ENV_MANAGED_END = "# <<< TP-Voyager managed MCP env <<<"
 _TABLE_RE = re.compile(r"^\s*\[([^\[\]]+)\]\s*(?:#.*)?$")
 _KEY_RE = re.compile(r"^\s*([A-Za-z0-9_-]+)\s*=\s*(.*?)\s*$")
 _ROOT_KEYS = frozenset({"command", "args", "cwd", "enabled_tools", "env"})
+_LEGACY_ENV_KEYS = frozenset({"QODER_CLI_PATH", "CODEBUDDY_CODE_PATH"})
 
 
 class SyncError(ValueError):
@@ -331,7 +332,7 @@ def render_sync(existing: str, manifest: dict[str, Any], newline: str) -> tuple[
                 begin=_ENV_MANAGED_BEGIN,
                 end=_ENV_MANAGED_END,
                 desired=_desired_env(manifest),
-                managed_keys=set(manifest["env"]),
+                managed_keys=set(manifest["env"]) | set(_LEGACY_ENV_KEYS),
             )
             lines[env_start:env_end] = [header, *body]
 

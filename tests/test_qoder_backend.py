@@ -34,7 +34,7 @@ class Callbacks:
 
 
 class FakeAcpClient:
-    def __init__(self, *, cwd, on_activity) -> None:
+    def __init__(self, *, cwd, on_activity, **_kwargs) -> None:
         self.cwd = cwd
         self.on_activity = on_activity
         self.process = type("P", (), {"poll": lambda self: 0})()
@@ -84,6 +84,124 @@ class QoderBackendTests(unittest.TestCase):
         self.assertEqual(callbacks.accepted, ["qoder-session"])
         self.assertEqual(len(calls), 1)
 
+    def test_read_only_scope_runs_from_runtime_snapshot_not_source_repo(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "source"
+            (source / "src").mkdir(parents=True)
+            (source / "src" / "approved.py").write_text("VALUE = 1\n", encoding="utf-8")
+            (source / ".env").write_text("SECRET=1\n", encoding="utf-8")
+            observed: dict[str, Path] = {}
+
+            def factory(**kwargs):
+                cwd = Path(kwargs["cwd"])
+                observed["cwd"] = cwd
+                self.assertNotEqual(cwd.resolve(), source.resolve())
+                self.assertTrue((cwd / "src" / "approved.py").is_file())
+                self.assertFalse((cwd / ".env").exists())
+                return FakeAcpClient(cwd=kwargs["cwd"], on_activity=kwargs["on_activity"])
+
+            request = BackendStartRequest(
+                task_id="qoder-snapshot",
+                attempt_id="at-snapshot",
+                runtime_session_id="rs-snapshot",
+                prompt="read approved file",
+                cwd=str(source),
+                metadata={
+                    "route": "acp_read_only",
+                    "routing_metadata": {
+                        "read_scope": {"resolved_files": ["src/approved.py"]}
+                    },
+                },
+            )
+            result = QoderBackend(read_only_acp_client_factory=factory).start(request, Callbacks())
+            self.assertEqual(result.answer, "qoder answer")
+            snapshot = observed["cwd"]
+            self.assertFalse(snapshot.exists(), "runtime read-scope snapshot must be cleaned after execution")
+
+    def test_read_only_snapshot_is_cleaned_if_client_factory_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "source"
+            source.mkdir()
+            approved = source / "approved.py"
+            approved.write_text("VALUE = 1\n", encoding="utf-8")
+            snapshot_root = Path(tmp) / "snapshot"
+            snapshot_root.mkdir()
+
+            class SnapshotHandle:
+                cleaned = False
+
+                def cleanup(self) -> None:
+                    self.cleaned = True
+
+            handle = SnapshotHandle()
+
+            def failing_factory(**kwargs):
+                raise RuntimeError("factory failed")
+
+            request = BackendStartRequest(
+                task_id="qoder-snapshot-factory-failure",
+                attempt_id="at-snapshot-factory-failure",
+                runtime_session_id="rs-snapshot-factory-failure",
+                prompt="read approved file",
+                cwd=str(source),
+                metadata={
+                    "route": "acp_read_only",
+                    "routing_metadata": {
+                        "read_scope": {"resolved_files": ["approved.py"]}
+                    },
+                },
+            )
+            with patch(
+                "agent_runtime.backends.qoder.backend._materialize_read_scope_snapshot",
+                return_value=(handle, snapshot_root),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "factory failed"):
+                    QoderBackend(read_only_acp_client_factory=failing_factory).start(request, Callbacks())
+            self.assertTrue(handle.cleaned, "snapshot must be cleaned when client construction fails")
+
+    def test_read_only_snapshot_cleanup_lock_does_not_mask_a_completed_result(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "source"
+            source.mkdir()
+            (source / "approved.py").write_text("VALUE = 1\n", encoding="utf-8")
+            snapshot_root = Path(tmp) / "snapshot"
+            snapshot_root.mkdir()
+
+            class SnapshotHandle:
+                cleanup_calls = 0
+
+                def cleanup(self) -> None:
+                    self.cleanup_calls += 1
+                    if self.cleanup_calls == 1:
+                        raise PermissionError("snapshot still held by the Qoder child process")
+
+            handle = SnapshotHandle()
+
+            def factory(**kwargs):
+                return FakeAcpClient(cwd=kwargs["cwd"], on_activity=kwargs["on_activity"])
+
+            request = BackendStartRequest(
+                task_id="qoder-snapshot-cleanup-lock",
+                attempt_id="at-snapshot-cleanup-lock",
+                runtime_session_id="rs-snapshot-cleanup-lock",
+                prompt="read approved file",
+                cwd=str(source),
+                metadata={
+                    "route": "acp_read_only",
+                    "routing_metadata": {
+                        "read_scope": {"resolved_files": ["approved.py"]}
+                    },
+                },
+            )
+            with patch(
+                "agent_runtime.backends.qoder.backend._materialize_read_scope_snapshot",
+                return_value=(handle, snapshot_root),
+            ), patch("agent_runtime.backends.qoder.backend.time.sleep"):
+                result = QoderBackend(read_only_acp_client_factory=factory).start(request, Callbacks())
+
+            self.assertEqual(result.answer, "qoder answer")
+            self.assertEqual(handle.cleanup_calls, 2)
+
     def test_patch_route_passes_captain_policy_to_patch_factory(self) -> None:
         calls = []
 
@@ -120,6 +238,11 @@ class QoderBackendTests(unittest.TestCase):
 class QoderServerIntegrationTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.runtime_home = Path(self.tmp.name) / "tp-voyager-home"
+        self._environment = patch.dict(
+            "os.environ", {"TP_VOYAGER_HOME": str(self.runtime_home)}, clear=False
+        )
+        self._environment.start()
         self.cwd = Path(self.tmp.name) / "project"
         self.cwd.mkdir()
         server.configure_runtime_database(Path(self.tmp.name) / "runtime.db")
@@ -130,6 +253,7 @@ class QoderServerIntegrationTests(unittest.TestCase):
         server.TASKS.clear()
         server.IDEMPOTENCY_TASKS.clear()
         server.configure_runtime_database(None)
+        self._environment.stop()
         self.tmp.cleanup()
 
     def wait(self, task_id: str) -> dict:
@@ -156,7 +280,7 @@ class QoderServerIntegrationTests(unittest.TestCase):
                 objective="inspect the module without changing files",
                 crew="qoder",
                 task_kind="research",
-                model="Lite",
+                model="lite",
                 cwd=str(self.cwd),
                 timeout_seconds=10,
             )
@@ -165,6 +289,32 @@ class QoderServerIntegrationTests(unittest.TestCase):
 
         self.assertEqual(fake.starts[0].metadata["route"], "acp_read_only")
         self.assertEqual(server.task_result(started["task_id"])["answer"], "captain read-only")
+
+    def test_task_result_marks_omitted_provider_usage_without_estimate(self) -> None:
+        fake = FakeBackend(
+            result=BackendResult(
+                backend="qoder",
+                stop_reason="end_turn",
+                answer="captain read-only",
+                result={"backend": "qoder", "stopReason": "end_turn"},
+                backend_session_id="qoder-usage-omitted",
+            )
+        )
+        with patch("agent_runtime.server._create_qoder_backend", return_value=fake):
+            started = server.task_dispatch(
+                objective="inspect without usage estimate",
+                crew="qoder",
+                task_kind="research",
+                model="qmodel_38max",
+                cwd=str(self.cwd),
+                timeout_seconds=10,
+            )
+            self.assertTrue(started["ok"], started)
+            self.assertEqual(self.wait(started["task_id"])["state"], "completed")
+
+        result = server.task_result(started["task_id"])
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["usage"], {"status": "provider_omitted"})
 
 
     def test_captain_read_only_does_not_capture_preexisting_dirty_workspace_diff(self) -> None:
@@ -188,7 +338,7 @@ class QoderServerIntegrationTests(unittest.TestCase):
         )
         with patch("agent_runtime.server._create_qoder_backend", return_value=fake):
             started = server.task_dispatch(
-                objective="read README only", crew="qoder", task_kind="research", model="Lite",
+                objective="read README only", crew="qoder", task_kind="research", model="lite",
                 cwd=str(self.cwd), timeout_seconds=10,
                 read_scope={"files": ["README.md"]},
             )
@@ -233,7 +383,7 @@ class QoderServerIntegrationTests(unittest.TestCase):
         ):
             started = server.task_dispatch(
                 objective="Study the repository and summarize architecture",
-                crew="qoder", task_kind="repository_research", model="Lite",
+                crew="qoder", task_kind="repository_research", model="lite",
                 read_scope={"files": ["README.md"], "max_files": 10, "max_bytes": 1024},
                 repository_research={
                     "url": "https://github.com/example/project",
@@ -248,7 +398,7 @@ class QoderServerIntegrationTests(unittest.TestCase):
             self.assertEqual(self.wait(started["task_id"])["state"], "completed")
             replay = server.task_dispatch(
                 objective="Study the repository and summarize architecture",
-                crew="qoder", task_kind="repository_research", model="Lite",
+                crew="qoder", task_kind="repository_research", model="lite",
                 read_scope={"files": ["README.md"], "max_files": 10, "max_bytes": 1024},
                 repository_research={
                     "url": "https://github.com/example/project",
@@ -264,7 +414,7 @@ class QoderServerIntegrationTests(unittest.TestCase):
             self.assertEqual(replay["task_id"], started["task_id"])
             conflict = server.task_dispatch(
                 objective="Different research objective",
-                crew="qoder", task_kind="repository_research", model="Lite",
+                crew="qoder", task_kind="repository_research", model="lite",
                 read_scope={"files": ["README.md"], "max_files": 10, "max_bytes": 1024},
                 repository_research={
                     "url": "https://github.com/example/project",
@@ -324,7 +474,7 @@ class QoderServerIntegrationTests(unittest.TestCase):
             "agent_runtime.server._create_qoder_backend", return_value=fake
         ):
             first = server.task_dispatch(
-                objective="Study segment zero", crew="qoder", task_kind="repository_research", model="Lite",
+                objective="Study segment zero", crew="qoder", task_kind="repository_research", model="lite",
                 read_scope={"globs": ["*.txt"], "max_files": 128, "max_bytes": 4096},
                 repository_research={
                     "url": "https://github.com/example/segmented",
@@ -340,7 +490,7 @@ class QoderServerIntegrationTests(unittest.TestCase):
             snapshot = first["repository_snapshot_ref"]
 
             second = server.task_dispatch(
-                objective="Study segment one", crew="qoder", task_kind="repository_research", model="Lite",
+                objective="Study segment one", crew="qoder", task_kind="repository_research", model="lite",
                 read_scope={"globs": ["*.txt"], "max_files": 128, "max_bytes": 4096},
                 repository_research={
                     "url": "https://github.com/example/segmented",

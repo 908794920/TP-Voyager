@@ -18,6 +18,7 @@ class TaskState:
     runtime: str = ""
     model: str = ""
     reasoning_effort: str = ""
+    context_window_tokens: int | None = None
     resume_session_id: str = ""
     resumed: bool = False
     state: str = "queued"

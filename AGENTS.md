@@ -12,9 +12,9 @@
 
 ## 当前基线
 
-**TP-Voyager v1.0.6 — Routable Model Catalog & Repository Cleanup**
+**TP-Voyager v1.0.7 — Unified User Configuration & TP-Voyager Home**
 
-v1.0.6 在 v1.0.5 stable 基线上补齐 data-driven Routable Model Catalog，并收敛对外文档。Runtime 继续保持六工具 Captain Surface、显式 Crew/model/effort、Durable Core、Patch/Receipt/Verification 与 RunControl 边界不变。
+v1.0.7 在 v1.0.6 stable 基线上统一用户机器配置：默认 Home 改为 `~/.tp-voyager`，新增严格 `config.json`，Crew CLI 路径、模型授权、trusted roots、worker resources 与并发上限归一到同一配置事实源。Runtime 继续保持六工具 Captain Surface、显式 Crew/model/effort、Durable Core、Patch/Receipt/Verification 与 RunControl 边界不变。
 
 ```text
 Passenger → Captain AI → TP-Voyager → Crew
@@ -39,7 +39,7 @@ Qoder CLI
 
 任何新集成能力必须以它们的官方公开 CLI / SDK / ACP Contract 为依据。
 
-WorkBuddy 已从当前生产执行路径移除。不得重新引入 WorkBuddy transport、Gateway/ACP 执行、公共工具、当前测试或新抽象。历史 `workbuddy.* /v1` schema 字符串和旧 Runtime Home 路径只能在读取/迁移历史数据所必需的位置保留。
+WorkBuddy 已从当前生产执行路径移除。不得重新引入 WorkBuddy transport、Gateway/ACP 执行、公共工具、当前测试或新抽象。历史 `workbuddy.* /v1` schema 字符串只在持久化兼容确有必要时保留；`.agent-runtime` / `AGENT_RUNTIME_*` / WorkBuddy Home 不再属于当前 Runtime 路径选择或迁移流程。
 
 “厂商支持某能力”不等于“TP-Voyager 已允许 Captain 调度该能力”。只有经过 Voyager 受控边界并验收的能力才可标记为 dispatch-ready。
 
@@ -50,6 +50,7 @@ WorkBuddy 已从当前生产执行路径移除。不得重新引入 WorkBuddy tr
 ```text
 agent_runtime/
 ├── api/
+├── configuration/
 ├── application/
 ├── domain/
 ├── backends/
@@ -59,6 +60,8 @@ agent_runtime/
 ├── testing/
 └── server.py
 ```
+
+`configuration/` 是 v1.0.7 经明确审查新增的唯一用户机器配置边界，只负责 `~/.tp-voyager/config.json` 的解析/初始化；不得演化成通用 `common/platform` 层。
 
 目标 Backend 槽位：
 
@@ -113,18 +116,22 @@ SQLite 内部结构
 
 ### 模型目录事实所有权
 
-v1.0.6 的模型目录必须保持数据驱动：
+模型目录必须继续保持数据驱动：
 
 ```text
 Provider live catalog           → availability/context/effort/reference multiplier
-dispatch_model_policy.json      → 能不能用（硬约束）
-model_routing_profiles.json     → 适合干什么（operator advisory metadata）
+config.json / dispatch          → 能不能用（硬约束）
+model_routing_profiles.json     → canonical identity / persisted Scorecard / work & risk advisory
+Model Evaluation Standard v1    → Evidence comparability / Tier authority
 Runtime Evidence                → 实际历史/Usage
 Captain                         → 最终选择
 ```
 
 - 能力档位、推荐任务、风险边界不得硬编码进 Python；
-- `model_routing_profiles.json` 只提供建议，不能绕过 `dispatch_model_policy.json`；
+- fixed model 的正式 Tier 只能来自 persisted `Scorecard.tier` + calibrated `model_tier_rules/v1`；旧静态 Tier 仅保留为 `legacy_capability_tier`；
+- Qoder Ultimate / Performance / Efficient / Lite 必须保持 `DYNAMIC`，不得附 fixed-model Scorecard；`qoder:auto` 在 TP-Voyager 本地策略中已退休；
+- Provider claim、preference/Elo、legacy evidence 或不兼容 benchmark version 不得单独提升正式 Tier；
+- `model_routing_profiles.json` 只提供建议，不能绕过 `config.json.dispatch`；
 - `reference_multiplier` 永远是 reference-only，公共投影固定 `calculation_allowed=false`；
 - `crew_catalog` 可合并并投影事实，但必须保持 `selection_performed=false`、`dispatch_performed=false`；
 - Provider / policy / profile / history 互相不能篡改对方拥有的事实。

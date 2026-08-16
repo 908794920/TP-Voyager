@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from agent_runtime.backends.base import BackendActivity
-from agent_runtime.domain.dispatch import CommandSpec
+from agent_runtime.domain.dispatch import CommandSpec, relative_path_matches_any
 from agent_runtime.backends.errors import (
     BackendCancelledError,
     BackendProtocolError,
@@ -44,6 +44,7 @@ class AcpRunResult:
     answer: str
     observability: dict[str, Any]
     reasoning_effort_applied: bool | None = None
+    context_window_tokens_applied: bool | None = None
     model_applied: bool | None = None
     usage: dict[str, Any] | None = None
 
@@ -88,6 +89,7 @@ class QoderAcpClient:
         read_only: bool = False,
         allow_file_writes: bool | None = None,
         allow_terminal: bool | None = None,
+        context_window_tokens: int | None = None,
         allowed_paths: tuple[str, ...] = (),
         forbidden_paths: tuple[str, ...] = (),
         command_specs: tuple[CommandSpec, ...] = (),
@@ -98,11 +100,14 @@ class QoderAcpClient:
         self.allow_file_writes = (not self.read_only) if allow_file_writes is None else bool(allow_file_writes)
         self.allow_terminal = (not self.read_only) if allow_terminal is None else bool(allow_terminal)
         self.allow_permissions = bool(allow_permissions) and (self.allow_terminal or self.allow_file_writes)
+        self.context_window_tokens = context_window_tokens
         self.allowed_paths = tuple(str(item).replace("\\", "/").strip("/") for item in allowed_paths if str(item).strip())
         self.forbidden_paths = tuple(str(item).replace("\\", "/").strip("/") for item in forbidden_paths if str(item).strip())
         self.command_specs = tuple(command_specs)
         cli = cli_path or resolve_qoder_cli()
         command = [cli, "--acp"]
+        if self.context_window_tokens is not None:
+            command.extend(["--context-window", str(self.context_window_tokens)])
         self.process = popen_command(command, cwd=str(self.cwd))
         self._write_lock = threading.Lock()
         self._responses: dict[int, queue.Queue[dict[str, Any]]] = {}
@@ -117,6 +122,7 @@ class QoderAcpClient:
         self._usage: dict[str, Any] = {}
         self._usage_events: list[dict[str, Any]] = []
         self._file_access_events: list[dict[str, Any]] = []
+        self._agent_request_errors: list[dict[str, str]] = []
         self._read_scope_evidence_captured = False
         self._terminals: dict[str, _Terminal] = {}
         self._reader_error: BaseException | None = None
@@ -134,6 +140,7 @@ class QoderAcpClient:
         resume_session_id: str = "",
         model: str = "",
         reasoning_effort: str = "",
+        context_window_tokens: int | None = None,
         idle_timeout_seconds: float,
         max_task_duration_seconds: float,
         on_dispatch_accepted: Callable[[str], None],
@@ -189,12 +196,21 @@ class QoderAcpClient:
             category="model",
             requested_value=model,
         )
+        if context_window_tokens != self.context_window_tokens:
+            raise BackendProtocolError("Qoder ACP context window launch setting mismatch")
+        # Qoder exposes context window as a CLI session-start option
+        # (``qodercli --context-window <tokens>``), not as an ACP config
+        # option.  The value is therefore fixed before the ACP transport
+        # begins and is only reported applied after the session was created.
+        context_window_applied = (True if context_window_tokens is not None else None)
         reasoning_applied, config_options = self._apply_config_option(
             session_id=session_id,
             config_options=config_options,
             category="thought_level",
             requested_value=reasoning_effort,
         )
+        if reasoning_effort and reasoning_applied is not True:
+            raise BackendProtocolError("Qoder ACP did not accept the requested thinking effort")
 
         # Hard dispatch gate: durable session id must be committed before the
         # real prompt request is written to the CLI.
@@ -220,11 +236,13 @@ class QoderAcpClient:
                 "stderr_bytes": self._stderr_bytes,
                 "duration_seconds": round(time.monotonic() - started, 3),
                 "reasoning_effort_applied": reasoning_applied,
+                "context_window_tokens_applied": context_window_applied,
                 "model_applied": model_applied,
                 "usage_provenance": self.usage_provenance(),
                 "file_access_events": self.file_access_snapshot(),
             },
             reasoning_effort_applied=reasoning_applied,
+            context_window_tokens_applied=context_window_applied,
             model_applied=model_applied,
             usage=dict(self._usage),
         )
@@ -255,6 +273,10 @@ class QoderAcpClient:
 
     def file_access_snapshot(self) -> list[dict[str, Any]]:
         return [dict(item) for item in self._file_access_events[-256:]]
+
+    def agent_request_diagnostics(self) -> list[dict[str, str]]:
+        """Return bounded callback failure categories without paths or content."""
+        return [dict(item) for item in self._agent_request_errors[-32:]]
 
     def capture_read_scope_evidence(self) -> None:
         """Record the bounded files exposed to a read-only ACP session.
@@ -328,6 +350,7 @@ class QoderAcpClient:
         config_options: list[Any],
         category: str,
         requested_value: str,
+        require_declared: bool = False,
     ) -> tuple[bool | None, list[Any]]:
         requested = requested_value.strip()
         if not requested:
@@ -338,7 +361,11 @@ class QoderAcpClient:
         config_id = str(option.get("id") or "")
         if not config_id:
             return False, config_options
-        value = self._resolve_config_value(option, requested)
+        value = self._resolve_declared_config_value(option, requested)
+        if value is None:
+            if require_declared:
+                return False, config_options
+            value = requested
         try:
             response = self._request(
                 "session/set_config_option",
@@ -362,6 +389,7 @@ class QoderAcpClient:
         aliases = {
             "model": ("model", "models"),
             "thought_level": ("thought", "reason", "effort", "thinking"),
+            "context_window": ("context", "window"),
         }[category]
         candidates = [item for item in config_options if isinstance(item, dict)]
         for item in candidates:
@@ -377,6 +405,10 @@ class QoderAcpClient:
 
     @staticmethod
     def _resolve_config_value(option: dict[str, Any], requested: str) -> str:
+        return QoderAcpClient._resolve_declared_config_value(option, requested) or requested
+
+    @staticmethod
+    def _resolve_declared_config_value(option: dict[str, Any], requested: str) -> str | None:
         requested_folded = requested.casefold()
         raw_options = option.get("options")
         flattened: list[dict[str, Any]] = []
@@ -394,7 +426,7 @@ class QoderAcpClient:
             name = str(item.get("name") or "")
             if requested_folded in {value.casefold(), name.casefold()}:
                 return value or requested
-        return requested
+        return None
 
     # --------------------------------------------------------------- JSON-RPC
 
@@ -484,6 +516,12 @@ class QoderAcpClient:
         error = response.get("error")
         if isinstance(error, dict):
             message = str(error.get("message") or "ACP request failed")
+            diagnostics = self.agent_request_diagnostics()
+            if diagnostics:
+                last = diagnostics[-1]
+                message = (
+                    f"{message}; agent_callback={last['method']}:{last['error']}"
+                )
             raise BackendProtocolError(message)
         result = response.get("result")
         if result is None:
@@ -596,6 +634,12 @@ class QoderAcpClient:
             result = self._dispatch_client_method(method, params)
             response = {"jsonrpc": "2.0", "id": request_id, "result": result}
         except Exception as exc:
+            self._agent_request_errors.append({
+                "method": method[:120] or "<missing>",
+                "error": type(exc).__name__[:80],
+            })
+            if len(self._agent_request_errors) > 64:
+                del self._agent_request_errors[:-64]
             response = {
                 "jsonrpc": "2.0",
                 "id": request_id,
@@ -670,12 +714,7 @@ class QoderAcpClient:
 
     @staticmethod
     def _matches(path: str, prefixes: tuple[str, ...]) -> bool:
-        normalized = path.replace("\\", "/").lstrip("./")
-        for prefix in prefixes:
-            root = prefix.replace("\\", "/").strip().lstrip("./").rstrip("/")
-            if not root or normalized == root or normalized.startswith(root + "/"):
-                return True
-        return False
+        return relative_path_matches_any(path, prefixes)
 
     def _safe_path(self, raw: str, *, write: bool = False) -> Path:
         path = Path(raw)

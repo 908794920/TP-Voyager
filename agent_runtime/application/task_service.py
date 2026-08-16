@@ -130,6 +130,7 @@ SAFE_METADATA_KEYS = (
     "model",
     "identity",
     "reasoning_effort",
+    "context_window_tokens",
     "resume_session_id",
     "review_target",
     "resume_review",
@@ -1042,45 +1043,93 @@ class TaskService:
             raise ValueError("Artifact attempt_id does not match durable task")
         return replace(artifact, task_id=task_id, attempt_id=attempt_id)
 
-    def append_activity(self, task_id: str, kind: str, now: float | None = None) -> None:
-        """Append a content-free ``activity_observed`` audit event."""
-        now = now if now is not None else now_epoch()
-        with self.db.transaction() as connection:
+    def append_activity(
+        self, task_id: str, kind: str, now: float | None = None, *, lease: LeaseInfo | None = None
+    ) -> None:
+        """Append a content-free ``activity_observed`` audit event.
+
+        Worker-owned activity is lease fenced; pre-acquire activity may pass
+        ``lease=None``.  This keeps stale workers from polluting the durable
+        audit trail after ownership has moved.
+        """
+        with self.db.immediate_fenced_transaction() as (connection, db_now):
+            if lease is not None and not self._lease_still_valid(connection, task_id, lease, db_now):
+                raise LeaseLostError(
+                    f"task {task_id} lease lost (owner/generation/expiry mismatch)"
+                )
             self.events.append(
                 connection,
                 TaskEvent(
                     event_id=new_event_id(),
                     task_id=task_id,
                     event_type=EventType.ACTIVITY_OBSERVED.value,
-                    event_time=now,
+                    event_time=now if now is not None else db_now,
                     payload_json=json.dumps({"kind": kind}, ensure_ascii=False),
                 ),
             )
 
-    def set_backend_session(
+    def accept_backend_dispatch(
         self,
         task_id: str,
         *,
         backend_session_id: str,
-        now: float | None = None,
+        version: int,
+        lease: LeaseInfo,
     ) -> None:
-        """Record the private backend session id (never projected publicly).
+        """Hard gate before any real Provider prompt may be sent.
 
-        Single-transaction idempotency: the read and the conditional
-        UPDATE run on one connection inside one transaction, so concurrent
-        first writers cannot both emit a ``session_created`` event.
-        Outcomes: first write appends the event; identical value is a
-        no-op; a different non-empty value keeps the first writer
-        (first-write-wins, never a duplicate event).
+        The lease owner/generation/DB-time expiry, task version, terminal
+        state, backend-session claim, and BACKEND_DISPATCH_ACCEPTED audit
+        event are checked/written in one ``BEGIN IMMEDIATE`` transaction.
+        A stale worker therefore cannot regain the right to dispatch after a
+        newer owner has acquired the task.  Replaying the same accepted
+        session is idempotent; a different session fails closed.
         """
-        now = now if now is not None else now_epoch()
-        with self.db.transaction() as connection:
+        backend_session_id = str(backend_session_id or "").strip()
+        if not backend_session_id:
+            raise ValueError("backend_session_id is required")
+        with self.db.immediate_fenced_transaction() as (connection, db_now):
+            durable = self.tasks.get_by_id_in_connection(connection, task_id)
+            if durable is None:
+                raise TaskNotFoundError("Task not found")
+            if not self._lease_still_valid(connection, task_id, lease, db_now):
+                raise LeaseLostError(
+                    f"task {task_id} lease lost (owner/generation/expiry mismatch)"
+                )
+            if durable.status in TERMINAL_STATUS_VALUES:
+                raise TaskAlreadyTerminalError(
+                    f"task {task_id} is already terminal; dispatch refused"
+                )
+            if durable.version != version:
+                raise TaskVersionConflictError(
+                    f"task {task_id} changed concurrently (version {version})"
+                )
+
+            existing = connection.execute(
+                "SELECT session_id, backend_session_id FROM sessions "
+                "WHERE task_id = ? ORDER BY created_at LIMIT 1",
+                (task_id,),
+            ).fetchone()
+            if existing is None:
+                raise RuntimePersistenceError(
+                    f"no runtime session row for task {task_id}"
+                )
+            current_backend_id = str(existing["backend_session_id"] or "")
+            if current_backend_id and current_backend_id != backend_session_id:
+                raise RuntimePersistenceError(
+                    f"task {task_id} backend session already claimed by another dispatch"
+                )
+
             outcome, session_id = self.sessions.claim_backend_session_id(
                 connection,
                 task_id,
                 backend_session_id=backend_session_id,
-                updated_at=now,
+                updated_at=db_now,
             )
+            if outcome == "kept":
+                raise RuntimePersistenceError(
+                    f"task {task_id} backend session claim lost concurrently"
+                )
             if outcome == "created":
                 self.events.append(
                     connection,
@@ -1089,9 +1138,42 @@ class TaskService:
                         task_id=task_id,
                         session_id=session_id,
                         event_type=EventType.SESSION_CREATED.value,
-                        event_time=now,
+                        event_time=db_now,
                     ),
                 )
+
+            accepted = connection.execute(
+                "SELECT payload_json FROM events "
+                "WHERE task_id = ? AND event_type = ? ORDER BY seq LIMIT 1",
+                (task_id, EventType.BACKEND_DISPATCH_ACCEPTED.value),
+            ).fetchone()
+            if accepted is not None:
+                try:
+                    payload = json.loads(str(accepted["payload_json"] or "{}"))
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    payload = {}
+                if str(payload.get("backend_session_id") or "") != backend_session_id:
+                    raise RuntimePersistenceError(
+                        f"task {task_id} dispatch acceptance conflicts with durable session"
+                    )
+                return
+
+            self.events.append(
+                connection,
+                TaskEvent(
+                    event_id=new_event_id(),
+                    task_id=task_id,
+                    session_id=session_id,
+                    event_type=EventType.BACKEND_DISPATCH_ACCEPTED.value,
+                    event_time=db_now,
+                    payload_json=json.dumps(
+                        {"backend_session_id": backend_session_id},
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    ),
+                    visibility=EventVisibility.INTERNAL.value,
+                ),
+            )
 
     def mark_reconciled_cancelled(
         self,

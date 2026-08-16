@@ -33,6 +33,7 @@ class TaskLaunchServiceTests(unittest.TestCase):
                 route="acp_read_only",
                 model="qoder-model",
                 reasoning_effort="high",
+                context_window_tokens=200000,
                 agent_profile="review",
             )
         )
@@ -42,6 +43,7 @@ class TaskLaunchServiceTests(unittest.TestCase):
         self.assertEqual(kwargs["route"], "acp_read_only")
         self.assertEqual(kwargs["model"], "qoder-model")
         self.assertEqual(kwargs["reasoning_effort"], "high")
+        self.assertEqual(kwargs["context_window_tokens"], 200000)
         self.assertEqual(kwargs["agent_profile"], "review")
 
         self.calls.clear()

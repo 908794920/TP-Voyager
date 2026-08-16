@@ -53,6 +53,7 @@ class BackendStartRequest:
     cwd: str
     model: str = ""
     reasoning_effort: str = ""
+    context_window_tokens: int | None = None
     identity: str = ""
     idle_timeout_seconds: float = 180.0
     max_task_duration_seconds: float = 1800.0
@@ -70,6 +71,7 @@ class BackendResumeRequest:
     cwd: str
     model: str = ""
     reasoning_effort: str = ""
+    context_window_tokens: int | None = None
     identity: str = ""
     resume_session_id: str = ""
     review_target: str = ""

@@ -36,14 +36,7 @@ class CodexDesktopInstallTests(unittest.TestCase):
         self.assertEqual(mcp["name"], "tp_voyager")
         self.assertEqual(mcp["command"], ["python", "-m", "agent_runtime.server"])
         self.assertEqual(mcp["cwd"], {"binding": "repository_root", "required": True})
-        self.assertEqual(
-            mcp["env"]["QODER_CLI_PATH"],
-            {"literal": r"~\.agent-runtime\bin\qodercli-qoder-client.cmd"},
-        )
-        self.assertEqual(
-            mcp["env"]["CODEBUDDY_CODE_PATH"],
-            {"binding": "CODEBUDDY_CODE_PATH", "required": True},
-        )
+        self.assertEqual(mcp["env"], {})
         for path in SKILL.rglob("*"):
             if not path.is_file() or path.name.endswith((".pyc", ".pyo")):
                 continue
@@ -73,12 +66,9 @@ class CodexDesktopInstallTests(unittest.TestCase):
         target.mkdir(parents=True)
         extra = target / "my-user-notes.md"
         extra.write_text("keep me", encoding="utf-8")
-        codebuddy = str(self.tempdir() / "codebuddy-command")
-
         first = installer.install(
             SKILL,
             codex_home,
-            bindings={"CODEBUDDY_CODE_PATH": codebuddy},
         )
         self.assertTrue(first["ok"])
         self.assertEqual(first["action"], "changed")
@@ -89,12 +79,10 @@ class CodexDesktopInstallTests(unittest.TestCase):
         self.assertEqual(extra.read_text(encoding="utf-8"), "keep me")
         binding_payload = json.loads((target / "tp-voyager.bindings.json").read_text(encoding="utf-8"))
         self.assertEqual(binding_payload["values"]["repository_root"], str(ROOT.resolve()))
-        self.assertEqual(binding_payload["values"]["CODEBUDDY_CODE_PATH"], codebuddy)
 
         second = installer.install(
             SKILL,
             codex_home,
-            bindings={"CODEBUDDY_CODE_PATH": codebuddy},
         )
         self.assertTrue(second["ok"])
         self.assertEqual(second["action"], "no-op")
@@ -113,8 +101,7 @@ class CodexDesktopInstallTests(unittest.TestCase):
             '[plugins.example]\nenabled = true\n'
         )
         config.write_text(unrelated, encoding="utf-8")
-        codebuddy = str(self.tempdir() / "codebuddy-command")
-        installer.install(SKILL, codex_home, bindings={"CODEBUDDY_CODE_PATH": codebuddy})
+        installer.install(SKILL, codex_home)
         target = codex_home / "skills" / "tp-voyager-captain"
         installed = _module(target / "install_codex_desktop.py", "tp_voyager_installed_check")
 
@@ -149,8 +136,7 @@ class CodexDesktopInstallTests(unittest.TestCase):
     def test_installed_skill_check_without_repository_root_fails_closed(self) -> None:
         installer = _module(INSTALLER, "tp_voyager_install")
         codex_home = self.tempdir() / "codex-home"
-        codebuddy = str(self.tempdir() / "codebuddy-command")
-        installer.install(SKILL, codex_home, bindings={"CODEBUDDY_CODE_PATH": codebuddy})
+        installer.install(SKILL, codex_home)
         target = codex_home / "skills" / "tp-voyager-captain"
         binding_path = target / "tp-voyager.bindings.json"
         payload = json.loads(binding_path.read_text(encoding="utf-8"))
@@ -178,8 +164,7 @@ class CodexDesktopInstallTests(unittest.TestCase):
             with self.subTest(mode=mode):
                 installer = _module(INSTALLER, f"tp_voyager_install_{mode}")
                 codex_home = self.tempdir() / f"codex-home-{mode}"
-                codebuddy = str(self.tempdir() / f"codebuddy-command-{mode}")
-                installer.install(SKILL, codex_home, bindings={"CODEBUDDY_CODE_PATH": codebuddy})
+                installer.install(SKILL, codex_home)
                 target = codex_home / "skills" / "tp-voyager-captain"
                 binding_path = target / "tp-voyager.bindings.json"
                 if mode == "missing":
@@ -205,8 +190,7 @@ class CodexDesktopInstallTests(unittest.TestCase):
     def test_check_detects_skill_or_config_drift_without_writing(self) -> None:
         installer = _module(INSTALLER, "tp_voyager_install")
         codex_home = self.tempdir() / "codex-home"
-        codebuddy = str(self.tempdir() / "codebuddy-command")
-        installer.install(SKILL, codex_home, bindings={"CODEBUDDY_CODE_PATH": codebuddy})
+        installer.install(SKILL, codex_home)
         target = codex_home / "skills" / "tp-voyager-captain"
 
         ok = installer.install(SKILL, codex_home, check_only=True)
@@ -237,12 +221,12 @@ class CodexDesktopInstallTests(unittest.TestCase):
         self.assertTrue(config_failed["mcp_drift"])
         self.assertEqual(config_before, config.read_bytes())
 
-    def test_missing_required_binding_fails_before_deploy(self) -> None:
+    def test_repository_install_requires_no_machine_cli_binding(self) -> None:
         installer = _module(INSTALLER, "tp_voyager_install")
         codex_home = self.tempdir() / "codex-home"
-        with self.assertRaises(installer.InstallError):
-            installer.install(SKILL, codex_home, bindings={})
-        self.assertFalse((codex_home / "skills" / "tp-voyager-captain").exists())
+        result = installer.install(SKILL, codex_home, bindings={})
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["binding_keys"], ["repository_root"])
 
     def test_manifest_missing_required_field_fails_closed(self) -> None:
         installer = _module(INSTALLER, "tp_voyager_install")
@@ -256,22 +240,15 @@ class CodexDesktopInstallTests(unittest.TestCase):
             installer.install(
                 source,
                 codex_home,
-                bindings={"CODEBUDDY_CODE_PATH": "command"},
+                bindings={"repository_root": str(ROOT.resolve())},
             )
         self.assertFalse((codex_home / "skills" / "tp-voyager-captain").exists())
 
-    def test_audit_output_does_not_leak_binding_values(self) -> None:
+    def test_audit_output_exposes_only_repository_root_binding_key(self) -> None:
         installer = _module(INSTALLER, "tp_voyager_install")
         codex_home = self.tempdir() / "codex-home"
-        secretish_path = str(self.tempdir() / "private-command-location")
-        result = installer.install(
-            SKILL,
-            codex_home,
-            bindings={"CODEBUDDY_CODE_PATH": secretish_path},
-        )
-        serialized = json.dumps(result, ensure_ascii=False)
-        self.assertNotIn(secretish_path, serialized)
-        self.assertEqual(result["binding_keys"], ["CODEBUDDY_CODE_PATH", "repository_root"])
+        result = installer.install(SKILL, codex_home)
+        self.assertEqual(result["binding_keys"], ["repository_root"])
         self.assertFalse(result["provider_invocation_performed"])
         self.assertFalse(result["task_dispatch_performed"])
 

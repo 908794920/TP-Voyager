@@ -1,0 +1,74 @@
+{
+  "schema": "tp-voyager.model_tier_rules/v1",
+  "status": "calibrated",
+  "calibrated_at": "2026-08-15",
+  "calibration_record": "docs/records/TP_VOYAGER_MODEL_TIER_CALIBRATION_2026-08.md",
+  "dimensions": [
+    "repository_engineering",
+    "terminal_agentic",
+    "codebase_understanding",
+    "general_coding",
+    "multimodal_coding"
+  ],
+  "benchmark_dimensions": {
+    "deep-swe": "repository_engineering",
+    "terminal-bench": "terminal_agentic",
+    "swe-atlas-qna": "codebase_understanding",
+    "livebench-coding": "general_coding",
+    "arena-coding": "general_coding",
+    "arena-webdev": "multimodal_coding"
+  },
+  "tiers": {
+    "L3": {
+      "minimum_primary_dimensions": 2,
+      "minimum_primary_families": 2,
+      "requires_agentic_or_repository": true,
+      "benchmark_minimums": {
+        "deep-swe": 55.0,
+        "terminal-bench": 60.0,
+        "swe-atlas-qna": 30.0
+      }
+    },
+    "L2": {
+      "minimum_primary_dimensions": 2,
+      "minimum_primary_families": 2,
+      "requires_agentic_or_repository": true,
+      "benchmark_minimums": {
+        "deep-swe": 35.0,
+        "terminal-bench": 40.0,
+        "swe-atlas-qna": 20.0
+      }
+    },
+    "L1": {
+      "minimum_primary_dimensions": 1,
+      "minimum_primary_families": 1,
+      "requires_agentic_or_repository": false,
+      "benchmark_minimums": {
+        "deep-swe": 20.0,
+        "terminal-bench": 20.0,
+        "swe-atlas-qna": 10.0
+      }
+    },
+    "L0": {
+      "minimum_primary_dimensions": 1,
+      "minimum_primary_families": 1,
+      "requires_agentic_or_repository": false,
+      "benchmark_minimums": {
+        "deep-swe": 0.0,
+        "terminal-bench": 0.0,
+        "swe-atlas-qna": 0.0
+      }
+    }
+  },
+  "accepted_versions": {
+    "deep-swe": [
+      "AA-CAI-v1.3"
+    ],
+    "terminal-bench": [
+      "AA-CAI-v1.3"
+    ],
+    "swe-atlas-qna": [
+      "AA-CAI-v1.3"
+    ]
+  }
+}

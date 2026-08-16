@@ -3,7 +3,7 @@
 This module never scores or selects models.  It validates an operator-maintained
 routing profile file, verifies optional trusted local evidence by path/hash, and
 provides a deliberate bootstrap from the reviewed baseline shipped with
-TP-Voyager.  Dispatch authorization remains owned by ``dispatch_model_policy``.
+TP-Voyager.  Dispatch authorization remains owned by ``config.json.dispatch``.
 """
 
 from __future__ import annotations
@@ -16,17 +16,33 @@ from pathlib import Path, PurePosixPath
 import re
 from typing import Any, Mapping
 
+from agent_runtime.configuration import VoyagerUserConfig, VoyagerUserConfigError
+from .model_evaluation import (
+    ModelEvaluationError, ModelEvaluationSourceRegistry, validate_evidence_collection,
+)
+from .model_scorecard import (
+    ModelScorecardError, build_scorecard, load_tier_rules, validate_scorecard, validate_scorecard_binding,
+)
 
-_SCHEMA = "tp-voyager.model_routing_profiles/v1"
+
+_SCHEMA_V1 = "tp-voyager.model_routing_profiles/v1"
+_SCHEMA_V2 = "tp-voyager.model_routing_profiles/v2"
+_SCHEMA = _SCHEMA_V2
+_EVALUATION_STANDARD = "tp-voyager.model_evaluation/v1"
 _FILE_NAME = "model_routing_profiles.json"
-_EVIDENCE_ROOTS_FILE = "model_evidence_roots.json"
 _BASELINE_FILE = "model_routing_profiles.baseline.json"
-_TOP_LEVEL_KEYS = frozenset({"schema", "updated_at", "profiles"})
+_TOP_LEVEL_KEYS_V1 = frozenset({"schema", "updated_at", "profiles"})
+_TOP_LEVEL_KEYS_V2 = frozenset({"schema", "updated_at", "evaluation_standard", "tier_rules_status", "profiles"})
 _PROFILE_KEYS = frozenset(
     {
         "canonical_family",
         "provider_identity",
         "capability_tier",
+        "legacy_capability_tier",
+        "tier_authority",
+        "provider_tier_label",
+        "scorecard",
+        "standard_evidence",
         "profile_confidence",
         "specialties",
         "recommended_tasks",
@@ -40,7 +56,7 @@ _PROFILE_KEYS = frozenset(
 )
 _BENCHMARK_KEYS = frozenset(
     {
-        "source", "release", "tested_model", "model_match", "metrics", "url",
+        "evidence_schema", "source", "release", "tested_model", "model_match", "metrics", "url",
         "agent", "effort", "harness",
     }
 )
@@ -52,6 +68,10 @@ _SHA256 = re.compile(r"^[0-9a-fA-F]{64}$")
 _CONFIDENCE = frozenset({"high", "medium-high", "medium", "medium-low", "low"})
 _MODEL_MATCH = frozenset({"exact", "near_exact", "family", "predecessor", "dynamic_tier", "missing"})
 _EVIDENCE_REF_KINDS = frozenset({"url", "trusted_file"})
+_CAPABILITY_TIERS = frozenset({"L0", "L1", "L2", "L3", "UNCLASSIFIED", "DYNAMIC"})
+_TIER_AUTHORITIES = frozenset({"standard_v1", "standard_v1_uncalibrated", "provider_dynamic"})
+_RETIRED_ROUTES = frozenset({"qoder:auto"})
+_DYNAMIC_LABELS = {"qoder:ultimate": "Ultimate", "qoder:performance": "Performance", "qoder:efficient": "Efficient", "qoder:lite": "Lite"}
 _MAX_PROFILES = 256
 _MAX_LIST_ITEMS = 32
 _MAX_TEXT_LENGTH = 320
@@ -175,6 +195,7 @@ def _benchmark_evidence(value: object, field: str) -> tuple[dict[str, Any], ...]
                 raise ModelRoutingProfileError(f"{item_field}.metrics contains an invalid key")
             safe_metrics[key] = _metric_value(metric, f"{item_field}.metrics.{key}")
         normalized = {
+            "evidence_schema": _optional_short_text(item.get("evidence_schema"), f"{item_field}.evidence_schema", limit=80),
             "source": source,
             "release": _optional_short_text(item.get("release"), f"{item_field}.release", limit=80),
             "tested_model": tested_model,
@@ -187,6 +208,38 @@ def _benchmark_evidence(value: object, field: str) -> tuple[dict[str, Any], ...]
         }
         output.append({key: val for key, val in normalized.items() if val is not None})
     return tuple(output)
+
+
+def _standard_evidence(value: object, field: str) -> tuple[dict[str, Any], ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, list) or len(value) > 256:
+        raise ModelRoutingProfileError(f"{field} must be a bounded list")
+    try:
+        registry = ModelEvaluationSourceRegistry.load_bundled()
+        return tuple(validate_evidence_collection(value, registry))
+    except ModelEvaluationError as exc:
+        raise ModelRoutingProfileError(f"{field} is invalid: {exc}") from exc
+
+
+def _scorecard(value: object, field: str) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    try:
+        return validate_scorecard(value)
+    except ModelScorecardError as exc:
+        raise ModelRoutingProfileError(f"{field} is invalid: {exc}") from exc
+
+
+def _declared_ref_for_persistence(ref: Mapping[str, Any]) -> dict[str, str]:
+    if ref.get("kind") == "url":
+        return {"kind": "url", "url": str(ref["url"])}
+    return {
+        "kind": "trusted_file",
+        "root_alias": str(ref["root_alias"]),
+        "path": str(ref["path"]),
+        "sha256": str(ref["sha256"]),
+    }
 
 
 def _declared_evidence_refs(value: object, field: str) -> tuple[dict[str, str], ...]:
@@ -228,32 +281,22 @@ def _declared_evidence_refs(value: object, field: str) -> tuple[dict[str, str], 
 
 
 def _load_evidence_roots(runtime_home: Path) -> tuple[dict[str, Path], dict[str, Any]]:
-    path = runtime_home / _EVIDENCE_ROOTS_FILE
-    if not path.exists():
-        return {}, {"status": "not_configured", "sha256": None, "root_count": 0}
     try:
-        data = path.read_bytes()
-        raw = json.loads(data.decode("utf-8"), object_pairs_hook=_strict_object)
-        if not isinstance(raw, dict) or len(raw) > 64:
-            raise ModelRoutingProfileError("model evidence roots must be a bounded object")
-        roots: dict[str, Path] = {}
-        for alias, value in raw.items():
-            if not isinstance(alias, str) or not _SHORT_TOKEN.fullmatch(alias):
-                raise ModelRoutingProfileError("model evidence roots contain an invalid alias")
-            if not isinstance(value, str) or not value.strip():
-                raise ModelRoutingProfileError("model evidence roots contain an invalid path")
-            root = Path(value).expanduser()
-            if not root.is_absolute():
-                raise ModelRoutingProfileError("model evidence root paths must be absolute")
-            roots[alias] = root.resolve()
+        config = VoyagerUserConfig.load(runtime_home)
+        configured = config.trusted_roots.model_evidence_map()
+        roots = {alias: Path(value).expanduser().resolve() for alias, value in configured.items()}
+        config_path = runtime_home / "config.json"
+        digest = hashlib.sha256(config_path.read_bytes()).hexdigest() if config_path.is_file() else None
         return roots, {
-            "status": "loaded",
-            "sha256": hashlib.sha256(data).hexdigest(),
+            "status": "loaded" if roots else "not_configured",
+            "source": "config.json",
+            "sha256": digest,
             "root_count": len(roots),
         }
-    except Exception as exc:  # evidence trust config cannot authorize dispatch
+    except (VoyagerUserConfigError, OSError) as exc:
         return {}, {
             "status": "invalid",
+            "source": "config.json",
             "sha256": None,
             "root_count": 0,
             "error": type(exc).__name__,
@@ -325,6 +368,11 @@ class ModelRoutingProfile:
     canonical_family: str | None = None
     provider_identity: str | None = None
     capability_tier: str | None = None
+    legacy_capability_tier: str | None = None
+    tier_authority: str | None = None
+    provider_tier_label: str | None = None
+    scorecard: dict[str, Any] | None = None
+    standard_evidence: tuple[dict[str, Any], ...] = ()
     profile_confidence: str | None = None
     specialties: tuple[str, ...] = ()
     recommended_tasks: tuple[str, ...] = ()
@@ -340,6 +388,11 @@ class ModelRoutingProfile:
             "canonical_family": self.canonical_family,
             "provider_identity": self.provider_identity,
             "capability_tier": self.capability_tier,
+            "legacy_capability_tier": self.legacy_capability_tier,
+            "tier_authority": self.tier_authority,
+            "provider_tier_label": self.provider_tier_label,
+            "scorecard": json.loads(json.dumps(self.scorecard)) if self.scorecard is not None else None,
+            "standard_evidence": [json.loads(json.dumps(item)) for item in self.standard_evidence],
             "profile_confidence": self.profile_confidence,
             "specialties": list(self.specialties),
             "recommended_tasks": list(self.recommended_tasks),
@@ -356,6 +409,11 @@ class ModelRoutingProfile:
 class ModelRoutingProfiles:
     profiles: tuple[ModelRoutingProfile, ...] = ()
     status: str = "not_configured"
+    schema: str | None = None
+    normalized_schema: str = _SCHEMA_V2
+    evaluation_standard: str = _EVALUATION_STANDARD
+    tier_rules_status: str = "uncalibrated"
+    retired_routes: tuple[str, ...] = ()
     sha256: str | None = None
     updated_at: str | None = None
     evidence_roots: dict[str, Any] | None = None
@@ -406,7 +464,7 @@ class ModelRoutingProfiles:
             "sha256": loaded.sha256,
             "profile_count": loaded.profile_count,
             "updated_at": loaded.updated_at,
-            "evidence_roots_file": str(home / _EVIDENCE_ROOTS_FILE),
+            "evidence_roots_config": str(home / "config.json"),
             "required_evidence_root_aliases": required_aliases,
             "selection_performed": False,
             "dispatch_performed": False,
@@ -437,6 +495,11 @@ class ModelRoutingProfiles:
             "sha256": self.sha256,
             "updated_at": self.updated_at,
             "profile_count": self.profile_count,
+            "schema": self.schema,
+            "normalized_schema": self.normalized_schema,
+            "evaluation_standard": self.evaluation_standard,
+            "tier_rules_status": self.tier_rules_status,
+            "retired_routes": list(self.retired_routes),
             "advisory_only": True,
             "evidence_roots": dict(self.evidence_roots or {}),
             "evidence_profile_counts": evidence_counts,
@@ -476,10 +539,22 @@ class ModelRoutingProfiles:
             raise
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise ModelRoutingProfileError("model routing profiles are invalid") from exc
-        if not isinstance(raw, dict) or set(raw) - _TOP_LEVEL_KEYS:
+        if not isinstance(raw, dict):
             raise ModelRoutingProfileError("model routing profiles schema is invalid")
-        if raw.get("schema") != _SCHEMA:
+        schema = raw.get("schema")
+        if schema not in {_SCHEMA_V1, _SCHEMA_V2}:
             raise ModelRoutingProfileError("model routing profiles schema is unsupported")
+        allowed_top = _TOP_LEVEL_KEYS_V1 if schema == _SCHEMA_V1 else _TOP_LEVEL_KEYS_V2
+        if set(raw) - allowed_top:
+            raise ModelRoutingProfileError("model routing profiles schema is invalid")
+        if schema == _SCHEMA_V2:
+            if raw.get("evaluation_standard") != _EVALUATION_STANDARD:
+                raise ModelRoutingProfileError("evaluation_standard is unsupported")
+            tier_rules_status = str(raw.get("tier_rules_status") or "").strip()
+            if tier_rules_status not in {"uncalibrated", "calibrated"}:
+                raise ModelRoutingProfileError("tier_rules_status is unsupported")
+        else:
+            tier_rules_status = "uncalibrated"
         updated_at = raw.get("updated_at")
         if updated_at is not None and (not isinstance(updated_at, str) or not updated_at.strip() or len(updated_at) > 64):
             raise ModelRoutingProfileError("updated_at must be a short non-empty string")
@@ -489,7 +564,11 @@ class ModelRoutingProfiles:
 
         roots, roots_meta = _load_evidence_roots(runtime_home)
         profiles: list[ModelRoutingProfile] = []
+        retired_routes: list[str] = []
         for route_id, value in raw_profiles.items():
+            if route_id in _RETIRED_ROUTES:
+                retired_routes.append(route_id)
+                continue
             if not isinstance(route_id, str) or not _ROUTE_ID.fullmatch(route_id):
                 raise ModelRoutingProfileError("profiles contains an invalid backend-qualified route id")
             backend, _, _ = route_id.partition(":")
@@ -503,23 +582,98 @@ class ModelRoutingProfiles:
                 if not isinstance(confidence, str) or confidence.strip() not in _CONFIDENCE:
                     raise ModelRoutingProfileError(f"{route_id}.profile_confidence is unsupported")
                 confidence = confidence.strip()
+            canonical_family = _optional_token(value.get("canonical_family"), f"{route_id}.canonical_family")
+            provider_identity = _optional_token(value.get("provider_identity"), f"{route_id}.provider_identity")
+            raw_capability = _optional_token(value.get("capability_tier"), f"{route_id}.capability_tier")
+            is_dynamic = provider_identity == "dynamic_tier"
+
             evidence_sources = _bounded_strings(value.get("evidence_sources"), f"{route_id}.evidence_sources", source=True)
             declared_refs = list(_declared_evidence_refs(value.get("evidence_refs"), f"{route_id}.evidence_refs"))
             declared_refs.extend({"kind": "url", "url": url} for url in evidence_sources)
             verified_refs, evidence_status = _verify_evidence_refs(tuple(declared_refs), roots)
+            legacy_benchmarks = list(_benchmark_evidence(value.get("benchmark_evidence"), f"{route_id}.benchmark_evidence"))
+            if schema == _SCHEMA_V1:
+                legacy_benchmarks = [
+                    ({"evidence_schema": "legacy_v1", **item} if "evidence_schema" not in item else item)
+                    for item in legacy_benchmarks
+                ]
+                legacy_capability = raw_capability
+                if is_dynamic:
+                    capability_tier = "DYNAMIC"
+                    tier_authority = "provider_dynamic"
+                    provider_tier_label = _DYNAMIC_LABELS.get(route_id, route_id.split(":", 1)[1])
+                else:
+                    capability_tier = "UNCLASSIFIED"
+                    tier_authority = "standard_v1_uncalibrated"
+                    provider_tier_label = None
+                scorecard = None
+                standard_evidence: tuple[dict[str, Any], ...] = ()
+            else:
+                capability_tier = raw_capability
+                if capability_tier not in _CAPABILITY_TIERS:
+                    raise ModelRoutingProfileError(f"{route_id}.capability_tier is unsupported")
+                legacy_capability = _optional_token(value.get("legacy_capability_tier"), f"{route_id}.legacy_capability_tier")
+                tier_authority = _optional_token(value.get("tier_authority"), f"{route_id}.tier_authority")
+                provider_tier_label = _optional_short_text(value.get("provider_tier_label"), f"{route_id}.provider_tier_label", limit=120)
+                scorecard = _scorecard(value.get("scorecard"), f"{route_id}.scorecard")
+                standard_evidence = _standard_evidence(value.get("standard_evidence"), f"{route_id}.standard_evidence")
+                if tier_authority not in _TIER_AUTHORITIES:
+                    raise ModelRoutingProfileError(f"{route_id}.tier_authority is unsupported")
+                if is_dynamic:
+                    if capability_tier != "DYNAMIC" or tier_authority != "provider_dynamic" or not provider_tier_label or scorecard is not None:
+                        raise ModelRoutingProfileError(f"{route_id} dynamic tier semantics are invalid")
+                else:
+                    if scorecard is None:
+                        if capability_tier != "UNCLASSIFIED" or tier_authority != "standard_v1_uncalibrated":
+                            raise ModelRoutingProfileError(f"{route_id} uncalibrated tier semantics are invalid")
+                    else:
+                        if tier_rules_status != "calibrated" or scorecard.get("rules_status") != "calibrated":
+                            raise ModelRoutingProfileError(f"{route_id} persisted scorecard requires calibrated rules")
+                        if tier_authority != "standard_v1" or capability_tier != scorecard.get("tier"):
+                            raise ModelRoutingProfileError(f"{route_id} tier authority conflicts with persisted scorecard")
+                        try:
+                            registry = ModelEvaluationSourceRegistry.load_bundled()
+                            tier_rules = load_tier_rules()
+                            validate_scorecard_binding(
+                                scorecard,
+                                canonical_family=canonical_family or "",
+                                evidence=standard_evidence,
+                                registry=registry,
+                                tier_rules=tier_rules,
+                            )
+                            rebuilt = build_scorecard(
+                                canonical_family or "",
+                                standard_evidence,
+                                registry,
+                                tier_rules,
+                                evaluated_at=str(scorecard.get("evaluated_at") or ""),
+                            )
+                            if rebuilt != scorecard:
+                                raise ModelScorecardError(
+                                    "persisted scorecard derived output differs from deterministic rebuild"
+                                )
+                        except (ModelScorecardError, ModelEvaluationError) as exc:
+                            raise ModelRoutingProfileError(
+                                f"{route_id} scorecard binding is invalid: {exc}"
+                            ) from exc
 
             profiles.append(
                 ModelRoutingProfile(
                     route_id=route_id,
-                    canonical_family=_optional_token(value.get("canonical_family"), f"{route_id}.canonical_family"),
-                    provider_identity=_optional_token(value.get("provider_identity"), f"{route_id}.provider_identity"),
-                    capability_tier=_optional_token(value.get("capability_tier"), f"{route_id}.capability_tier"),
+                    canonical_family=canonical_family,
+                    provider_identity=provider_identity,
+                    capability_tier=capability_tier,
+                    legacy_capability_tier=legacy_capability,
+                    tier_authority=tier_authority,
+                    provider_tier_label=provider_tier_label,
+                    scorecard=scorecard,
+                    standard_evidence=standard_evidence,
                     profile_confidence=confidence,
                     specialties=_bounded_strings(value.get("specialties"), f"{route_id}.specialties"),
                     recommended_tasks=_bounded_strings(value.get("recommended_tasks"), f"{route_id}.recommended_tasks"),
                     risk_boundaries=_bounded_strings(value.get("risk_boundaries"), f"{route_id}.risk_boundaries"),
                     suggested_effort=_optional_token(value.get("suggested_effort"), f"{route_id}.suggested_effort", effort=True),
-                    benchmark_evidence=_benchmark_evidence(value.get("benchmark_evidence"), f"{route_id}.benchmark_evidence"),
+                    benchmark_evidence=tuple(legacy_benchmarks),
                     evidence_refs=verified_refs,
                     evidence_status=evidence_status,
                     evidence_sources=evidence_sources,
@@ -529,8 +683,136 @@ class ModelRoutingProfiles:
         return cls(
             profiles=tuple(profiles),
             status=status,
+            schema=str(schema),
+            normalized_schema=_SCHEMA_V2,
+            evaluation_standard=_EVALUATION_STANDARD,
+            tier_rules_status=tier_rules_status,
+            retired_routes=tuple(sorted(retired_routes)),
             sha256=hashlib.sha256(data).hexdigest(),
             updated_at=updated_at.strip() if isinstance(updated_at, str) else None,
             evidence_roots=roots_meta,
             source=source,
         )
+
+    @classmethod
+    def migrate(cls, runtime_home: str | Path, *, write: bool = False) -> dict[str, Any]:
+        """Normalize a materialized v1 operator file to v2 without implicit writes."""
+        home = Path(runtime_home).expanduser().resolve()
+        path = home / _FILE_NAME
+        if not path.is_file():
+            raise ModelRoutingProfileError("model_routing_profiles.json does not exist")
+        data = path.read_bytes()
+        try:
+            raw = json.loads(data.decode("utf-8"), object_pairs_hook=_strict_object)
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ModelRoutingProfileError("model routing profiles are invalid") from exc
+        if not isinstance(raw, dict):
+            raise ModelRoutingProfileError("model routing profiles are invalid")
+        source_schema = raw.get("schema")
+        if source_schema == _SCHEMA_V2:
+            cls._from_bytes(data, home)
+            return {
+                "status": "already_v2", "source_schema": _SCHEMA_V2,
+                "target_schema": _SCHEMA_V2, "written": False,
+                "retired_routes": [], "profile_count": len(raw.get("profiles") or {}),
+            }
+        if source_schema != _SCHEMA_V1:
+            raise ModelRoutingProfileError("model routing profiles schema is unsupported")
+        # Validate legacy before constructing persistent v2 form.
+        legacy_view = cls._from_bytes(data, home)
+        raw_profiles = raw.get("profiles")
+        assert isinstance(raw_profiles, dict)
+        migrated_profiles: dict[str, Any] = {}
+        for route_id, original in raw_profiles.items():
+            if route_id in _RETIRED_ROUTES:
+                continue
+            assert isinstance(original, dict)
+            item = json.loads(json.dumps(original))
+            old_tier = item.get("capability_tier")
+            provider_identity = item.get("provider_identity")
+            if old_tier is not None:
+                item["legacy_capability_tier"] = old_tier
+            if provider_identity == "dynamic_tier":
+                item["capability_tier"] = "DYNAMIC"
+                item["tier_authority"] = "provider_dynamic"
+                item["provider_tier_label"] = _DYNAMIC_LABELS.get(route_id, route_id.split(":", 1)[1])
+            else:
+                item["capability_tier"] = "UNCLASSIFIED"
+                item["tier_authority"] = "standard_v1_uncalibrated"
+            item["scorecard"] = None
+            item["standard_evidence"] = []
+            benchmarks = item.get("benchmark_evidence")
+            if isinstance(benchmarks, list):
+                item["benchmark_evidence"] = [
+                    ({"evidence_schema": "legacy_v1", **entry} if isinstance(entry, dict) and "evidence_schema" not in entry else entry)
+                    for entry in benchmarks
+                ]
+            migrated_profiles[route_id] = item
+        migrated = {
+            "schema": _SCHEMA_V2,
+            "updated_at": raw.get("updated_at"),
+            "evaluation_standard": _EVALUATION_STANDARD,
+            "tier_rules_status": "uncalibrated",
+            "profiles": migrated_profiles,
+        }
+        if migrated["updated_at"] is None:
+            migrated.pop("updated_at")
+        encoded = (json.dumps(migrated, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
+        cls._from_bytes(encoded, home)
+        result = {
+            "status": "migration_ready" if not write else "migrated",
+            "source_schema": _SCHEMA_V1,
+            "target_schema": _SCHEMA_V2,
+            "written": bool(write),
+            "profile_count": len(migrated_profiles),
+            "legacy_profile_count": len(raw_profiles),
+            "retired_routes": sorted(set(raw_profiles) & _RETIRED_ROUTES),
+            "semantic_preservation": {
+                "recommended_tasks": True,
+                "risk_boundaries": True,
+                "suggested_effort": True,
+                "benchmark_raw_values": True,
+                "evidence_refs": True,
+            },
+        }
+        if not write:
+            return result
+        temp = path.with_name(f".{path.name}.{os.getpid()}.migrate.tmp")
+        try:
+            with temp.open("wb") as fh:
+                fh.write(encoded)
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.replace(temp, path)
+        finally:
+            try:
+                temp.unlink(missing_ok=True)
+            except OSError:
+                pass
+        try:
+            reloaded = cls.load(home)
+            if reloaded.schema != _SCHEMA_V2:
+                raise ModelRoutingProfileError("migration post-write validation failed")
+        except Exception:
+            # The target had already been atomically replaced. Restore the exact
+            # original v1 bytes so any post-write validation failure remains
+            # failure-atomic from the operator's perspective.
+            rollback = path.with_name(f".{path.name}.{os.getpid()}.rollback.tmp")
+            try:
+                with rollback.open("wb") as fh:
+                    fh.write(data)
+                    fh.flush()
+                    os.fsync(fh.fileno())
+                os.replace(rollback, path)
+            except OSError as rollback_exc:
+                raise ModelRoutingProfileError(
+                    "migration post-write validation failed and original file could not be restored"
+                ) from rollback_exc
+            finally:
+                try:
+                    rollback.unlink(missing_ok=True)
+                except OSError:
+                    pass
+            raise
+        result["sha256"] = reloaded.sha256
+        return result

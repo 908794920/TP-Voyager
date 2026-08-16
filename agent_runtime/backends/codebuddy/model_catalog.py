@@ -141,8 +141,8 @@ class CodeBuddyAcpCatalogProbe:
                 available=True, source="codebuddy_acp_account_live", observed_at=observed_at,
                 metadata={"catalog_status": "complete", "entitlement_status": "account_live",
                           "current": model_id == current_model_id,
-                          "supported_efforts": [],
-                          "effort_support_status": "unsupported_by_controlled_backend",
+                          "supported_efforts": ["low", "medium", "high", "xhigh"],
+                          "effort_support_status": "controlled_sdk_documented",
                           "billing": {"status": "reference_only", "multiplier_raw": raw_multiplier,
                                       "multiplier": multiplier, "calculation_allowed": False}},
             ))
@@ -225,7 +225,7 @@ def _list_codebuddy_models_via_acp() -> list[ModelDescriptor]:
     try:
         # ACP requires these session/new fields but this remains a no-prompt,
         # no-tool, no-MCP-server catalog session.
-        initial = exchange("initialize", {"protocolVersion": 1, "clientInfo": {"name": "tp-voyager", "version": "1.0.6"}})
+        initial = exchange("initialize", {"protocolVersion": 1, "clientInfo": {"name": "tp-voyager", "version": "1.0.7"}})
         if not isinstance(initial, dict) or initial.get("error"):
             raise CodeBuddyCatalogError("CODEBUDDY_MODEL_CATALOG_UNAVAILABLE")
         session = exchange("session/new", {"cwd": os.getcwd(), "mcpServers": []})

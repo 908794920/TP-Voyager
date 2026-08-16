@@ -2,6 +2,46 @@
 
 本项目从 TP-Voyager 正式基线开始记录对外版本。
 
+### v1.0.7 Hardening Closure
+
+- Added `model_parameters` preflight against the current selected-model catalog. Unsupported or unknown reasoning effort and Qoder context windows fail before task creation; Runtime never substitutes, downgrades, or retries a model.
+- Qoder applies `context_window_tokens` through the official per-session `qodercli --context-window` startup flag and accepts requested thinking effort only after ACP configuration acknowledges it. `task_result` records requested and applied state.
+- Public task Usage is now an explicit Provider-evidence projection: observed quantities are returned when supplied; missing Provider data is `provider_omitted`, and unrecognized protocol shapes remain distinct. TP-Voyager does not estimate tokens, credits, or cost.
+- Canonicalized the Qoder Lite dispatch route to `qoder:lite`; `Lite` remains only the Provider display label. Default configuration, bundled routing profiles, examples, and tests use the same ID.
+- Made Qoder server integration tests use an isolated TP-Voyager Home so their policy behavior does not depend on an operator's local configuration.
+- Fixed component-prefix path authorization so dot-prefixed siblings such as `.src`, `.env`, and `.github` cannot alias Captain-approved `src`, `env`, or `github`; CodeBuddy, Qoder, and final Verification now share one canonical matcher.
+- Added a transactional, lease-fenced backend dispatch acceptance gate. A stale worker must pass owner/generation/DB-time expiry, task-version, non-terminal, and backend-session checks in one transaction before a real Provider prompt may be sent. Worker-owned lifecycle/activity writes are lease fenced as well.
+- Qoder bounded read-only execution now runs from a Runtime-owned snapshot containing only resolved `read_scope` files. This is workspace-exposure isolation, not an OS sandbox.
+- Persisted model Scorecards are bound to canonical model identity, the exact Standard Evidence set, Source Registry, Tier Rules, and builder version. Stale/invalid Primary evidence is excluded according to Source Registry freshness policy.
+- CodeBuddy Bash command authorization now serializes Captain-approved argv with shell-safe literal quoting instead of Windows command-line quoting.
+- `requirements.txt` now includes the Qoder Agent SDK dependency already declared by `pyproject.toml`.
+
+### Model Evaluation Standard v1 (v1.0.7 baseline maintenance)
+
+- Fresh-release identity audit corrected current-model treatment: DeepSeek V4 Flash is pinned to the 0731 official release, DeepSeek V4 Pro to the 0813 official release, and GLM-5.3 is an exact formally announced model; predecessor/preview evidence no longer determines current-release Tier.
+
+- Added versioned Source Registry, immutable Standard Evidence records, persisted Scorecards, and calibrated Tier Rules.
+- Routing-profile loader now accepts v1/v2; v1 reads are non-mutating and explicit `model-routing-migrate` provides atomic/idempotent persistence.
+- Fixed-model Tier authority is `Scorecard.tier`; legacy static Tier is historical only.
+- Qoder dynamic tiers are `DYNAMIC`; local `qoder:auto` route is retired.
+- Added current model identity/research/provider/calibration records and read-only `model-evaluation-validate`.
+- Preserved all existing non-retired legacy benchmark raw values; new standardized evidence is appended.
+
+## 1.0.7 — 2026-08-15
+
+Unified User Configuration + TP-Voyager Home。把用户机器相关配置从散落环境变量/独立 JSON 收敛到 `~/.tp-voyager/config.json`，不引入旧 Home 迁移兼容。
+
+- Runtime Home clean break 为 `~/.tp-voyager`；标准启动变量改为 `TP_VOYAGER_HOME` / `TP_VOYAGER_DB` / `TP_VOYAGER_PYTHON`，默认数据库为 `runtime/tp_voyager.db`；
+- 新增严格 `tp-voyager.config/v1`：统一管理 Qoder/CodeBuddy CLI 路径与 enable 状态、CodeBuddy internet environment、模型 allowlist/preference/task-kind 约束、trusted model/instruction roots、worker profile/skill roots、Runtime 全局并发上限；
+- 新增 `tp-voyager init` / `python -m agent_runtime.cli init`：幂等创建用户目录与配置、从 PATH 探测 Crew CLI，并 materialize 26-route `model_routing_profiles.json` baseline；已有配置绝不覆盖；
+- Qoder/CodeBuddy CLI 解析统一为“临时环境覆盖 → `config.json` → PATH”；Credential、Token、Cookie、登录缓存继续不进入 `config.json`；
+- `dispatch_model_policy.json`、`model_evidence_roots.json`、`trusted_instruction_roots.json` 与 worker-root 专用环境变量退出当前配置面；模型授权改由 `config.json.dispatch` 独占，能力资料仍独立保留在 `model_routing_profiles.json`；
+- Runtime 增加 `runtime.max_concurrent_tasks` admission guard，默认 4；并发达到上限时新任务以 `RUNTIME_BUSY` 明确拒绝，不静默无限起 worker thread；
+- Captain Codex Desktop manifest 不再绑定 Crew CLI 机器路径，安装 binding 只保留宿主安装必需信息；
+- Qoder Lite 的 dispatch/model-route 标识统一为 `qoder:lite`，避免 policy/catalog/profile 出现大小写重复 route；
+- 正式版本号、Captain Skill、CodeBuddy catalog clientInfo、文档与启动脚本统一为 v1.0.7 / TP-Voyager 命名；内部 Python package `agent_runtime` 保持不变；
+- 移除 standalone Runtime Home migration utility 与旧路径自动选择；当前版本不读取 `.agent-runtime` / `AGENT_RUNTIME_*` / WorkBuddy Home。
+
 ## 1.0.6 — 2026-08-12
 
 Routable Model Catalog + public documentation cleanup。保持 Captain 显式决策和默认六工具 Surface，不新增自动选模器。

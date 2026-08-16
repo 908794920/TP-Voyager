@@ -36,8 +36,8 @@ class TPVoyagerArchitectureBaselineTests(unittest.TestCase):
         current = {path.name for path in (REPO_ROOT / "docs").glob("*.md")}
         self.assertEqual(
             current,
-            {"README.md", "ARCHITECTURE.md", "MODEL_ROUTING.md", "BACKEND_CODEBUDDY.md",
-             "BACKEND_QODER.md", "TESTING.md", "OPERATIONS.md"},
+            {"README.md", "ARCHITECTURE.md", "MODEL_ROUTING.md", "MODEL_EVALUATION_STANDARD.md",
+             "BACKEND_CODEBUDDY.md", "BACKEND_QODER.md", "TESTING.md", "OPERATIONS.md"},
         )
         codebuddy_doc = (REPO_ROOT / "docs" / "BACKEND_CODEBUDDY.md").read_text(encoding="utf-8")
         qoder_doc = (REPO_ROOT / "docs" / "BACKEND_QODER.md").read_text(encoding="utf-8")
@@ -69,8 +69,10 @@ class TPVoyagerArchitectureBaselineTests(unittest.TestCase):
         self.assertIn('_BACKENDS.register("qoder"', source)
 
     def test_agent_runtime_top_level_boundary_remains_stable(self) -> None:
-        for name in ("api", "application", "domain", "persistence", "verification", "backends", "runtime", "testing"):
+        for name in ("api", "configuration", "application", "domain", "persistence", "verification", "backends", "runtime", "testing"):
             self.assertTrue((PKG / name).is_dir(), name)
+        baseline = (REPO_ROOT / "docs" / "architecture" / "DIRECTORY_BASELINE.md").read_text(encoding="utf-8")
+        self.assertIn("├── configuration/", baseline)
         for name in ("core", "platform", "services", "managers", "engine"):
             self.assertFalse((PKG / name).exists(), name)
 

@@ -1,449 +1,297 @@
 # Data-Driven Routable Model Catalog
 
-TP-Voyager v1.0.6 将 `crew_catalog(include_models=true)` 作为 Captain 的**可路由模型目录**。
+TP-Voyager v1.0.7 keeps `crew_catalog(include_models=true)` as a **decision-support catalog**, not a model selector. Runtime merges provider availability, operator authorization, standardized capability evidence, and Runtime observations, while Captain still explicitly chooses Crew + model + supported effort.
 
-它不替 Captain 选模型。Runtime 只把实时供应商事实、operator 授权、operator 模型认知和 Runtime Evidence 合并成一个结构化 route projection。
-
-## 1. 事实所有权
+## 1. Fact ownership
 
 ```text
 Provider live catalog
-  owns: model_id / display_name / availability / context / provider effort metadata / reference multiplier
+  owns: backend model id / display name / availability / context / supported parameters
 
-operator dispatch_model_policy.json
-  owns: authorization / allowlist / policy_sha256
+~/.tp-voyager/config.json / dispatch
+  owns: authorization / allowlist
 
-operator model_routing_profiles.json
-  owns: capability tier / benchmark snapshot / recommended work / risk boundaries / suggested effort
+model_routing_profiles.json
+  owns: canonical identity projection / persisted Scorecard / recommended work / risk boundaries
 
-operator model_evidence_roots.json
-  owns: trusted local evidence root aliases only
+Model Evaluation Standard v1
+  owns: source policy / evidence comparability / Scorecard / Tier authority
 
 Runtime durable Evidence
-  owns: observed success / duration / tokens / credits / provider-reported cost
+  owns: observed task success / duration / tokens / provider-reported usage
 
 Captain
   owns: final Crew / model / effort choice
 ```
 
-TP-Voyager 只做：
+TP-Voyager does **not** perform online benchmark scraping, automatic model selection, automatic fallback, or public-price cost estimation.
+
+## 2. Bundled baseline and operator materialization
+
+If `${TP_VOYAGER_HOME}/model_routing_profiles.json` is absent, Runtime loads the bundled baseline read-only. To materialize an operator copy:
+
+```bash
+tp-voyager model-routing-init
+```
+
+The v1.0.7 loader accepts both routing-profile schemas:
 
 ```text
-load → validate → verify provenance → join → project
+tp-voyager.model_routing_profiles/v1
+tp-voyager.model_routing_profiles/v2
 ```
 
-明确不做：
+Reading v1 is compatible and **does not rewrite the file**. To persist v2 explicitly:
 
-```text
-auto scoring
-auto model selection
-auto fallback
-public-price cost estimation
-online benchmark scraping
+```bash
+tp-voyager model-routing-migrate --dry-run
+tp-voyager model-routing-migrate --write
 ```
 
-## 2. 默认只读 baseline + 可选 operator materialize
+See `docs/MODEL_EVALUATION_STANDARD.md` for migration guarantees.
 
-v1.0.6 随包发布一份经过审阅的机器可读 baseline。它覆盖当前 MCP 真实目录中的：
+## 3. Authorization is not capability
 
-```text
-CodeBuddy 11 routes
-Qoder     15 routes
-Total     26 routes
-```
-
-当 `${AGENT_RUNTIME_HOME}/model_routing_profiles.json` 不存在时，Runtime 会直接**只读加载 bundled baseline**：
-
-```text
-status = bundled_baseline
-source = bundled_model_routing_baseline
-selection_performed = false
-dispatch_performed = false
-```
-
-这一步不写 Runtime Home，因此升级后 MCP 可以立即返回 capability profile，同时不会偷偷创建 operator 配置。
-
-如果需要长期自行维护这些资料，再显式执行：
-
-```powershell
-python -m agent_runtime.cli model-routing-init
-```
-
-该命令会把同一 baseline **显式复制**到：
-
-```text
-${AGENT_RUNTIME_HOME}/model_routing_profiles.json
-```
-
-默认 Runtime Home：
-
-```text
-~/.agent-runtime
-```
-
-如果文件已经存在，命令会拒绝覆盖。一旦 operator 文件存在，Runtime 优先加载它并停止使用 bundled fallback。TP-Voyager 不在启动 Runtime 时偷偷改 operator 配置。
-
-初始化完成后可检查：
-
-```powershell
-python -m agent_runtime.cli doctor --json
-```
-
-`doctor` 会投影：
-
-```text
-model_routing_profiles.status
-model_routing_profiles.sha256
-model_routing_profiles.profile_count
-model_routing_profiles.evidence_profile_counts
-```
-
-## 3. 两个 operator 文件不要混用
-
-### `dispatch_model_policy.json`
-
-这是**硬约束**。现有 dispatch 逻辑继续以它作为模型授权 Source of Truth。
-
-例如：
+`~/.tp-voyager/config.json` contains the hard authorization policy:
 
 ```json
 {
-  "require_explicit_model": true,
-  "allowed_models": [
-    "codebuddy:hy3",
-    "codebuddy:deepseek-v4-flash",
-    "qoder:lite",
-    "qoder:qmodel_38max"
-  ]
-}
-```
-
-### `model_routing_profiles.json`
-
-这是**operator 认知资料**。它可以告诉 Captain 哪个模型适合什么工作，但不能授权模型、不能覆盖 Provider availability、不能触发 dispatch。
-
-四条核心 route 的 v1.0.6 baseline：
-
-| Route | Tier | Confidence | 主要定位 |
-|---|---|---|---|
-| `qoder:lite` | L0 | medium | 搜索、摘要、机械修改、简单逻辑、快速验证 |
-| `codebuddy:hy3` | L1 | medium-high | 常规编码、SQL、文档、中型 repo、明确边界多文件工作 |
-| `codebuddy:deepseek-v4-flash` | **L3** | **high** | 已由 operator 确认映射到 **DeepSeek-V4-Flash-0731**；高级 Coding/Agent 主力 |
-| `qoder:qmodel_38max` | **L3** | **medium-high** | 已由 operator 确认映射到正式 **Qwen3.8-Max**；复杂长程、多模态、架构级工作 |
-
-注意：
-
-```text
-Tier ≠ 路由优先级
-```
-
-DeepSeek-0731 和 Qwen3.8-Max 都可以是 L3，但前者更适合高频、成本敏感的 Coding/Agent 执行，后者更偏复杂长程、多模态和高难权衡。Captain 仍应结合 reference multiplier、Provider availability 和自己的任务风险选择。
-
-## 4. 为什么能力资料不能只看厂商宣传
-
-v1.0.6 baseline 区分：
-
-```text
-Independent benchmarks
-Official/provider specifications
-Operator local research
-Runtime observed Evidence
-```
-
-能力 Tier 主要参考独立/统一评测，例如：
-
-```text
-LiveBench
-Artificial Analysis
-Arena
-Terminal-Bench（必须绑定 agent / effort / harness）
-SWE-bench（只有 exact 同 harness 条目才采用）
-```
-
-厂商资料主要用于：
-
-```text
-模型身份
-上下文长度
-模态
-支持参数
-官方 route/slug
-```
-
-`benchmark_evidence` 是 operator 维护的快照，不由 Runtime 在线访问评测网站。
-
-示例：
-
-```json
-{
-  "source": "artificial_analysis",
-  "release": "2026-07-31",
-  "tested_model": "DeepSeek V4 Flash 0731 Max",
-  "model_match": "exact",
-  "effort": "max",
-  "metrics": {
-    "intelligence_index": 50,
-    "gdpval_aa_v2_elo": 1559
-  },
-  "url": "https://artificialanalysis.ai/"
-}
-```
-
-`model_match` 只能是：
-
-```text
-exact
-near_exact
-family
-predecessor
-dynamic_tier
-missing
-```
-
-这样不会把旧 checkpoint 或同家族分数冒充当前 route 的 exact 实测。
-
-## 5. 本地 Markdown 可以成为可验证 Evidence
-
-URL 不是唯一 provenance。v1.0.6 支持：
-
-```json
-{
-  "kind": "trusted_file",
-  "root_alias": "operator_model_research",
-  "path": "Codex外部模型CLI委派参考.md",
-  "sha256": "df278a0d4fe6d32316539feabc210742a349fc0f422f0d6553ace7f0601a1b82"
-}
-```
-
-真实绝对目录不写进 profile，而是单独配置：
-
-```text
-${AGENT_RUNTIME_HOME}/model_evidence_roots.json
-```
-
-例如 Windows：
-
-```json
-{
-  "operator_model_research": "D:/AI/model-research"
-}
-```
-
-Runtime 验证流程：
-
-```text
-root_alias
-  ↓
-operator trusted root
-  ↓
-relative path
-  ↓
-禁止 ../ / absolute path / symlink escape
-  ↓
-SHA-256
-  ↓
-verification status
-```
-
-MCP 只返回：
-
-```text
-root_alias
-relative path
-expected SHA-256
-actual SHA-256（若读取成功）
-verification
-byte_size
-```
-
-**不会返回 trusted root 的绝对路径，也不会把 Markdown 正文注入 Captain/Crew Prompt。**
-
-这是一条 provenance 机制，不是新的 RAG/Knowledge 系统。
-
-### Evidence 状态
-
-```text
-verified      本地 trusted_file 哈希匹配
-stale         文件缺失或哈希变化
-unverified    trusted root 尚未配置
-declared      只有 URL 声明
-rejected      路径逃逸、过大或不可安全读取
-not_declared  没有 Evidence ref
-```
-
-Evidence 过期不会改变 `allowed / denied`。授权仍只属于 `dispatch_model_policy.json`。
-
-## 6. Profile 示例
-
-```json
-{
-  "canonical_family": "deepseek-v4-flash-0731",
-  "provider_identity": "operator_confirmed",
-  "capability_tier": "L3",
-  "profile_confidence": "high",
-  "specialties": [
-    "coding_agent",
-    "cost_efficient_frontier_execution"
-  ],
-  "recommended_tasks": [
-    "complex implementation",
-    "repository investigation",
-    "multi-file change",
-    "difficult debugging",
-    "test-fix loop"
-  ],
-  "risk_boundaries": [
-    "architecture/final technical decisions require Captain review",
-    "text-only model"
-  ],
-  "suggested_effort": "high",
-  "benchmark_evidence": [],
-  "evidence_refs": []
-}
-```
-
-完整 26-route baseline 位于：
-
-```text
-agent_runtime/application/crew/model_routing_profiles.baseline.json
-```
-
-供人阅读/修改的四核心示例位于：
-
-```text
-docs/examples/model_routing_profiles.example.json
-```
-
-## 7. Provider、Profile 和 Backend effort 必须分开
-
-`model_routing_profiles.json` 中：
-
-```text
-suggested_effort
-```
-
-只是 operator 建议。
-
-真正能否下发 effort 还取决于当前 Backend/Provider route。
-
-例如当前 CodeBuddy controlled SDK route 本身：
-
-```text
-supports_reasoning_effort = false
-```
-
-所以即使：
-
-```text
-DeepSeek-V4-Flash-0731 suggested_effort = high
-```
-
-Catalog 也应该显示：
-
-```text
-suggested_effort = high
-suggested_effort_supported = false
-```
-
-Captain 不能仅凭 profile 强行传 `reasoning_effort=high`。
-
-Qoder 则继续以实时 SDK `thinking_config` 为准。
-
-## 8. `crew_catalog(include_models=true)` 的 route
-
-典型结果：
-
-```json
-{
-  "route_id": "codebuddy:deepseek-v4-flash",
-  "available": true,
-  "allowlist_status": "allowed",
-  "routable": true,
-  "routability_status": "confirmed",
-  "reference_multiplier": 0.05,
-  "calculation_allowed": false,
-  "capability_profile": {
-    "canonical_family": "deepseek-v4-flash-0731",
-    "provider_identity": "operator_confirmed",
-    "capability_tier": "L3",
-    "profile_confidence": "high",
-    "evidence_status": "verified"
-  },
-  "reasoning": {
-    "supported_efforts": [],
-    "suggested_effort": "high",
-    "suggested_effort_supported": false
-  },
-  "history": {},
-  "usage": {},
-  "sources": {
-    "availability": "codebuddy_acp_account_live",
-    "authorization": "operator_dispatch_policy",
-    "capability_profile": "operator_model_routing_profiles",
-    "usage": "runtime_evidence"
+  "dispatch": {
+    "allowed_models": [
+      "codebuddy:hy3",
+      "codebuddy:deepseek-v4-flash",
+      "qoder:lite",
+      "qoder:qmodel_38max"
+    ]
   }
 }
 ```
 
-解释规则：
+A high Tier does not authorize a route, and an allowed route does not imply a high Tier.
 
-- `routable=true`：policy 允许 + Crew route dispatch-ready + Provider 明确可用；
-- `routable=false`：policy 拒绝、Provider disabled、policy invalid 或 Crew route 未就绪；
-- `routable=null`：policy 允许，但实时 availability 未确认；
-- `reference_multiplier` 永远是相对参考，`calculation_allowed=false`；
-- `usage` 才是任务实际 Usage Evidence；
-- `capability_profile` 只提供 Captain 决策资料。
+The dispatch identifier is case-sensitive. The live Qoder Lite route is
+`qoder:lite`; its Provider display label is `Lite` and is not a route ID.
 
-## 9. 更新模型认知不需要改 Python
+## 3.1 Execution parameters and Usage
 
-以后新 benchmark 出现时：
+`task_dispatch` may carry `model_parameters` only with an explicit model:
 
-```text
-更新 Runtime Home/model_routing_profiles.json
-→ 重新调用 crew_catalog
+```json
+{"reasoning_effort":"medium","context_window_tokens":200000}
 ```
 
-不需要修改：
+Before creating a task, Runtime checks the selected model's current Provider
+descriptor. The requested effort must be declared for that model; for Qoder,
+the requested context window must exactly match a declared context value.
+Missing, unknown, or unsupported capability facts reject the request without
+creating a task.
+
+CodeBuddy supports `reasoning_effort` on its controlled SDK route but does not
+expose a controlled per-session context-window setting. Qoder starts the ACP
+session with the official `qodercli --context-window <tokens>` option and uses
+ACP configuration only for thought level. Neither backend silently ignores or
+changes a requested setting.
+
+`task_result.usage` is Provider-observed evidence, not a price calculator. It
+returns actual `input_tokens`, `output_tokens`, `credits_used`,
+`reported_cost`, and `currency` only when supplied by the Provider. Otherwise
+the status is `provider_omitted`; an unrecognized Provider payload is reported
+as `protocol_unrecognized`.
+
+## 4. Model Evaluation Standard v1
+
+The current evidence contract is documented in:
 
 ```text
-CrewRegistryService
-CodeBuddy adapter
-Qoder adapter
-MCP schema
+docs/MODEL_EVALUATION_STANDARD.md
 ```
 
-只有 profile **格式/安全边界**需要变化时，才应升级 TP-Voyager 程序。
-
-## 10. `crew_recommend` 仍只是 Crew 级辅助
-
-`crew_recommend` 继续回答：
-
-> 哪个 Crew 的受控执行路线满足这个 task kind / capability？
-
-它不回答：
-
-> 应该自动选择哪个底模？
-
-最终流程保持：
+The central rule for fixed models is:
 
 ```text
-crew_catalog(include_models=true)
-        ↓
-Captain 根据 route facts 自己判断
-        ↓
-task_dispatch(
-    crew=...,
-    model=...,
-    reasoning_effort=... only when supported
-)
+Standard Evidence
+    -> persisted Scorecard snapshot
+    -> calibrated tier_rules/v1
+    -> Scorecard.tier  [authoritative]
 ```
 
-## 11. Benchmark snapshot record
-
-本次 26-route 独立评测归纳的可追溯记录位于：
+The old operator-written Tier is preserved only as:
 
 ```text
-docs/records/TP_VOYAGER_V106_MODEL_ROUTING_BENCHMARK_BASELINE_2026-08-13.md
+legacy_capability_tier
 ```
 
-它用于说明 operator baseline 如何得出当前 Tier / Confidence；运行时不读取该 Markdown 来自动评分。
+For calibrated v2 profiles, Runtime requires:
+
+```text
+capability_tier == scorecard.tier
+tier_authority == standard_v1
+```
+
+A mismatch fails closed.
+
+## 5. Transitional v1 -> v2 semantics
+
+Before a migrated v1 operator profile has a calibrated persisted Scorecard, fixed models normalize to:
+
+```json
+{
+  "capability_tier": "UNCLASSIFIED",
+  "legacy_capability_tier": "L2",
+  "tier_authority": "standard_v1_uncalibrated",
+  "scorecard": null
+}
+```
+
+Migration itself never invents a new Tier.
+
+## 6. Dynamic Qoder tiers
+
+TP-Voyager intentionally supports four dynamic Qoder tiers:
+
+- Ultimate
+- Performance
+- Efficient
+- Lite
+
+They project as:
+
+```json
+{
+  "provider_identity": "dynamic_tier",
+  "provider_tier_label": "Ultimate",
+  "capability_tier": "DYNAMIC",
+  "tier_authority": "provider_dynamic",
+  "scorecard": null
+}
+```
+
+`qoder:auto` is retired by TP-Voyager local policy and is absent from the bundled routing baseline. Dynamic tiers never borrow a fixed-model Scorecard.
+
+## 7. Current fixed-model baseline
+
+The current account snapshot contains 16 fixed canonical models. Formal Standard v1 Tier is deliberately conservative:
+
+| Canonical model | Standard Tier | Evidence state |
+|---|---|---|
+| `kimi-k3` | L3 | compliant current Primary |
+| `glm-5.2` | L2 | compliant current Primary |
+| `glm-5.1` | L2 | compliant current Primary |
+| `qwen3.7-plus` | L2 | compliant current Primary |
+| `kimi-k2.6` | L1 | compliant current Primary |
+| all other fixed models in the current cohort | UNCLASSIFIED | insufficient compatible Primary evidence |
+
+`UNCLASSIFIED` is intentional. Provider claims, legacy Tier, model-level composite intelligence indices, or a preference leaderboard cannot fill a missing Primary-evidence requirement.
+
+Fresh-release audit rule: an exact new release may be fully routable and still be `UNCLASSIFIED` while independent benchmark providers catch up. Current examples are `DeepSeek-V4-Flash-0731`, `DeepSeek-V4-Pro-0813`, and GLM-5.3. Do not inherit predecessor scores across those release boundaries.
+
+Detailed research and calibration records live under `docs/records/`.
+
+## 8. Evidence classes
+
+Current profiles may contain both:
+
+```text
+benchmark_evidence   -> immutable legacy_v1 history
+standard_evidence    -> Model Evaluation Standard v1 records
+```
+
+Legacy rows are preserved for historical comparison but do not enter the Standard v1 Scorecard automatically.
+
+Standard Evidence distinguishes:
+
+```text
+model_only
+model_agent
+preference
+provider_claim
+operator_observed
+```
+
+A model+agent/harness score is never silently collapsed into a pure model score.
+
+## 9. Benchmark version and double-counting isolation
+
+Formal Tier uses only benchmark versions explicitly accepted by the current tier-rules calibration. For example, Terminal-Bench 2.0 and 2.1 are not assumed comparable.
+
+When a composite index contains component benchmarks, TP-Voyager prefers component records for capability dimensions and prevents the composite from being counted again.
+
+## 10. Trusted local evidence refs
+
+Local research files can still be bound with hash-verified `evidence_refs`. Absolute directories are configured under:
+
+```text
+~/.tp-voyager/config.json -> trusted_roots.model_evidence
+```
+
+Profiles store only alias + relative path + expected SHA-256. Runtime does not expose the trusted root absolute path or inject the Markdown body into Crew prompts.
+
+This provenance mechanism is independent of Standard Evidence score computation.
+
+## 11. Catalog projection
+
+A fixed-model route with calibrated evidence can project:
+
+```json
+{
+  "route_id": "codebuddy:glm-5.2",
+  "allowlist_status": "allowed",
+  "routable": true,
+  "capability_profile": {
+    "canonical_family": "glm-5.2",
+    "capability_tier": "L2",
+    "legacy_capability_tier": "L3",
+    "tier_authority": "standard_v1",
+    "scorecard": {
+      "coverage": "high",
+      "confidence": "high",
+      "tier": "L2"
+    }
+  }
+}
+```
+
+The Scorecard is a **persisted maintenance snapshot**. Runtime validates it when profiles load; it does not recompute web benchmark data on every `crew_catalog` call. It is cryptographically bound to the canonical model, exact Standard Evidence set, Source Registry, Tier Rules, and builder version; load also deterministically rebuilds the derived snapshot at its persisted `evaluated_at`, so a hand-edited Tier/dimension cannot pass merely by keeping the input digests unchanged. Source freshness policy is enforced when the snapshot is built, so stale/invalid evidence cannot remain Primary merely because it is still stored.
+
+
+## 12. Provider effort remains separate
+
+`recommended/suggested effort` in a capability profile is advisory. Actual effort support comes from the live provider/backend capability contract. Captain may pass an effort only when the selected backend route supports it.
+
+## 13. Operator maintenance
+
+Manual maintenance flow:
+
+```text
+confirm backend identity
+-> research under Source Registry
+-> append immutable Standard Evidence
+-> provenance approval
+-> build persisted Scorecard
+-> validate
+-> project to Captain
+```
+
+Commands:
+
+```bash
+tp-voyager model-routing-init
+tp-voyager model-routing-migrate --dry-run
+tp-voyager model-routing-migrate --write
+tp-voyager model-evaluation-validate
+```
+
+`model-evaluation-validate` is read-only and performs no network access.
+
+## 14. Records
+
+Current records:
+
+```text
+docs/records/TP_VOYAGER_V107_MODEL_SCOPE_2026-08.md
+docs/records/TP_VOYAGER_MODEL_IDENTITY_SNAPSHOT_2026-08.md
+docs/records/TP_VOYAGER_MODEL_EVALUATION_RESEARCH_2026-08.md
+docs/records/TP_VOYAGER_MODEL_PROVIDER_RESEARCH_2026-08.md
+docs/records/TP_VOYAGER_MODEL_TIER_CALIBRATION_2026-08.md
+docs/records/TP_VOYAGER_MODEL_EVALUATION_BASELINE_2026-08.md
+```

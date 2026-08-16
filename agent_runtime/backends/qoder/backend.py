@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import shutil
+import tempfile
 import threading
+import time
 from dataclasses import dataclass
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from agent_runtime.backends.base import (
@@ -33,6 +37,63 @@ class _LiveExecution:
     client: QoderAcpClient | None = None
     cancel_pending: bool = False
 
+
+def _cleanup_read_scope_snapshot(snapshot: tempfile.TemporaryDirectory[str]) -> bool:
+    """Best-effort cleanup that never converts a completed Crew task to failed.
+
+    On Windows, ``taskkill /T`` can return just before a Qoder descendant has
+    released the snapshot directory.  Retrying the narrow cleanup briefly
+    handles that normal race.  A remaining lock leaves only an OS-temp
+    directory for later cleanup; it must not erase an already obtained result.
+    """
+    for attempt in range(20):
+        try:
+            snapshot.cleanup()
+            return True
+        except PermissionError:
+            if attempt < 19:
+                time.sleep(0.1)
+    return False
+
+
+
+def _materialize_read_scope_snapshot(source_cwd: str, resolved_files: tuple[str, ...]) -> tuple[tempfile.TemporaryDirectory[str], Path]:
+    """Create a disposable Qoder cwd containing only approved read-scope files.
+
+    This is workspace-exposure isolation, not an OS sandbox.  The local Qoder
+    process still runs with the host user's privileges, but the Passenger repo
+    itself is no longer the process cwd for bounded read-only routes.
+    """
+    source_root = Path(source_cwd).resolve(strict=True)
+    temp = tempfile.TemporaryDirectory(prefix="tp-voyager-qoder-readonly-")
+    snapshot_root = Path(temp.name)
+    try:
+        if not resolved_files:
+            raise BackendProtocolError("Qoder read-only route requires a non-empty resolved read_scope")
+        for raw in resolved_files:
+            normalized = str(raw or "").strip().replace("\\", "/")
+            pure = PurePosixPath(normalized)
+            if (
+                not normalized
+                or normalized.startswith("/")
+                or (len(normalized) >= 2 and normalized[1] == ":")
+                or any(part in {"", ".", ".."} for part in pure.parts)
+            ):
+                raise BackendProtocolError("Qoder read_scope contains an unsafe relative path")
+            source = (source_root / Path(*pure.parts)).resolve(strict=True)
+            try:
+                source.relative_to(source_root)
+            except ValueError as exc:
+                raise BackendProtocolError("Qoder read_scope resolves outside the source workspace") from exc
+            if not source.is_file():
+                raise BackendProtocolError("Qoder read_scope contains a non-file entry")
+            destination = snapshot_root / Path(*pure.parts)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, destination, follow_symlinks=False)
+        return temp, snapshot_root
+    except Exception:
+        temp.cleanup()
+        raise
 
 
 class QoderBackend:
@@ -214,6 +275,7 @@ class QoderBackend:
                     command_specs.append(CommandSpec.from_dict(item))
                 except ValueError as exc:
                     raise BackendProtocolError("Qoder patch policy contains an invalid command spec") from exc
+        read_scope_snapshot: tempfile.TemporaryDirectory[str] | None = None
         if mode == "read_only":
             routing = request.metadata.get("routing_metadata")
             routing = routing if isinstance(routing, dict) else {}
@@ -227,18 +289,28 @@ class QoderBackend:
                     str(item) for item in read_scope.get("resolved_files", [])
                     if isinstance(item, str) and item
                 )
-                client = factory(
-                    cwd=request.cwd,
-                    on_activity=callbacks.on_activity,
-                    allowed_paths=resolved_files,
-                    forbidden_paths=(".git", ".codebuddy", ".qoder"),
+                read_scope_snapshot, snapshot_root = _materialize_read_scope_snapshot(
+                    request.cwd, resolved_files
                 )
+                try:
+                    client = factory(
+                        cwd=str(snapshot_root),
+                        on_activity=callbacks.on_activity,
+                        context_window_tokens=request.context_window_tokens,
+                        allowed_paths=resolved_files,
+                        forbidden_paths=(".git", ".codebuddy", ".qoder"),
+                    )
+                except Exception:
+                    read_scope_snapshot.cleanup()
+                    read_scope_snapshot = None
+                    raise
             route = "acp_read_only"
         elif mode in {"patch", "verification"}:
             factory = self._patch_acp_client_factory if mode == "patch" else self._verification_acp_client_factory
             client = factory(
                 cwd=request.cwd,
                 on_activity=callbacks.on_activity,
+                context_window_tokens=request.context_window_tokens,
                 allowed_paths=tuple(str(item) for item in plan.get("allowed_paths", []) if isinstance(item, str)),
                 forbidden_paths=tuple(str(item) for item in plan.get("forbidden_paths", []) if isinstance(item, str)),
                 command_specs=tuple(command_specs),
@@ -262,6 +334,7 @@ class QoderBackend:
                 resume_session_id=resume_session_id,
                 model=request.model,
                 reasoning_effort=request.reasoning_effort,
+                context_window_tokens=request.context_window_tokens,
                 idle_timeout_seconds=request.idle_timeout_seconds,
                 max_task_duration_seconds=request.max_task_duration_seconds,
                 on_dispatch_accepted=accepted,
@@ -280,6 +353,7 @@ class QoderBackend:
                     "backend": "qoder",
                     "stopReason": result.stop_reason,
                     "reasoning_effort_applied": result.reasoning_effort_applied,
+                    "context_window_tokens_applied": result.context_window_tokens_applied,
                     "model_applied": result.model_applied,
                     "usage": usage_fact.to_dict() if usage_fact is not None else {},
                 },
@@ -307,3 +381,5 @@ class QoderBackend:
                 pass
             client.close()
             self._unregister(request.task_id)
+            if read_scope_snapshot is not None:
+                _cleanup_read_scope_snapshot(read_scope_snapshot)

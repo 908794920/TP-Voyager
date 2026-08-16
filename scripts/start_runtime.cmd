@@ -3,7 +3,7 @@ setlocal EnableExtensions DisableDelayedExpansion
 
 rem TP-Voyager Runtime launcher.
 rem Python priority:
-rem   1. AGENT_RUNTIME_PYTHON
+rem   1. TP_VOYAGER_PYTHON
 rem   2. .venv\Scripts\python.exe
 rem   3. python.exe from PATH
 
@@ -14,11 +14,11 @@ set "PYTHONPATH="
 for %%I in ("%~dp0..") do set "_TPV_ROOT=%%~fI"
 set "_TPV_PYTHON="
 
-if defined AGENT_RUNTIME_PYTHON (
-  if exist "%AGENT_RUNTIME_PYTHON%" (
-    set "_TPV_PYTHON=%AGENT_RUNTIME_PYTHON%"
+if defined TP_VOYAGER_PYTHON (
+  if exist "%TP_VOYAGER_PYTHON%" (
+    set "_TPV_PYTHON=%TP_VOYAGER_PYTHON%"
   ) else (
-    >&2 echo TP-Voyager: AGENT_RUNTIME_PYTHON does not exist: "%AGENT_RUNTIME_PYTHON%"
+    >&2 echo TP-Voyager: TP_VOYAGER_PYTHON does not exist: "%TP_VOYAGER_PYTHON%"
     exit /b 9009
   )
 )
@@ -35,7 +35,7 @@ if not defined _TPV_PYTHON (
 
 if not defined _TPV_PYTHON (
   >&2 echo TP-Voyager: Python was not found.
-  >&2 echo Create .venv or set AGENT_RUNTIME_PYTHON to an absolute python.exe path.
+  >&2 echo Create .venv or set TP_VOYAGER_PYTHON to an absolute python.exe path.
   exit /b 9009
 )
 

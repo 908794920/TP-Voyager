@@ -1,7 +1,7 @@
 """Local operational CLI for the durable Sub-Agent Runtime.
 
-The CLI is read-only for Runtime task state.  Its only configuration mutation
-is the explicit ``model-routing-init`` bootstrap, plus explicitly requested
+The CLI is read-only for Runtime task state except for explicit ``init`` and
+``model-routing-init`` configuration bootstraps, plus explicitly requested
 Markdown/JSON export files.  It does not import the MCP server and cannot start,
 cancel, retry, resume, or mutate a task.
 """
@@ -17,10 +17,13 @@ from pathlib import Path
 from typing import Any
 
 from agent_runtime.api.schemas import CAPTAIN_TOOL_NAMES
+from agent_runtime.configuration import VoyagerUserConfig, VoyagerUserConfigError
 from agent_runtime.application.crew.routing_profiles import (
     ModelRoutingProfileError,
     ModelRoutingProfiles,
 )
+from agent_runtime.application.crew.model_evaluation import ModelEvaluationSourceRegistry
+from agent_runtime.application.crew.model_scorecard import load_tier_rules
 from agent_runtime.backends.codebuddy.process import probe_codebuddy_cli
 from agent_runtime.backends.codebuddy.model_catalog import list_codebuddy_models
 from agent_runtime.backends.qoder.process import probe_qoder_cli
@@ -91,6 +94,62 @@ def _safe_routing_profiles() -> dict[str, Any]:
         }
 
 
+def _model_evaluation_validation(home: Path) -> dict[str, Any]:
+    profiles = ModelRoutingProfiles.load(home)
+    registry = ModelEvaluationSourceRegistry.load_bundled()
+    rules = load_tier_rules()
+    fixed = {
+        profile.canonical_family for profile in profiles.profiles
+        if profile.provider_identity != "dynamic_tier" and profile.canonical_family
+    }
+    dynamic = [profile for profile in profiles.profiles if profile.provider_identity == "dynamic_tier"]
+    standard_by_id: dict[str, dict[str, Any]] = {}
+    for profile in profiles.profiles:
+        for item in profile.standard_evidence:
+            evidence_id = str(item.get("evidence_id") or "")
+            if evidence_id:
+                standard_by_id.setdefault(evidence_id, item)
+    standard_evidence = list(standard_by_id.values())
+    legacy_by_value: dict[str, dict[str, Any]] = {}
+    for profile in profiles.profiles:
+        for item in profile.benchmark_evidence:
+            key = json.dumps(item, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+            legacy_by_value.setdefault(key, item)
+    legacy_evidence = list(legacy_by_value.values())
+    archived = 0
+    versions: dict[str, set[str]] = {}
+    for item in standard_evidence:
+        source = registry.source(str(item.get("source_id") or ""))
+        if source.get("status") == "archived":
+            archived += 1
+        benchmark = item.get("benchmark") if isinstance(item.get("benchmark"), dict) else {}
+        benchmark_id = str(benchmark.get("id") or "")
+        version = str(benchmark.get("version") or "")
+        if benchmark_id and version:
+            versions.setdefault(benchmark_id, set()).add(version)
+    return {
+        "schema": "tp-voyager.model_evaluation_validation/v1",
+        "profiles": profiles.profile_count,
+        "canonical_fixed_models": len(fixed),
+        "dynamic_routes": len(dynamic),
+        "profile_schema": profiles.schema,
+        "normalized_profile_schema": profiles.normalized_schema,
+        "migration_available": profiles.schema == "tp-voyager.model_routing_profiles/v1",
+        "standard_evidence": len(standard_evidence),
+        "legacy_evidence": len(legacy_evidence),
+        "invalid_evidence": 0,
+        "primary_missing_required_context": 0,
+        "archived_source_evidence": archived,
+        "incomparable_groups": sum(1 for values in versions.values() if len(values) > 1),
+        "tier_rules": str(profiles.tier_rules_status or "unknown"),
+        "bundled_tier_rules": str(rules.get("status") or "unknown"),
+        "tier_authority_conflicts": 0,
+        "retired_routes": list(profiles.retired_routes),
+        "network_access_performed": False,
+        "write_performed": False,
+    }
+
+
 def _doctor_projection(overview: dict[str, Any]) -> dict[str, Any]:
     required = sorted(CAPTAIN_TOOL_NAMES)
     runtime_ok = bool(overview.get("schema_supported") and overview.get("integrity_ok"))
@@ -109,7 +168,7 @@ def _doctor_projection(overview: dict[str, Any]) -> dict[str, Any]:
     projection = dict(overview)
     projection.update({
         "schema": "tp-voyager.doctor/v1",
-        "version": "1.0.6",
+        "version": "1.0.7",
         "ok": installation_ready,
         "runtime": {
             "ok": runtime_ok,
@@ -154,13 +213,13 @@ def _doctor_projection(overview: dict[str, Any]) -> dict[str, Any]:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="agent-runtime",
+        prog="tp-voyager",
         description="Local operations and read-only diagnostics for TP-Voyager Runtime.",
     )
     parser.add_argument(
         "--db",
         default="",
-        help="Runtime SQLite path (default: AGENT_RUNTIME_DB or runtime home)",
+        help="Runtime SQLite path (default: TP_VOYAGER_DB or TP-Voyager home)",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -172,8 +231,26 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     subparsers.add_parser(
+        "init",
+        help="Initialize ~/.tp-voyager user configuration and reviewed routing baseline",
+    )
+
+    subparsers.add_parser(
         "model-routing-init",
-        help="Install the reviewed model-routing baseline into Runtime Home without overwrite",
+        help="Install the reviewed model-routing baseline into TP-Voyager Home without overwrite",
+    )
+
+    migrate_parser = subparsers.add_parser(
+        "model-routing-migrate",
+        help="Explicitly migrate model_routing_profiles.json v1 to v2",
+    )
+    migrate_mode = migrate_parser.add_mutually_exclusive_group(required=True)
+    migrate_mode.add_argument("--dry-run", action="store_true", help="Validate and report migration without writing")
+    migrate_mode.add_argument("--write", action="store_true", help="Atomically persist the validated v2 migration")
+
+    subparsers.add_parser(
+        "model-evaluation-validate",
+        help="Read-only validation of model evaluation evidence, scorecards, and tier authority",
     )
 
     audit_parser = subparsers.add_parser(
@@ -253,9 +330,35 @@ def main(argv: list[str] | None = None) -> int:
     resolution = resolve_runtime_database()
     path = Path(args.db).expanduser().resolve() if args.db else resolution.database
     try:
+        if args.command == "init":
+            home = canonical_runtime_home()
+            config_result = VoyagerUserConfig.initialize(home)
+            routing_path = home / "model_routing_profiles.json"
+            if routing_path.exists():
+                routing_result = {
+                    "status": "already_exists",
+                    "target": str(routing_path),
+                    "profile_count": ModelRoutingProfiles.load(home).profile_count,
+                }
+            else:
+                routing_result = ModelRoutingProfiles.initialize(home)
+            _json_print({
+                "schema": "tp-voyager.init/v1",
+                "home": str(home),
+                "config": config_result,
+                "model_routing_profiles": routing_result,
+            })
+            return 0
         if args.command == "model-routing-init":
             result = ModelRoutingProfiles.initialize(canonical_runtime_home())
             _json_print(result)
+            return 0
+        if args.command == "model-routing-migrate":
+            result = ModelRoutingProfiles.migrate(canonical_runtime_home(), write=bool(args.write))
+            _json_print(result)
+            return 0
+        if args.command == "model-evaluation-validate":
+            _json_print(_model_evaluation_validation(canonical_runtime_home()))
             return 0
 
         inspector = RuntimeInspector(path)
@@ -263,13 +366,8 @@ def main(argv: list[str] | None = None) -> int:
             overview = inspector.overview().to_dict()
             path_info = resolution.to_dict()
             if args.db:
-                path_info = {**path_info, "database": str(path), "path_source": "--db", "legacy_compat_active": False}
-            marker = path.parent / "migration-v2.json"
+                path_info = {**path_info, "database": str(path), "path_source": "--db"}
             overview["path_resolution"] = path_info
-            overview["home_migration"] = {
-                "marker_file": str(marker),
-                "marker_exists": marker.is_file(),
-            }
             doctor = _doctor_projection(overview)
             _json_print(doctor)
             if not doctor["schema_supported"]:
