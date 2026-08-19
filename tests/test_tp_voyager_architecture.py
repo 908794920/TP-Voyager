@@ -92,7 +92,7 @@ class TPVoyagerArchitectureBaselineTests(unittest.TestCase):
         source = (PKG / "api" / "mcp_server.py").read_text(encoding="utf-8")
         for name in (
             "crew_catalog", "crew_health", "crew_recommend",
-            "voyager_overview", "task_dispatch", "task_result",
+            "voyager_overview", "render_voyager_panel", "task_dispatch", "task_result",
         ):
             self.assertIn(f"def {name}(", source)
         dispatch = (PKG / "application" / "dispatch" / "service.py").read_text(encoding="utf-8")
@@ -101,10 +101,10 @@ class TPVoyagerArchitectureBaselineTests(unittest.TestCase):
         self.assertNotIn("--yolo", dispatch)
 
 
-    def test_default_mcp_surface_registers_only_six_captain_tools(self) -> None:
+    def test_default_mcp_surface_registers_seven_captain_tools(self) -> None:
         expected = {
             "crew_catalog", "crew_health", "crew_recommend",
-            "voyager_overview", "task_dispatch", "task_result",
+            "voyager_overview", "render_voyager_panel", "task_dispatch", "task_result",
         }
         with tempfile.TemporaryDirectory() as tmp:
             stub = Path(tmp)
@@ -116,6 +116,9 @@ class TPVoyagerArchitectureBaselineTests(unittest.TestCase):
                 "    def __init__(self, *args, **kwargs): self.registered_tools=[]\n"
                 "    def tool(self, *args, **kwargs):\n"
                 "        def deco(fn): self.registered_tools.append(fn.__name__); return fn\n"
+                "        return deco\n"
+                "    def resource(self, *args, **kwargs):\n"
+                "        def deco(fn): return fn\n"
                 "        return deco\n"
                 "    def run(self, *args, **kwargs): pass\n",
                 encoding="utf-8",
@@ -142,6 +145,9 @@ class TPVoyagerArchitectureBaselineTests(unittest.TestCase):
                 "    def tool(self, *args, **kwargs):\n"
                 "        def deco(fn): self.registered_tools.append(fn.__name__); return fn\n"
                 "        return deco\n"
+                "    def resource(self, *args, **kwargs):\n"
+                "        def deco(fn): return fn\n"
+                "        return deco\n"
                 "    def run(self, *args, **kwargs): pass\n",
                 encoding="utf-8",
             )
@@ -154,7 +160,7 @@ class TPVoyagerArchitectureBaselineTests(unittest.TestCase):
             )
             self.assertEqual(completed.returncode, 0, completed.stderr)
             tools = set(json.loads(completed.stdout.strip().splitlines()[-1]))
-            self.assertGreater(len(tools), 6)
+            self.assertGreater(len(tools), 7)
             self.assertIn("subagent_status", tools)
             self.assertIn("context_register", tools)
 

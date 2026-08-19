@@ -1,0 +1,20 @@
+{
+  "name": "tp-voyager-local",
+  "interface": {
+    "displayName": "TP-Voyager Local"
+  },
+  "plugins": [
+    {
+      "name": "tp-voyager-observability",
+      "source": {
+        "source": "local",
+        "path": "./plugins/tp-voyager-observability"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

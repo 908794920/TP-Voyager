@@ -30,9 +30,16 @@ def _import_mcp_server():
             del args, kwargs
             self.registered_tools = {}
 
-        def tool(self):
+        def tool(self, *args, **kwargs):
+            del args, kwargs
             def decorate(func):
                 self.registered_tools[func.__name__] = func
+                return func
+            return decorate
+
+        def resource(self, *args, **kwargs):
+            del args, kwargs
+            def decorate(func):
                 return func
             return decorate
 

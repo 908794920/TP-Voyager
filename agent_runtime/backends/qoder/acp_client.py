@@ -609,6 +609,7 @@ class QoderAcpClient:
             return
         kind = str(update.get("sessionUpdate") or update.get("type") or "activity")
         content = update.get("content")
+        observation: dict[str, Any] = {}
         if kind == "agent_message_chunk":
             if isinstance(content, dict):
                 text = content.get("text")
@@ -616,6 +617,10 @@ class QoderAcpClient:
                 text = content
             if isinstance(text, str):
                 self._answer.append(text)
+                observation = {
+                    "observation_kind": "assistant_message",
+                    "text": text,
+                }
         elif kind == "usage_update":
             keys = sorted(str(key)[:80] for key in update if key != "sessionUpdate")[:64]
             self._usage_events.append({"type": "usage_update", "keys": keys, "timestamp": round(time.time(), 6), "size_bytes": len(json.dumps(update, ensure_ascii=False).encode("utf-8"))})
@@ -624,13 +629,31 @@ class QoderAcpClient:
             for key, value in update.items():
                 if key != "sessionUpdate" and isinstance(value, (int, float, str, bool)):
                     self._usage[str(key)[:80]] = value
+        elif kind in {"tool_call", "tool_call_update"}:
+            raw_tool = update.get("toolCall")
+            if not isinstance(raw_tool, dict):
+                raw_tool = update
+            tool_name = str(
+                raw_tool.get("name")
+                or raw_tool.get("toolName")
+                or raw_tool.get("title")
+                or "tool"
+            )[:160]
+            status = str(raw_tool.get("status") or update.get("status") or "")[:80]
+            observation = {
+                "observation_kind": "tool_activity",
+                "tool": tool_name,
+            }
+            if status:
+                observation["status"] = status
+        detail = {"route": "acp", "acp_update": kind[:80], **observation}
         self._last_activity = time.monotonic()
         self._event_count += 1
         self.on_activity(
             BackendActivity(
                 kind="stream_activity",
                 timestamp=time.time(),
-                detail={"route": "acp", "acp_update": kind[:80]},
+                detail=detail,
             )
         )
 

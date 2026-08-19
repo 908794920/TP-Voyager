@@ -28,7 +28,7 @@ TP-Voyager 把这些问题收在执行层：
 - **受控执行**：read-only、patch、verification 都有明确边界，不使用隐藏 fallback；
 - **隔离修改**：Patch 在 Runtime-owned Git worktree 中完成，Passenger Workspace 不由 Runtime 直接修改；
 - **Verification + Evidence**：把测试、Patch、Usage、执行结果变成可追溯事实；
-- **小型 Captain Surface**：正常只需要 6 个 MCP 工具，不要求 Captain 理解 Runtime 内部实现。
+- **小型 Captain Surface**：v1.0.9 默认只有 7 个 MCP 工具；原有 6 个控制/查询工具保持兼容，新增的 `render_voyager_panel` 仅用于只读 Agent 可见性。
 
 ## v1.0.7：统一配置与受控执行
 
@@ -180,16 +180,21 @@ Crew CLI 的解析顺序是“临时环境变量覆盖 → `config.json` → PAT
 
 ## Captain 怎么用
 
-默认 MCP Surface 只有 6 个高层工具：
+默认 MCP Surface 有 7 个高层工具：
 
 ```text
 voyager_overview
+render_voyager_panel
 crew_catalog
 crew_health
 crew_recommend
 task_dispatch
 task_result
 ```
+
+其中 `render_voyager_panel(task_id=...)` 是只读可见性工具，不改变原有六工具控制流程。v1.0.9 同时把 `task_dispatch` 关联到同一 MCP Apps UI resource：支持 MCP Apps 的 Codex Host 可在子代理启动返回 `task_id` 时立即显示当前对话内的 Agent Presence 卡片；卡片刷新只调用只读 render 工具，不会重复 dispatch。无 UI 的 Host 仍可读取同一结构化结果。
+
+Panel 可展示 Crew、模型、状态、Provider-visible assistant 输出、Tool/File 活动、Provider 实报 Usage 与失败类别。Assistant/Tool observation 只保存在当前 Runtime 进程的有界内存中，Runtime 重启即丢失；Prompt、system message、secret、raw tool output 和隐藏/私有 chain-of-thought 不进入该流。Durable Task/Event/Evidence 仍由 SQLite 独占。
 
 推荐主路径：
 

@@ -37,10 +37,16 @@ Captain 选择 Crew / Model / Effort
    ↓
 task_dispatch
    ↓
+[Host 支持时] render_voyager_panel(task_id=...)
+   ↓
 task_result + Verification / Evidence
    ↓
 Captain 接受 / 拒绝 / 决定下一步
 ```
+
+`render_voyager_panel` 是 v1.0.9 的只读 observability 工具。Codex host integration 会在 dispatch 返回明确 `task_id` 后立即调用一次，用状态点/边框给当前会话提供 Agent presence，并允许展开 Conversation / Timeline / Files / Usage。它不会重复 dispatch，不会自动挑选其他 Runtime 任务，也不是第二套 Task truth。Provider-visible assistant 内容和安全 Tool/File 活动只进入进程内有界 observation stream；Prompt、secret、raw tool output 与隐藏/private chain-of-thought 不进入该流。
+
+Codex 的本地加载/插件包装位于 [`integrations/codex/`](integrations/codex/)。未来其他 Host（例如 Claude Code）在真实实现出现时使用 `integrations/<host>/` 同级目录，不把 Host 逻辑塞进 Runtime。
 
 ## v1.0.7 怎么选模型
 

@@ -1090,7 +1090,7 @@ known run_id + step_key
 → task_result(run_id=..., step_key=...)
 ```
 
-The default Captain surface remains exactly six tools.
+The default Captain surface is exactly seven tools in v1.0.9: the original six control/query tools plus the read-only `render_voyager_panel`. The render tool must be pinned to an explicit `task_id`, must never dispatch/mutate, and must never expose prompts, secrets, raw tool output, or hidden/private chain-of-thought.
 
 ## 16. Completion Standard
 

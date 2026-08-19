@@ -284,24 +284,61 @@ class CodeBuddySdkClient:
                 last_activity = time.monotonic()
                 event_count += 1
                 type_name = type(message).__name__
+                observation_events: list[dict[str, Any]] = []
                 if type_name == "AssistantMessage":
                     for block in list(getattr(message, "content", None) or []):
-                        if type(block).__name__ == "TextBlock":
+                        block_name = type(block).__name__
+                        if block_name == "TextBlock":
                             text = getattr(block, "text", None)
                             if isinstance(text, str):
                                 text_parts.append(text)
+                                observation_events.append({
+                                    "observation_kind": "assistant_message",
+                                    "text": text,
+                                })
+                        elif block_name in {"ToolUseBlock", "ToolUse"}:
+                            tool_name = str(getattr(block, "name", None) or "tool")[:160]
+                            tool_input = getattr(block, "input", None)
+                            detail: dict[str, Any] = {
+                                "observation_kind": "tool_activity",
+                                "tool": tool_name,
+                                "status": "requested",
+                            }
+                            if isinstance(tool_input, dict):
+                                raw_path = tool_input.get("file_path", tool_input.get("path"))
+                                rel = self._relative_path(raw_path) if raw_path not in {None, ""} else None
+                                if rel is not None:
+                                    detail["path"] = rel
+                                if tool_name in {"Edit", "MultiEdit", "Write"}:
+                                    detail["action"] = "modify"
+                            observation_events.append(detail)
                 if type_name == "ResultMessage":
                     result_message = message
-                self.on_activity(
-                    BackendActivity(
-                        kind="stream_activity",
-                        timestamp=time.time(),
-                        detail={
-                            "route": "sdk_patch" if self.access_mode == "patch" else ("sdk_verify" if self.access_mode == "verification" else "sdk_context_read_only"),
-                            "sdk_message": type_name[:80],
-                        },
+                route_name = "sdk_patch" if self.access_mode == "patch" else ("sdk_verify" if self.access_mode == "verification" else "sdk_context_read_only")
+                if observation_events:
+                    for observation in observation_events:
+                        self.on_activity(
+                            BackendActivity(
+                                kind="stream_activity",
+                                timestamp=time.time(),
+                                detail={
+                                    "route": route_name,
+                                    "sdk_message": type_name[:80],
+                                    **observation,
+                                },
+                            )
+                        )
+                else:
+                    self.on_activity(
+                        BackendActivity(
+                            kind="stream_activity",
+                            timestamp=time.time(),
+                            detail={
+                                "route": route_name,
+                                "sdk_message": type_name[:80],
+                            },
+                        )
                     )
-                )
                 if result_message is not None:
                     break
 

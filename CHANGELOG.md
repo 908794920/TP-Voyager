@@ -3,6 +3,12 @@
 ### v1.0.9 — Unreleased
 
 - Open release line `v1.0.9` (1.0.8 → 1.0.9).
+- Add a bounded, transient Agent observability projection under `application/voyage`: Provider-visible assistant text plus safe Tool/File activity is held only in current-process memory; SQLite Task/Event/Evidence remains the sole Durable truth and no persistence schema changes are introduced.
+- Add the read-only `render_voyager_panel(task_id=...)` Captain tool and a self-contained `text/html;profile=mcp-app` resource with obvious queued/starting/running/completed/failed state dot/border, expandable Conversation/Timeline/Files/Usage, manual/live refresh, no `localStorage`, and empty CSP allow-lists.
+- Keep the original six Captain tools request/response behavior-compatible. `task_dispatch` and the read-only render tool reference the same MCP Apps resource so Agent presence can appear immediately on dispatch; the UI itself refreshes only through `render_voyager_panel`, so refresh can never re-dispatch a Task.
+- Preserve safe observation details from Qoder ACP and CodeBuddy Agent SDK callbacks: assistant output, allow-listed tool metadata, relative file paths, and Provider-reported Usage. Prompt/system content, secrets, raw tool output, absolute host paths, and hidden/private chain-of-thought are excluded.
+- Add `skills/tp-voyager-captain/integrations/codex/` as the first Host-specific loading/presentation package, including a local Codex marketplace and skills-only `tp-voyager-observability` plugin. It reuses the existing `tp_voyager` MCP registration and deliberately carries no second `.mcp.json`/`.app.json` server declaration; future Host integrations use sibling `integrations/<host>/` directories only when real implementation exists.
+- Raise the MCP Python SDK floor to `mcp>=1.28,<2` for MCP Apps resource/tool metadata support. Actual Codex Desktop iframe rendering remains a live-host acceptance item; structured render output is the mandatory fallback.
 
 ### v1.0.8 Workspace Read-Only Convergence — 2026-08-19
 

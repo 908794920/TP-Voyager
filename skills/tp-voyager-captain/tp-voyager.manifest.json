@@ -2,7 +2,7 @@
   "schema": "tp-voyager.manifest/v1",
   "skill": {
     "name": "tp-voyager-captain",
-    "version": "1.0.7",
+    "version": "1.0.9",
     "protocol": "tp-voyager-captain/v1"
   },
   "mcp": {
@@ -20,6 +20,7 @@
     "env": {},
     "required_captain_tools": [
       "voyager_overview",
+      "render_voyager_panel",
       "crew_catalog",
       "crew_health",
       "crew_recommend",

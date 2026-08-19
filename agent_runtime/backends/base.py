@@ -160,7 +160,13 @@ class BackendResult:
 
 @dataclass
 class BackendActivity:
-    """Content-free activity event from a backend."""
+    """Bounded activity event from a backend.
+
+    ``detail`` may carry an allow-listed human-observability projection such
+    as provider-visible assistant text or safe tool metadata.  Raw prompts,
+    secrets, private chain-of-thought, and raw tool output never belong here.
+    Durable TaskEvent persistence remains content-free.
+    """
     kind: str = ""
     timestamp: float = 0.0
     detail: dict[str, Any] = field(default_factory=dict)

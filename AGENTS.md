@@ -14,7 +14,7 @@
 
 **TP-Voyager v1.0.9 — 开发中**
 
-v1.0.7 在 v1.0.6 stable 基线上统一用户机器配置：默认 Home 改为 `~/.tp-voyager`，新增严格 `config.json`，Crew CLI 路径、模型授权、trusted roots、worker resources 与并发上限归一到同一配置事实源。Runtime 继续保持六工具 Captain Surface、显式 Crew/model/effort、Durable Core、Patch/Receipt/Verification 与 RunControl 边界不变。
+v1.0.8 已完成 workspace read-only convergence 与 Windows 实机验收。v1.0.9 在该稳定执行面之上增加 **Agent Observability / Presence**：默认 Captain Surface 从六个控制/查询工具增为七个，其中新增的 `render_voyager_panel` 只做只读可见性投影；原有六个工具的请求/响应与显式 Crew/model/effort、Durable Core、Patch/Receipt/Verification、RunControl 边界保持不变。
 
 ```text
 Passenger → Captain AI → TP-Voyager → Crew
@@ -93,12 +93,17 @@ Captain 默认 MCP Surface 只能暴露：
 
 ```text
 voyager_overview
+render_voyager_panel
 crew_catalog
 crew_health
 crew_recommend
 task_dispatch
 task_result
 ```
+
+其中 `render_voyager_panel` 是 v1.0.9 唯一新增的默认工具：它只能按显式 `task_id` 读取当前 Runtime 的 Agent 可见性投影，不能 dispatch / resume / cancel / mutate Task，也不能成为第二套 Task truth。无 `task_id` 时必须返回当前会话空状态，禁止自动选择其他 Runtime 历史任务。
+
+Agent 可观察内容遵循最小暴露原则：Provider 明确返回给用户的 assistant 文本、受限 Tool/File 活动与 Usage 可进入**进程内、限长、非持久化**的 observation stream；Prompt、system message、secret、raw tool output、隐藏/私有 chain-of-thought 不得进入该投影。Runtime 重启后该 stream 消失，SQLite Task/Event/Evidence 仍是唯一 Durable truth。
 
 低层兼容工具只能在显式 `TP_VOYAGER_MCP_SURFACE=diagnostic` 诊断模式注册；不得为了普通使用重新扩大默认 Tool Surface。
 
@@ -112,7 +117,7 @@ Vendor CLI 内部参数
 SQLite 内部结构
 ```
 
-大内容通过 Artifact 按需读取。
+大内容通过 Artifact 按需读取；v1.0.9 panel 只显示受限观察投影，不等同于完整 Worker transcript。
 
 ### 模型目录事实所有权
 

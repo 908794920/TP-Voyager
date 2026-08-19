@@ -13,6 +13,7 @@ CAPTAIN_TOOL_NAMES = frozenset({
     "crew_health",
     "crew_recommend",
     "voyager_overview",
+    "render_voyager_panel",
     "task_dispatch",
     "task_result",
 })

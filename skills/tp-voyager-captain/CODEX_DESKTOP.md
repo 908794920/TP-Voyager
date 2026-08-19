@@ -59,6 +59,22 @@ mcp_servers.tp_voyager.env 中 manifest-owned keys
 
 安装 / 同步审计输出包括：目标 Skill 路径、全局 config 路径、changed/no-op、manifest SHA-256、config 修改前后 SHA-256、env key 名称。不会输出环境变量值。
 
+## v1.0.9 Codex Agent 可见性插件（可选）
+
+现有安装器仍是 `tp_voyager` MCP 注册的唯一所有者。v1.0.9 额外提供一个 **skills-only** 本地 Codex 插件，它不包含 `.mcp.json` / `.app.json`，不会启动或注册第二个 TP-Voyager MCP Server。
+
+在仓库根目录执行：
+
+```powershell
+codex plugin marketplace add .\skills\tp-voyager-captain\integrations\codex\local-marketplace
+```
+
+随后在 Codex 插件界面选择 **TP-Voyager Local**，安装 **TP-Voyager Observability**。完全重启 Codex Desktop，并用**新任务/新会话**验收。
+
+插件加载后，`task_dispatch` 自身关联 MCP Apps UI resource，因此支持 MCP Apps 的 Codex Host 可在 dispatch 返回 `task_id` 时直接显示 Agent Presence 卡片，不需要额外第二次工具调用。卡片后续刷新只通过 MCP Apps `tools/call` 调用只读 `render_voyager_panel(task_id=...)`，不得为了刷新重复 dispatch；若 Host 未自动渲染，则再用返回的精确 `task_id` 显式调用 render 工具作为 UI/结构化回退。
+
+该卡片是**对话内 TP-Voyager 面板**，不是 Codex 原生子智能体列表。当前 Host 如果不渲染 MCP Apps UI，`render_voyager_panel` 仍返回完整结构化 fallback，不能据此伪称 iframe 已显示。
+
 ## 配置生效
 
 Codex Desktop 不对既有任务热加载新的 MCP 注册。安装 / 同步完成后必须**完全退出并重新启动 Codex Desktop，或至少创建全新任务 / 会话**，再做真实工具发现验收。

@@ -14,6 +14,11 @@ from agent_runtime.activity_log import ActivityLogger
 from agent_runtime.configuration import VoyagerUserConfig, VoyagerUserConfigError
 from agent_runtime.runtime.backend_callbacks import RuntimeBackendCallbacks
 from agent_runtime.api.schemas import CAPTAIN_TOOL_NAMES
+from agent_runtime.api.voyager_panel import (
+    VOYAGER_PANEL_MIME_TYPE,
+    VOYAGER_PANEL_URI,
+    render_voyager_panel_html,
+)
 from agent_runtime.domain.enums import (
     TERMINAL_STATUS_VALUES,
     EventType,
@@ -106,7 +111,12 @@ from agent_runtime.application.dispatch.profiles import (
     resolve_trusted_instruction_refs,
 )
 from agent_runtime.application.dispatch.artifact_inputs import ArtifactInputResolver
-from agent_runtime.application.voyage import VoyageOverviewService
+from agent_runtime.application.voyage import (
+    AgentObservationRecorder,
+    AgentObservationStore,
+    VoyageAgentProjection,
+    VoyageOverviewService,
+)
 from agent_runtime.domain.dispatch import (
     ApplyReceipt,
     CaptainDispatchRequest,
@@ -156,6 +166,7 @@ from agent_runtime.backends.errors import (
     BackendTimeoutError,
 )
 from agent_runtime.backends.base import (
+    BackendActivity,
     BackendCancelRequest,
     BackendResult,
     BackendResumeRequest,
@@ -170,6 +181,8 @@ from agent_runtime.backends.registry import BackendRegistry
 ROOT = Path(__file__).resolve().parents[2]
 LOG_DIR = canonical_runtime_home() / "runtime" / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
+_AGENT_OBSERVATION_STORE = AgentObservationStore()
+_AGENT_OBSERVATIONS = AgentObservationRecorder(_AGENT_OBSERVATION_STORE)
 
 mcp = FastMCP(
     "tp_voyager",
@@ -189,18 +202,41 @@ def _mcp_surface() -> str:
     return "diagnostic" if value == "diagnostic" else "captain"
 
 
-def _mcp_tool():
+def _mcp_tool(**tool_kwargs: Any):
     """Register only Captain tools by default; keep legacy tools callable internally.
 
     ``TP_VOYAGER_MCP_SURFACE=diagnostic`` restores the complete compatibility
     surface for maintenance.  This is one Runtime with two visibility profiles,
-    not a second control plane or state machine.
+    not a second control plane or state machine.  ``tool_kwargs`` is forwarded
+    to FastMCP so the read-only observability tool can attach MCP Apps metadata
+    without changing registration behavior for existing tools.
     """
     def decorator(func):
         if _mcp_surface() == "diagnostic" or func.__name__ in _CAPTAIN_TOOL_NAMES:
-            return mcp.tool()(func)
+            return mcp.tool(**tool_kwargs)(func)
         return func
     return decorator
+
+
+@mcp.resource(
+    VOYAGER_PANEL_URI,
+    name="TP-Voyager Agent panel",
+    title="TP-Voyager Agent",
+    description="Read-only current-task Agent presence and execution trace UI.",
+    mime_type=VOYAGER_PANEL_MIME_TYPE,
+    meta={
+        "ui": {
+            "prefersBorder": True,
+            "csp": {
+                "connectDomains": [],
+                "resourceDomains": [],
+            },
+        }
+    },
+)
+def voyager_panel_resource() -> str:
+    """Return the self-contained MCP Apps UI resource."""
+    return render_voyager_panel_html()
 
 
 from agent_runtime.runtime.handles import (
@@ -308,6 +344,10 @@ def _runtime_database_or_none() -> Database | None:
 
 def _runtime_service() -> TaskService:
     return TaskService(_get_runtime_database())
+
+
+def _voyage_agent_projection() -> VoyageAgentProjection:
+    return VoyageAgentProjection(_runtime_service(), _AGENT_OBSERVATION_STORE)
 
 
 def _workflow_service() -> WorkflowService:
@@ -1578,7 +1618,8 @@ def _make_backend_callbacks(
         task.backend_session_id = backend_session_id
         _note_task_activity(task, "session_created")
 
-    def on_activity(kind: str) -> None:
+    def on_activity(activity: BackendActivity) -> None:
+        kind = activity.kind
         if kind == "prompt_accepted":
             task.first_prompt_accepted_at = time.time()
             # Prompt accepted: advance the durable lifecycle to observing so
@@ -1591,9 +1632,11 @@ def _make_backend_callbacks(
                 status="observing",
                 event_type=EventType.TASK_STATUS_CHANGED.value,
             )
-        _note_task_activity(task, kind)
+        _note_task_activity(task, activity.kind)
+        _AGENT_OBSERVATIONS.activity(task, activity)
 
     def on_usage(usage: BackendUsage) -> None:
+        _AGENT_OBSERVATIONS.usage(task, usage)
         if not task.persisted:
             return
         try:
@@ -1704,6 +1747,7 @@ def _run_official_cli_task(
             event_type=EventType.TASK_STARTED.value,
             started_at=task.started_at,
         )
+        _AGENT_OBSERVATIONS.started(task, timestamp=task.started_at)
         callbacks = _make_backend_callbacks(task, log_event)
         metadata = {
             "route": task.route,
@@ -1766,6 +1810,7 @@ def _run_official_cli_task(
         _persist_completed(task, task.result, backend_result=backend_result)
         task.state = "completed"
         _note_task_activity(task, "final_response")
+        _AGENT_OBSERVATIONS.completed(task, answer=task.answer)
     except BackendCancelledError:
         task.state = "cancelled"
         task.error = f"{backend_name} execution was cancelled"
@@ -1776,6 +1821,7 @@ def _run_official_cli_task(
             task.cancel_scope = str(cancel_scope_for_route(task.route))
         _persist_cancel_confirmed(task)
         _note_task_activity(task, "process_terminated")
+        _AGENT_OBSERVATIONS.cancelled(task)
     except Exception as exc:
         task.state = "failed"
         task.error = str(exc)
@@ -1785,6 +1831,7 @@ def _run_official_cli_task(
         if not _persist_failed_with_partial_artifacts(task):
             _persist_failed(task)
         _note_task_activity(task, "failed")
+        _AGENT_OBSERVATIONS.failed(task, reason=type(exc).__name__)
         activity_logger.terminal(
             f"{backend_name} task failed",
             status=type(exc).__name__,
@@ -3151,7 +3198,83 @@ def voyager_overview(limit: int = 5) -> dict[str, Any]:
         return {"ok": False, "error": type(exc).__name__}
 
 
-@_mcp_tool()
+@_mcp_tool(
+    meta={
+        "ui": {"resourceUri": VOYAGER_PANEL_URI},
+        "openai/outputTemplate": VOYAGER_PANEL_URI,
+        "openai/toolInvocation/invoking": "Loading TP-Voyager Agent…",
+        "openai/toolInvocation/invoked": "TP-Voyager Agent ready",
+    },
+    structured_output=True,
+)
+def render_voyager_panel(task_id: str = "", limit: int = 200) -> dict[str, Any]:
+    """Render a read-only Agent presence/trace snapshot for the MCP Apps panel.
+
+    This tool never dispatches, resumes, cancels, or mutates a Task.  Supplying
+    ``task_id`` pins the view to that delegated task.  Without a task id the
+    tool returns an empty current-conversation view rather than leaking another
+    Runtime task into this chat.  The structured result remains useful in MCP
+    hosts that do not render the associated UI resource.
+    """
+    try:
+        bounded_limit = max(1, min(int(limit), 1000))
+    except (TypeError, ValueError):
+        return {
+            "ok": False,
+            "schema": "tp-voyager.agent_panel/v1",
+            "reason_code": "INVALID_LIMIT",
+            "error": {"message": "limit must be an integer between 1 and 1000"},
+        }
+
+    canonical_task_id = str(task_id or "").strip()
+    try:
+        projection = _voyage_agent_projection()
+        if canonical_task_id:
+            detail = projection.detail(canonical_task_id, limit=bounded_limit)
+            if not bool(detail.get("ok")):
+                return {
+                    "ok": False,
+                    "schema": "tp-voyager.agent_panel/v1",
+                    "reason_code": str(detail.get("reason_code") or "TASK_NOT_FOUND"),
+                    "task_id": detail.get("task_id") or canonical_task_id,
+                    "error": {"message": "TP-Voyager task was not found."},
+                }
+            return {
+                **detail,
+                "schema": "tp-voyager.agent_panel/v1",
+                "mode": "detail",
+            }
+
+        return {
+            "ok": True,
+            "schema": "tp-voyager.agent_panel/v1",
+            "mode": "empty",
+            "scope": "current_conversation",
+            "tasks": [],
+            "conversation": [],
+            "timeline": [],
+            "files": [],
+            "usage": {},
+            "error": None,
+        }
+    except (RuntimePersistenceError, ValueError, TypeError):
+        return {
+            "ok": False,
+            "schema": "tp-voyager.agent_panel/v1",
+            "reason_code": "OBSERVABILITY_UNAVAILABLE",
+            "error": {"message": "TP-Voyager observability data is unavailable."},
+        }
+
+
+@_mcp_tool(
+    meta={
+        "ui": {"resourceUri": VOYAGER_PANEL_URI},
+        "openai/outputTemplate": VOYAGER_PANEL_URI,
+        "openai/toolInvocation/invoking": "Starting TP-Voyager Agent…",
+        "openai/toolInvocation/invoked": "TP-Voyager Agent started",
+    },
+    structured_output=True,
+)
 def task_dispatch(
     objective: str,
     crew: str,

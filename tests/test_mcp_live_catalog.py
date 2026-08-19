@@ -12,10 +12,10 @@ from agent_runtime.cli import _doctor_projection
 
 class McpCaptainContractTests(unittest.TestCase):
     expected = frozenset({
-        "voyager_overview", "crew_catalog", "crew_health", "crew_recommend", "task_dispatch", "task_result",
+        "voyager_overview", "render_voyager_panel", "crew_catalog", "crew_health", "crew_recommend", "task_dispatch", "task_result",
     })
 
-    def test_default_surface_is_exact_golden_six(self) -> None:
+    def test_default_surface_is_exact_golden_seven(self) -> None:
         self.assertEqual(CAPTAIN_TOOL_NAMES, self.expected)
         with patch.dict(os.environ, {}, clear=True):
             self.assertEqual(_mcp_surface(), "captain")
