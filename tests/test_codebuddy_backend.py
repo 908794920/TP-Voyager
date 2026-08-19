@@ -20,7 +20,7 @@ from agent_runtime.backends.errors import BackendProtocolError
 from agent_runtime.application.context_service import ProjectContextService
 from agent_runtime.application.task_service import TaskService
 from agent_runtime.application.dispatch.repository_research import RepositoryResearchService
-from agent_runtime.domain.dispatch import CaptainDispatchRequest, ModelParameters
+from agent_runtime.domain.dispatch import CaptainDispatchRequest, ModelParameters, _MANDATORY_FORBIDDEN
 from agent_runtime.domain.artifact import Artifact
 from agent_runtime.domain.session import Session
 from agent_runtime.domain.task import Task
@@ -484,7 +484,7 @@ class CodeBuddyBackendTests(unittest.TestCase):
         CodeBuddyBackend(sdk_client_factory=ReadOnlyTransport).start(frozen_request, Callbacks())
 
         self.assertEqual(calls[0]["access_mode"], "read_only")
-        self.assertEqual(calls[0]["forbidden_paths"], (".git", ".codebuddy", ".qoder"))
+        self.assertEqual(calls[0]["forbidden_paths"], _MANDATORY_FORBIDDEN)
         self.assertTrue(calls[0]["native_read_tools"])
         self.assertFalse(calls[1]["native_read_tools"])
 

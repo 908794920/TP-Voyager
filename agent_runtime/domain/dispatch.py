@@ -9,13 +9,46 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
+import fnmatch
 import re
 from typing import Any
 
 from agent_runtime.domain.run_control import RunControlSpec
 
 
-_MANDATORY_FORBIDDEN = (".git", ".codebuddy", ".qoder")
+# Directories whose contents must never be exposed to a Crew, by component
+# prefix.  These are pruned during workspace-snapshot materialization and are
+# also the floor for patch-policy forbidden_paths.
+_MANDATORY_FORBIDDEN = (
+    ".git",
+    ".svn",
+    ".hg",
+    ".codebuddy",
+    ".codebuddycn",
+    ".qoder",
+    ".qoder-cn",
+    ".qoderwork",
+    ".qoderworkcn",
+)
+
+# Credential / secret file names matched against the leaf component (glob).
+# These cannot be expressed as component prefixes because they may appear at
+# any depth (e.g. ``config/.env``, ``certs/server.pem``).
+_MANDATORY_SENSITIVE_FILES = (
+    ".env",
+    "*.pem",
+    "*.key",
+    "*.p12",
+    "*.pfx",
+    "*.ppk",
+    "id_rsa",
+    "id_ed25519",
+    "id_ecdsa",
+    ".npmrc",
+    ".pypirc",
+    ".netrc",
+    ".git-credentials",
+)
 
 
 def _safe_relpath(value: object, *, field_name: str) -> str:
@@ -69,6 +102,35 @@ def relative_path_matches_prefix(path: object, prefix: object) -> bool:
 def relative_path_matches_any(path: object, prefixes: tuple[str, ...]) -> bool:
     """Return True when ``path`` is inside any component-prefix root."""
     return any(relative_path_matches_prefix(path, prefix) for prefix in prefixes)
+
+
+def sensitive_path_matches(
+    path: object,
+    dirs: tuple[str, ...] = _MANDATORY_FORBIDDEN,
+    files: tuple[str, ...] = _MANDATORY_SENSITIVE_FILES,
+) -> bool:
+    """Return True when a workspace-relative path is sensitive.
+
+    Two distinct semantics are combined because sensitive locations come in
+    two shapes:
+
+    * Directories (``.git``, ``.codebuddy``) match by component prefix so that
+      everything beneath them is excluded.
+    * Credential files (``.env``, ``*.pem``) match by leaf glob so they are
+      excluded at any depth.
+
+    Unparseable paths (absolute, ``..`` traversal, empty) fail closed as
+    sensitive.
+    """
+    parts = _relative_path_parts(path)
+    if parts is None:
+        return True
+    for directory in dirs:
+        dir_parts = _relative_path_parts(directory)
+        if dir_parts and parts[: len(dir_parts)] == dir_parts:
+            return True
+    leaf = parts[-1]
+    return any(fnmatch.fnmatchcase(leaf, pattern) for pattern in files)
 
 
 @dataclass(frozen=True)

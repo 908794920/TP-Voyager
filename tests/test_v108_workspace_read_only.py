@@ -15,7 +15,7 @@ from agent_runtime.backends.qoder.acp_client import AcpRunResult
 from agent_runtime.backends.qoder.backend import QoderBackend
 from agent_runtime.backends.qoder.captain_dispatch import QoderReadOnlyDispatcher
 from agent_runtime.domain.crew import CrewDescriptor
-from agent_runtime.domain.dispatch import CaptainDispatchRequest, ReadScope
+from agent_runtime.domain.dispatch import CaptainDispatchRequest, ReadScope, _MANDATORY_FORBIDDEN
 from agent_runtime.persistence.database import Database
 
 
@@ -200,14 +200,26 @@ class _QoderClient:
 
 
 class V108QoderWorkspaceReadOnlyTests(unittest.TestCase):
-    def test_no_scope_uses_real_workspace_and_read_only_vendor_tools(self) -> None:
+    def test_no_scope_uses_sensitive_free_snapshot_and_read_only_vendor_tools(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             workspace = Path(tmp) / "workspace"
             workspace.mkdir()
+            (workspace / "README.md").write_text("readme\n", encoding="utf-8")
+            (workspace / ".env").write_text("SECRET_TOKEN=snapshot-leak-test\n", encoding="utf-8")
+            (workspace / "secret.pem").write_text("-----BEGIN PRIVATE KEY-----\n", encoding="utf-8")
+            (workspace / ".git").mkdir()
+            (workspace / ".git" / "config").write_text("[core]\n", encoding="utf-8")
             calls: list[dict] = []
+            observed: dict[str, bool] = {}
 
             def factory(**kwargs):
+                cwd = Path(kwargs["cwd"])
                 calls.append(dict(kwargs))
+                # snapshot content is inspectable before backend cleanup
+                observed["snapshot_has_readme"] = (cwd / "README.md").is_file()
+                observed["snapshot_has_env"] = (cwd / ".env").exists()
+                observed["snapshot_has_pem"] = (cwd / "secret.pem").exists()
+                observed["snapshot_has_git"] = (cwd / ".git").exists()
                 return _QoderClient(**kwargs)
 
             request = BackendStartRequest(
@@ -220,19 +232,21 @@ class V108QoderWorkspaceReadOnlyTests(unittest.TestCase):
                 metadata={"route": "acp_read_only", "routing_metadata": {}},
             )
 
-            with patch(
-                "agent_runtime.backends.qoder.backend._materialize_read_scope_snapshot",
-                side_effect=AssertionError("no-scope read-only must not materialize a snapshot"),
-            ):
-                result = QoderBackend(read_only_acp_client_factory=factory).start(
-                    request, _QoderCallbacks()
-                )
+            result = QoderBackend(read_only_acp_client_factory=factory).start(
+                request, _QoderCallbacks()
+            )
 
             self.assertEqual(result.answer, "ok")
             self.assertEqual(len(calls), 1)
-            self.assertEqual(Path(calls[0]["cwd"]).resolve(), workspace.resolve())
+            # no-scope read-only runs against a snapshot, not the live cwd
+            self.assertNotEqual(Path(calls[0]["cwd"]).resolve(), workspace.resolve())
+            # sensitive paths are physically excluded from the snapshot
+            self.assertTrue(observed["snapshot_has_readme"])
+            self.assertFalse(observed["snapshot_has_env"])
+            self.assertFalse(observed["snapshot_has_pem"])
+            self.assertFalse(observed["snapshot_has_git"])
             self.assertEqual(calls[0]["context_window_tokens"], 200000)
-            self.assertEqual(calls[0]["forbidden_paths"], (".git", ".codebuddy", ".qoder"))
+            self.assertEqual(calls[0]["forbidden_paths"], _MANDATORY_FORBIDDEN)
             self.assertEqual(calls[0]["visible_tools"], ("Read", "Grep", "Glob"))
             self.assertEqual(calls[0]["allowed_tools"], ("Read", "Grep", "Glob"))
             self.assertNotIn("allowed_paths", calls[0])

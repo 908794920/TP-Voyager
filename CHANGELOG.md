@@ -8,7 +8,9 @@
 - Added permanent regressions for 32 / 64 / 150 / 220 / 300 / 1000 files and >12 MiB workspaces, plus the TP-Spec role-action composition gate.
 - No persistence/schema change and no MCP Crew passthrough, Vendor subagent, Aider RepoMap, ResourceSpace DSL, permission bypass, or transport migration.
 - Merge-gate integration regressions introduced by the incremental patch were fixed on the Windows merge host before this line: `routing_metadata.context_delivery` was added to the `allowed_routing_keys` whitelist in `mcp_server.py`; full suite passes (`444 passed, 1 skipped, 78 subtests`).
-- **Remaining release gate is Task 7**: the Windows Qoder/CodeBuddy account-live matrix must run on a host with the CLIs/SDKs and `mcp` available. CodeBuddy `read_files` / `search_code` are promoted into controlled capability truth only after that acceptance passes. See `docs/records/V1.0.8_READ_ONLY_WORKSPACE_ACCEPTANCE.md`.
+- Windows live acceptance (Task 7) found and fixed a real sensitive-path enforcement gap: `forbidden_paths` lacked credential-file globs, Qoder's no-scope built-in `Read`/`Grep`/`Glob` bypassed the ACP fs callback, and CodeBuddy's `Glob`/`Grep` were authorized by search root only. No-scope read-only routes now run against a sensitive-path-free workspace snapshot (`agent_runtime/backends/workspace_snapshot.py`), physically excluding `.env`/`*.pem`/`*.key`/private keys and `.git`/`.svn`/`.hg`/`.codebuddy`/`.qoder`/`.qoderwork` trees.
+- Qoder Windows Live Matrix **PASSED 6/6** and CodeBuddy Windows Live Matrix **PASSED 6/6** (see `docs/records/V1.0.8_READ_ONLY_WORKSPACE_ACCEPTANCE.md`).
+- **Remaining release gate is the TP-Spec real role smoke set** (Requirement research, Architecture broad analysis, Independent Review, `small_patch`, `verify_only`, UltraPlan, UltraReview) — **BLOCKED / NOT RUN** and must be completed before `RELEASE v1.0.8`. See `docs/records/V1.0.8_TP_SPEC_ROLE_EXECUTION_ACCEPTANCE.md`.
 
 本项目从 TP-Voyager 正式基线开始记录对外版本。
 
