@@ -2,13 +2,13 @@
 name: tp-voyager-captain
 description: Use when bounded repository research, code review, failure analysis, independent verification, or a small scoped patch could benefit from TP-Voyager MCP delegation; proactively evaluate it without requiring the user to invoke this skill.
 metadata:
-  version: "1.0.7"
+  version: "1.0.8"
   protocol: "tp-voyager-captain/v1"
 ---
 
 # TP-Voyager Captain Skill
 
-> Version: 1.0.7
+> Version: 1.0.8
 >
 > Role: Captain-side orchestration skill for TP-Voyager.
 >
@@ -507,7 +507,32 @@ optional worker_profile_ref
 optional correlation_id
 ```
 
-For new **read-only** work, prefer the vendor-neutral `read_scope` contract:
+### Normal workspace read-only vs explicit bounded corpus
+
+For **normal workspace read-only** tasks against an existing local repository,
+including `research`, `code_review`, and `test_failure_triage`, use the real
+workspace `cwd` and **do not provide `read_scope` by default**. The mission is
+still bounded by the objective, task kind, Crew/model choice, read-only access
+mode, timeout, and any trusted role/skill references; repository size is not a
+Captain-predicted admission limit.
+
+Example:
+
+```json
+{
+  "objective": "Trace the async proofreading call chain and report evidence.",
+  "crew": "qoder",
+  "task_kind": "research",
+  "model": "qmodel_38max",
+  "access_mode": "read_only",
+  "cwd": "E:/project/FastGPT",
+  "timeout_seconds": 900
+}
+```
+
+Use `read_scope` only for an **explicit frozen/bounded corpus** where the
+Captain intentionally wants a finite concrete corpus and its existing
+`max_files` / `max_bytes` limits to remain authoritative:
 
 ```json
 {
@@ -519,10 +544,9 @@ For new **read-only** work, prefer the vendor-neutral `read_scope` contract:
 }
 ```
 
-TP-Voyager resolves that intent to a bounded concrete file set. CodeBuddy maps
-it through its immutable Context Manifest/snapshot path; Qoder maps it through
-the ACP host filesystem boundary. The Captain does not need to understand those
-vendor differences. Scope conversion must fail closed and never widen access.
+Explicit bounded scope conversion must continue to fail closed and never widen
+access. `repository_research`, `verification`, and explicit frozen-context
+reviews keep their existing bounded-scope contracts.
 
 Legacy `context_files` remains accepted only for CodeBuddy compatibility. Do
 not supply `context_id` together with `read_scope` or `context_files`.

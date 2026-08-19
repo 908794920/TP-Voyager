@@ -27,9 +27,9 @@ _MAX_CONTEXT_BYTES = 256 * 1024
 class CodeBuddyContextReadOnlyDispatcher:
     """Controlled CodeBuddy Captain route.
 
-    T3 read-only uses a Runtime-rendered immutable context snapshot with all
-    native tools disabled.  T4 patch mode runs CodeBuddy in an isolated Git
-    worktree and relies on the SDK host permission callback for per-tool path
+    Read-only supports either native workspace exploration (Read/Glob/Grep) or
+    an explicit Runtime-rendered immutable context snapshot. T4 patch mode runs
+    CodeBuddy in an isolated Git worktree and relies on the SDK host permission callback for per-tool path
     and command enforcement.
     """
 
@@ -68,27 +68,25 @@ class CodeBuddyContextReadOnlyDispatcher:
     def _dispatch_read_only(self, request: CaptainDispatchRequest) -> dict[str, Any]:
         if request.access_mode != "read_only":
             return self._reject("ACCESS_MODE_NOT_AVAILABLE", "CodeBuddy Captain route does not support this access mode")
-        context_id = str(request.context_id or "").strip()
-        if not context_id:
-            return self._reject(
-                "CONTEXT_REQUIRED",
-                "CodeBuddy context-only route requires an explicit Context Manifest",
-            )
         if not str(request.cwd or "").strip():
-            return self._reject("INVALID_REQUEST", "cwd is required for bounded context verification")
+            return self._reject("INVALID_REQUEST", "cwd is required for CodeBuddy read-only execution")
         timeout = int(request.timeout_seconds)
         if timeout < 2:
             return self._reject("INVALID_REQUEST", "timeout_seconds must be at least 2")
+
+        context_id = str(request.context_id or "").strip()
+        rendered: dict[str, Any] | None = None
         try:
             self._preflight()
-            verified = self._contexts.verify(context_id, request.cwd)
-            if not bool(verified.get("valid")):
-                return self._reject("CONTEXT_DRIFT", "Context Manifest no longer matches the workspace")
-            rendered = self._contexts.render(
-                context_id,
-                request.cwd,
-                max_total_bytes=self._max_context_bytes,
-            )
+            if context_id:
+                verified = self._contexts.verify(context_id, request.cwd)
+                if not bool(verified.get("valid")):
+                    return self._reject("CONTEXT_DRIFT", "Context Manifest no longer matches the workspace")
+                rendered = self._contexts.render(
+                    context_id,
+                    request.cwd,
+                    max_total_bytes=self._max_context_bytes,
+                )
         except ContextDriftError:
             return self._reject("CONTEXT_DRIFT", "Context Manifest no longer matches the workspace")
         except ContextError as exc:
@@ -96,7 +94,15 @@ class CodeBuddyContextReadOnlyDispatcher:
         except Exception as exc:  # fail closed before a durable task is created
             return self._reject("CREW_UNAVAILABLE", type(exc).__name__)
 
-        prompt = self._build_read_only_prompt(request.objective, rendered)
+        if rendered is None:
+            prompt = self._build_workspace_read_only_prompt(request.objective)
+            context_delivery = "vendor_workspace"
+        else:
+            prompt = self._build_read_only_prompt(request.objective, rendered)
+            context_delivery = "runtime_snapshot"
+
+        routing_metadata = request.routing_metadata()
+        routing_metadata["context_delivery"] = context_delivery
         idle = max(1, min(180, timeout // 2))
         result = self._launch_service.start(
             TaskLaunchRequest(
@@ -113,7 +119,7 @@ class CodeBuddyContextReadOnlyDispatcher:
                 context_id=context_id,
                 execution_mode="background",
                 agent_profile=(request.worker_profile_ref.profile_id if request.worker_profile_ref else ""),
-                routing_metadata=request.routing_metadata(),
+                routing_metadata=routing_metadata,
             )
         )
         if not result.get("ok"):
@@ -123,8 +129,8 @@ class CodeBuddyContextReadOnlyDispatcher:
             "dispatch_performed": True,
             "access_mode": "read_only",
             "context_id": context_id,
-            "context_root_hash": rendered.get("root_hash"),
-            "context_delivery": "runtime_snapshot",
+            "context_root_hash": (rendered.get("root_hash") if rendered is not None else None),
+            "context_delivery": context_delivery,
         }
 
     def _dispatch_patch(self, request: CaptainDispatchRequest) -> dict[str, Any]:
@@ -256,6 +262,18 @@ class CodeBuddyContextReadOnlyDispatcher:
             "workspace_isolated": True,
             "verification_subject": dict(request.verification_subject),
         }
+
+    @staticmethod
+    def _build_workspace_read_only_prompt(objective: str) -> str:
+        return (
+            "# TP-Voyager controlled workspace read-only task\n\n"
+            "Analyze the assigned workspace using read-only repository exploration tools only. "
+            "Do not edit or create source files, run shell commands, use network tools, "
+            "load repository agent configuration, spawn subagents, or broaden the mission. "
+            "Search and read only what is necessary to complete the bounded objective. "
+            "If evidence cannot be obtained under these permissions, report the blocker.\n\n"
+            f"## Objective\n{str(objective).strip()}\n"
+        )
 
     @staticmethod
     def _build_read_only_prompt(objective: str, rendered: dict[str, Any]) -> str:

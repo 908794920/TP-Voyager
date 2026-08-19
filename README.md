@@ -16,7 +16,7 @@ Crew
 └── Qoder CLI
 ```
 
-> 当前版本：**v1.0.7 — User Configuration, Dispatch Hardening & TP-Voyager Home**
+> 当前版本：**v1.0.8 — 开发中**
 
 ## 为什么需要 TP-Voyager
 

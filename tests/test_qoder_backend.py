@@ -83,6 +83,11 @@ class QoderBackendTests(unittest.TestCase):
         self.assertEqual(result.observability["access_mode"], "read_only")
         self.assertEqual(callbacks.accepted, ["qoder-session"])
         self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]["cwd"], str(Path.cwd()))
+        self.assertEqual(calls[0]["forbidden_paths"], (".git", ".codebuddy", ".qoder"))
+        self.assertEqual(calls[0]["visible_tools"], ("Read", "Grep", "Glob"))
+        self.assertEqual(calls[0]["allowed_tools"], ("Read", "Grep", "Glob"))
+        self.assertNotIn("allowed_paths", calls[0])
 
     def test_read_only_scope_runs_from_runtime_snapshot_not_source_repo(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

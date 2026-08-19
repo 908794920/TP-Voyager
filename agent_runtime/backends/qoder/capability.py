@@ -36,7 +36,8 @@ def descriptor() -> CrewDescriptor:
         dispatch_ready=True,
         model_discovery="qodercli --list-models / SDK get_available_models",
         notes=(
-            "TP-Voyager acp_read_only uses official ACP without --yolo, advertises no write/terminal client capability, rejects permission escalation, and enforces workspace-bounded reads.",
+            "TP-Voyager acp_read_only uses official ACP without --yolo; normal workspace mode runs from the real cwd with vendor-visible Read/Grep/Glob only, while explicit read_scope mode runs from the existing bounded snapshot.",
+            "The ACP host layer still advertises no write/terminal client capability, rejects permission escalation, and enforces workspace/forbidden-path checks for host filesystem callbacks.",
             "TP-Voyager acp_patch also avoids --yolo; host callbacks enforce allowed paths and exact Captain command argv inside an isolated Git worktree.",
         ),
     )

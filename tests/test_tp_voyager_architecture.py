@@ -41,7 +41,7 @@ class TPVoyagerArchitectureBaselineTests(unittest.TestCase):
         )
         codebuddy_doc = (REPO_ROOT / "docs" / "BACKEND_CODEBUDDY.md").read_text(encoding="utf-8")
         qoder_doc = (REPO_ROOT / "docs" / "BACKEND_QODER.md").read_text(encoding="utf-8")
-        self.assertIn("https://www.workbuddy.ai/docs/cli/", codebuddy_doc)
+        self.assertIn("https://www.codebuddy.ai/docs/cli/sdk", codebuddy_doc)
         self.assertIn("https://docs.qoder.com/en/cli/acp", qoder_doc)
 
     def test_retired_workbuddy_execution_files_are_physically_absent(self) -> None:

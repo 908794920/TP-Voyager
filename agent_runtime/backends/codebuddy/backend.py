@@ -212,12 +212,14 @@ class CodeBuddyBackend:
                 command_specs=tuple(command_specs),
             )
         else:
-            # Preserve the long-standing custom transport/factory contract for
-            # the accepted T3 read-only route.  Patch-only policy parameters
-            # are passed only when the new patch route actually needs them.
+            routing = request.metadata.get("routing_metadata")
+            routing = routing if isinstance(routing, dict) else {}
             client = self._sdk_client_factory(
                 cwd=request.cwd,
                 on_activity=callbacks.on_activity,
+                access_mode="read_only",
+                forbidden_paths=(".git", ".codebuddy", ".qoder"),
+                native_read_tools=(routing.get("context_delivery") == "vendor_workspace"),
             )
         live = _LiveExecution(route=route, client=client)
         self._register(request.task_id, live)

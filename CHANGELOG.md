@@ -1,5 +1,15 @@
 # Changelog
 
+### v1.0.8 Workspace Read-Only Convergence — 2026-08-19
+
+- Normal local `research` / `code_review` / `test_failure_triage` read-only dispatch no longer predicts repository corpus capacity; Captain defaults to no `read_scope`. Explicit frozen/bounded `read_scope` remains capped and fail-closed, and `repository_research` / deterministic verification retain their existing high-assurance contracts.
+- Qoder remains on ACP. Normal read-only runs from the real repository `cwd` with Vendor-visible Built-in Tools restricted to `Read` / `Grep` / `Glob`; explicit `read_scope` still flows through `routing_metadata.read_scope` into the existing snapshot path. No second `allowed_paths` scope truth was added.
+- CodeBuddy remains on the official Python Agent SDK. Read-only now has workspace-native mode (`Read` / `Glob` / `Grep`, plan mode, empty MCP/settings sources) and the existing explicit frozen-context mode with native tools denied. Patch/verify routes are not widened.
+- Added permanent regressions for 32 / 64 / 150 / 220 / 300 / 1000 files and >12 MiB workspaces, plus the TP-Spec role-action composition gate.
+- No persistence/schema change and no MCP Crew passthrough, Vendor subagent, Aider RepoMap, ResourceSpace DSL, permission bypass, or transport migration.
+- Merge-gate integration regressions introduced by the incremental patch were fixed on the Windows merge host before this line: `routing_metadata.context_delivery` was added to the `allowed_routing_keys` whitelist in `mcp_server.py`; full suite passes (`444 passed, 1 skipped, 78 subtests`).
+- **Remaining release gate is Task 7**: the Windows Qoder/CodeBuddy account-live matrix must run on a host with the CLIs/SDKs and `mcp` available. CodeBuddy `read_files` / `search_code` are promoted into controlled capability truth only after that acceptance passes. See `docs/records/V1.0.8_READ_ONLY_WORKSPACE_ACCEPTANCE.md`.
+
 本项目从 TP-Voyager 正式基线开始记录对外版本。
 
 ### v1.0.7 Hardening Closure

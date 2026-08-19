@@ -126,9 +126,10 @@ class Callbacks:
 
 
 class FakeSyncSdkTransport:
-    def __init__(self, *, cwd, on_activity):
+    def __init__(self, *, cwd, on_activity, **kwargs):
         self.cwd = cwd
         self.on_activity = on_activity
+        self.kwargs = dict(kwargs)
         self.running = False
         self.cancelled = False
 
@@ -177,20 +178,26 @@ class CodeBuddySdkClientTests(unittest.TestCase):
         FakeSdkClient.events = []
         FakeSdkClient.last_options = None
 
-    def test_context_only_policy_denies_every_native_tool_and_uses_cn_plan_mode(self) -> None:
+    def test_workspace_read_only_policy_allows_only_read_search_tools_in_plan_mode(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "src").mkdir()
+            (root / ".git").mkdir()
+            (root / "src" / "x.py").write_text("VALUE = 1\n", encoding="utf-8")
             client = CodeBuddySdkClient(
                 cwd=tmp,
                 on_activity=lambda activity: None,
                 sdk_module=FakeSdkModule,
                 region="cn",
+                access_mode="read_only",
+                forbidden_paths=(".git", ".codebuddy", ".qoder"),
             )
             accepted: list[str] = []
             def accept(value: str) -> None:
                 accepted.append(value)
                 FakeSdkClient.events.append("accepted")
             result = client.run(
-                prompt="analyze supplied context",
+                prompt="analyze workspace",
                 model="hy3",
                 reasoning_effort="high",
                 idle_timeout_seconds=5,
@@ -198,26 +205,74 @@ class CodeBuddySdkClientTests(unittest.TestCase):
                 on_dispatch_accepted=accept,
             )
 
-        self.assertEqual(result.session_id, accepted[0])
-        self.assertEqual(result.answer, "sdk answer")
-        self.assertEqual(result.observability["native_tools_enabled"], False)
-        options = FakeSdkClient.last_options.kwargs
-        self.assertEqual(options["permission_mode"], "plan")
-        self.assertEqual(options["allowed_tools"], [])
-        self.assertIn("Read", options["disallowed_tools"])
-        self.assertIn("Bash", options["disallowed_tools"])
-        self.assertIn("Edit", options["disallowed_tools"])
-        self.assertEqual(options["mcp_servers"], {})
-        self.assertEqual(options["setting_sources"], [])
-        self.assertEqual(options["env"]["CODEBUDDY_INTERNET_ENVIRONMENT"], "internal")
-        self.assertEqual(options["model"], "hy3")
-        self.assertEqual(options["effort"], "high")
-        import uuid
-        self.assertEqual(str(uuid.UUID(accepted[0])), accepted[0])
-        self.assertLess(FakeSdkClient.events.index("accepted"), FakeSdkClient.events.index("query"))
+            self.assertEqual(result.session_id, accepted[0])
+            self.assertEqual(result.answer, "sdk answer")
+            self.assertEqual(result.observability["native_tools_enabled"], True)
+            options = FakeSdkClient.last_options.kwargs
+            self.assertEqual(options["permission_mode"], "plan")
+            self.assertEqual(options["allowed_tools"], ["Glob", "Grep", "Read"])
+            self.assertNotIn("Read", options["disallowed_tools"])
+            self.assertNotIn("Glob", options["disallowed_tools"])
+            self.assertNotIn("Grep", options["disallowed_tools"])
+            self.assertIn("Bash", options["disallowed_tools"])
+            self.assertIn("Edit", options["disallowed_tools"])
+            self.assertIn("Task", options["disallowed_tools"])
+            self.assertIn("WebFetch", options["disallowed_tools"])
+            self.assertEqual(options["mcp_servers"], {})
+            self.assertEqual(options["setting_sources"], [])
+            self.assertEqual(options["env"]["CODEBUDDY_INTERNET_ENVIRONMENT"], "internal")
+            self.assertEqual(options["model"], "hy3")
+            self.assertEqual(options["effort"], "high")
+            import uuid
+            self.assertEqual(str(uuid.UUID(accepted[0])), accepted[0])
+            self.assertLess(FakeSdkClient.events.index("accepted"), FakeSdkClient.events.index("query"))
 
-        deny = asyncio.run(options["can_use_tool"]("Read", {"file_path": "x"}, object()))
-        self.assertEqual(deny.behavior, "deny")
+            authorize = options["can_use_tool"]
+            read = asyncio.run(authorize("Read", {"file_path": "src/x.py"}, object()))
+            outside = asyncio.run(authorize("Read", {"file_path": str(root.parent / "outside.py")}, object()))
+            forbidden = asyncio.run(authorize("Read", {"file_path": ".git/config"}, object()))
+            glob = asyncio.run(authorize("Glob", {"pattern": "**/*.py"}, object()))
+            grep = asyncio.run(authorize("Grep", {"pattern": "VALUE"}, object()))
+            edit = asyncio.run(authorize("Edit", {"file_path": "src/x.py"}, object()))
+            bash = asyncio.run(authorize("Bash", {"command": "echo no"}, object()))
+            web = asyncio.run(authorize("WebFetch", {"url": "https://example.com"}, object()))
+            task = asyncio.run(authorize("Task", {"prompt": "spawn"}, object()))
+            unknown = asyncio.run(authorize("FutureTool", {}, object()))
+
+            self.assertEqual(read.behavior, "allow")
+            self.assertEqual(outside.behavior, "deny")
+            self.assertEqual(forbidden.behavior, "deny")
+            self.assertEqual(glob.behavior, "allow")
+            self.assertEqual(glob.updated_input["path"], ".")
+            self.assertEqual(grep.behavior, "allow")
+            self.assertEqual(grep.updated_input["path"], ".")
+            for denied in (edit, bash, web, task, unknown):
+                self.assertEqual(denied.behavior, "deny")
+
+    def test_frozen_context_read_only_keeps_all_native_tools_denied(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = CodeBuddySdkClient(
+                cwd=tmp,
+                on_activity=lambda activity: None,
+                sdk_module=FakeSdkModule,
+                region="cn",
+                access_mode="read_only",
+                native_read_tools=False,
+            )
+            options = client._build_options(
+                FakeSdkModule, resume_session_id="", model="", session_id="session"
+            )
+            self.assertEqual(options.kwargs["permission_mode"], "plan")
+            self.assertEqual(options.kwargs["allowed_tools"], [])
+            self.assertIn("Read", options.kwargs["disallowed_tools"])
+            self.assertIn("Glob", options.kwargs["disallowed_tools"])
+            self.assertIn("Grep", options.kwargs["disallowed_tools"])
+            deny = asyncio.run(
+                options.kwargs["can_use_tool"](
+                    "Read", {"file_path": "anything.py"}, object()
+                )
+            )
+            self.assertEqual(deny.behavior, "deny")
 
     def test_patch_policy_allows_only_bounded_paths_exact_commands_and_known_tools(self) -> None:
         from agent_runtime.domain.dispatch import CommandSpec
@@ -396,6 +451,43 @@ class CodeBuddyBackendTests(unittest.TestCase):
         self.assertEqual(calls[0]["allowed_paths"], ("src",))
         self.assertEqual(calls[0]["command_specs"][0].command_id, "verify")
 
+    def test_read_only_backend_enables_native_reads_only_for_vendor_workspace_delivery(self) -> None:
+        calls = []
+
+        class ReadOnlyTransport(FakeSyncSdkTransport):
+            def __init__(self, **kwargs):
+                calls.append(dict(kwargs))
+                super().__init__(**kwargs)
+
+        base = self.request()
+        workspace_request = BackendStartRequest(
+            **{
+                **base.__dict__,
+                "task_id": "cb-workspace",
+                "metadata": {
+                    "route": "sdk_context_read_only",
+                    "routing_metadata": {"context_delivery": "vendor_workspace"},
+                },
+            }
+        )
+        CodeBuddyBackend(sdk_client_factory=ReadOnlyTransport).start(workspace_request, Callbacks())
+        frozen_request = BackendStartRequest(
+            **{
+                **base.__dict__,
+                "task_id": "cb-frozen",
+                "metadata": {
+                    "route": "sdk_context_read_only",
+                    "routing_metadata": {"context_delivery": "runtime_snapshot"},
+                },
+            }
+        )
+        CodeBuddyBackend(sdk_client_factory=ReadOnlyTransport).start(frozen_request, Callbacks())
+
+        self.assertEqual(calls[0]["access_mode"], "read_only")
+        self.assertEqual(calls[0]["forbidden_paths"], (".git", ".codebuddy", ".qoder"))
+        self.assertTrue(calls[0]["native_read_tools"])
+        self.assertFalse(calls[1]["native_read_tools"])
+
     def test_unsupported_route_is_rejected(self) -> None:
         backend = CodeBuddyBackend(sdk_client_factory=FakeSyncSdkTransport)
         with self.assertRaises(BackendProtocolError):
@@ -448,11 +540,29 @@ class CodeBuddyCaptainDispatchTests(unittest.TestCase):
         values.update(overrides)
         return CaptainDispatchRequest(**values)
 
-    def test_requires_explicit_context_manifest(self) -> None:
-        result = self.dispatcher()(self.request(context_id=""))
-        self.assertFalse(result["ok"])
-        self.assertEqual(result["reason_code"], "CONTEXT_REQUIRED")
-        self.assertFalse(result["dispatch_performed"])
+    def test_without_context_manifest_dispatches_workspace_native_read_only(self) -> None:
+        launch = _FakeLaunchService()
+        with (
+            patch.object(self.contexts, "verify", side_effect=AssertionError("workspace mode must not verify context")),
+            patch.object(self.contexts, "render", side_effect=AssertionError("workspace mode must not render context")),
+        ):
+            result = self.dispatcher(launch)(self.request(context_id=""))
+
+        self.assertTrue(result["ok"], result)
+        self.assertTrue(result["dispatch_performed"])
+        self.assertEqual(result["context_delivery"], "vendor_workspace")
+        self.assertEqual(result["context_id"], "")
+        self.assertEqual(len(launch.requests), 1)
+        request = launch.requests[0]
+        self.assertEqual(request.runtime, "codebuddy")
+        self.assertEqual(request.route, "sdk_context_read_only")
+        self.assertEqual(request.cwd, str(self.root))
+        self.assertEqual(request.context_id, "")
+        self.assertEqual(request.routing_metadata["context_delivery"], "vendor_workspace")
+        self.assertIn("workspace read-only", request.prompt.lower())
+        self.assertIn("read-only repository exploration tools only", request.prompt.lower())
+        self.assertNotIn("analyze only the supplied project context", request.prompt.lower())
+        self.assertNotIn("do not request filesystem access", request.prompt.lower())
 
     def test_context_window_parameter_is_rejected_before_task_creation(self) -> None:
         launch = _FakeLaunchService()
@@ -483,6 +593,7 @@ class CodeBuddyCaptainDispatchTests(unittest.TestCase):
         self.assertEqual(request.runtime, "codebuddy")
         self.assertEqual(request.route, "sdk_context_read_only")
         self.assertEqual(request.context_id, "ctx-codebuddy")
+        self.assertEqual(request.routing_metadata["context_delivery"], "runtime_snapshot")
         self.assertIn("src/sample.py", request.prompt)
         self.assertIn("VALUE = 7", request.prompt)
         self.assertIn("Analyze only the supplied project context", request.prompt)

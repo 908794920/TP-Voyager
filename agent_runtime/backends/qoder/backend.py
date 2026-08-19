@@ -283,7 +283,14 @@ class QoderBackend:
             read_scope = read_scope if isinstance(read_scope, dict) else None
             factory = self._read_only_acp_client_factory
             if read_scope is None:
-                client = factory(cwd=request.cwd, on_activity=callbacks.on_activity)
+                client = factory(
+                    cwd=request.cwd,
+                    on_activity=callbacks.on_activity,
+                    context_window_tokens=request.context_window_tokens,
+                    forbidden_paths=(".git", ".codebuddy", ".qoder"),
+                    visible_tools=("Read", "Grep", "Glob"),
+                    allowed_tools=("Read", "Grep", "Glob"),
+                )
             else:
                 resolved_files = tuple(
                     str(item) for item in read_scope.get("resolved_files", [])
@@ -299,6 +306,8 @@ class QoderBackend:
                         context_window_tokens=request.context_window_tokens,
                         allowed_paths=resolved_files,
                         forbidden_paths=(".git", ".codebuddy", ".qoder"),
+                        visible_tools=("Read", "Grep", "Glob"),
+                        allowed_tools=("Read", "Grep", "Glob"),
                     )
                 except Exception:
                     read_scope_snapshot.cleanup()
