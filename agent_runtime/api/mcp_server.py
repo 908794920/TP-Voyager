@@ -219,31 +219,41 @@ from agent_runtime.runtime.handles import (
 
 RUNTIME_DATABASE: Database | None = None
 RUNTIME_DATABASE_LOCK = threading.Lock()
-_RUNTIME_WORKER_SLOT_LOCK = threading.Lock()
-_RUNTIME_ACTIVE_WORKERS = 0
+_CREW_WORKER_SLOT_LOCK = threading.Lock()
+_CREW_ACTIVE_WORKERS = {"qoder": 0, "codebuddy": 0}
 
 
-def _try_acquire_runtime_worker_slot() -> bool:
-    global _RUNTIME_ACTIVE_WORKERS
-    limit = VoyagerUserConfig.load().runtime.max_concurrent_tasks
-    with _RUNTIME_WORKER_SLOT_LOCK:
-        if _RUNTIME_ACTIVE_WORKERS >= limit:
+def _try_acquire_crew_worker_slot(runtime: str) -> bool:
+    config = VoyagerUserConfig.load()
+    if runtime == "qoder":
+        limit = config.crew.qoder.max_concurrent_tasks
+    elif runtime == "codebuddy":
+        limit = config.crew.codebuddy.max_concurrent_tasks
+    else:
+        raise VoyagerUserConfigError(f"unsupported crew runtime for concurrency limit: {runtime}")
+    with _CREW_WORKER_SLOT_LOCK:
+        if _CREW_ACTIVE_WORKERS[runtime] >= limit:
             return False
-        _RUNTIME_ACTIVE_WORKERS += 1
+        _CREW_ACTIVE_WORKERS[runtime] += 1
         return True
 
 
-def _release_runtime_worker_slot() -> None:
-    global _RUNTIME_ACTIVE_WORKERS
-    with _RUNTIME_WORKER_SLOT_LOCK:
-        _RUNTIME_ACTIVE_WORKERS = max(0, _RUNTIME_ACTIVE_WORKERS - 1)
+def _release_crew_worker_slot(runtime: str) -> None:
+    with _CREW_WORKER_SLOT_LOCK:
+        if runtime in _CREW_ACTIVE_WORKERS:
+            _CREW_ACTIVE_WORKERS[runtime] = max(0, _CREW_ACTIVE_WORKERS[runtime] - 1)
 
 
-def _run_worker_with_runtime_slot(worker_target: Any, task: TaskState, timeout_seconds: float) -> None:
+def _run_worker_with_crew_slot(
+    worker_target: Any,
+    task: TaskState,
+    timeout_seconds: float,
+    runtime: str,
+) -> None:
     try:
         worker_target(task, timeout_seconds)
     finally:
-        _release_runtime_worker_slot()
+        _release_crew_worker_slot(runtime)
 
 
 def _start_worker_thread(thread: threading.Thread) -> None:
@@ -259,10 +269,11 @@ def _start_worker_thread(thread: threading.Thread) -> None:
 
 def configure_runtime_database(path: str | Path | None) -> Database | None:
     """Inject an explicit runtime database (tests) or reset to lazy default."""
-    global RUNTIME_DATABASE, _RUNTIME_LEASE, _PLAN_EXECUTION_SERVICE, _RUNTIME_ACTIVE_WORKERS
+    global RUNTIME_DATABASE, _RUNTIME_LEASE, _PLAN_EXECUTION_SERVICE
     with RUNTIME_DATABASE_LOCK:
-        with _RUNTIME_WORKER_SLOT_LOCK:
-            _RUNTIME_ACTIVE_WORKERS = 0
+        with _CREW_WORKER_SLOT_LOCK:
+            for runtime in _CREW_ACTIVE_WORKERS:
+                _CREW_ACTIVE_WORKERS[runtime] = 0
         if path is None:
             RUNTIME_DATABASE = None
             # The lease service binds to the previous database/instance:
@@ -2063,14 +2074,14 @@ def _durable_cli_start(
         updated_at=now,
     )
     try:
-        slot_acquired = _try_acquire_runtime_worker_slot()
+        slot_acquired = _try_acquire_crew_worker_slot(runtime)
     except VoyagerUserConfigError as exc:
         return {"ok": False, "reason_code": "CONFIG_INVALID", "error": str(exc)}
     if not slot_acquired:
         return {
             "ok": False,
             "reason_code": "RUNTIME_BUSY",
-            "error": "runtime max_concurrent_tasks limit reached",
+            "error": f"{runtime} max_concurrent_tasks limit reached",
         }
     try:
         created = service.create_task(
@@ -2085,10 +2096,10 @@ def _durable_cli_start(
             now=now,
         )
     except RuntimePersistenceError as exc:
-        _release_runtime_worker_slot()
+        _release_crew_worker_slot(runtime)
         return {"ok": False, "error": f"runtime database unavailable: {exc}"}
     if created.outcome == "replayed":
-        _release_runtime_worker_slot()
+        _release_crew_worker_slot(runtime)
         durable = service.get_task(created.task_id or "")
         return {
             "ok": True,
@@ -2100,10 +2111,10 @@ def _durable_cli_start(
             ),
         }
     if created.outcome in {"budget_rejected", "step_conflict"}:
-        _release_runtime_worker_slot()
+        _release_crew_worker_slot(runtime)
         return {"ok": False, "reason_code": created.reason_code, "error": created.error}
     if created.outcome == "conflict":
-        _release_runtime_worker_slot()
+        _release_crew_worker_slot(runtime)
         return {"ok": False, "reason_code": "IDEMPOTENCY_CONFLICT", "error": created.error}
 
     task = TaskState(
@@ -2149,14 +2160,14 @@ def _durable_cli_start(
             IDEMPOTENCY_TASKS[canonical_key] = task_id
     _note_task_activity(task, "task_accepted")
     thread = threading.Thread(
-        target=_run_worker_with_runtime_slot,
-        args=(worker_target, task, float(timeout_seconds)),
+        target=_run_worker_with_crew_slot,
+        args=(worker_target, task, float(timeout_seconds), runtime),
         daemon=True,
     )
     try:
         _start_worker_thread(thread)
     except RuntimeError as exc:
-        _release_runtime_worker_slot()
+        _release_crew_worker_slot(runtime)
         task.error = str(exc)
         task.terminal_reason = "ThreadStartError"
         task.state = "failed"

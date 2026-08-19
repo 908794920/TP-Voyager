@@ -128,7 +128,7 @@ class VoyagerUserConfigV107Tests(unittest.TestCase):
         mod = self._module()
         config = mod.VoyagerUserConfig.load(self.home)
         self.assertFalse((self.home / "config.json").exists())
-        self.assertEqual(config.schema, "tp-voyager.config/v1")
+        self.assertEqual(config.schema, "tp-voyager.config/v2")
         self.assertTrue(config.crew.qoder.enabled)
         self.assertTrue(config.crew.codebuddy.enabled)
         self.assertEqual(config.crew.codebuddy.internet_environment, "internal")
@@ -141,7 +141,9 @@ class VoyagerUserConfigV107Tests(unittest.TestCase):
                 "codebuddy:deepseek-v4-flash",
             ),
         )
-        self.assertEqual(config.runtime.max_concurrent_tasks, 4)
+        self.assertEqual(config.crew.qoder.max_concurrent_tasks, 2)
+        self.assertEqual(config.crew.codebuddy.max_concurrent_tasks, 2)
+        self.assertNotIn("runtime", config.to_dict())
 
     def test_initialize_discovers_cli_paths_and_is_idempotent(self) -> None:
         mod = self._module()
@@ -199,13 +201,27 @@ class VoyagerUserConfigV107Tests(unittest.TestCase):
         with self.assertRaisesRegex(mod.VoyagerUserConfigError, "backend-qualified"):
             mod.VoyagerUserConfig.load(self.home)
 
-    def test_runtime_concurrency_limit_is_bounded(self) -> None:
+    def test_crew_concurrency_limits_are_independently_bounded(self) -> None:
         mod = self._module()
         self.home.mkdir(parents=True)
         payload = mod.VoyagerUserConfig.defaults(self.home).to_dict()
-        payload["runtime"]["max_concurrent_tasks"] = 0
+        for crew_name in ("qoder", "codebuddy"):
+            invalid = json.loads(json.dumps(payload))
+            invalid["crew"][crew_name]["max_concurrent_tasks"] = 0
+            (self.home / "config.json").write_text(json.dumps(invalid), encoding="utf-8")
+            with self.assertRaisesRegex(
+                mod.VoyagerUserConfigError,
+                rf"crew\.{crew_name}\.max_concurrent_tasks",
+            ):
+                mod.VoyagerUserConfig.load(self.home)
+
+    def test_removed_runtime_concurrency_key_is_rejected(self) -> None:
+        mod = self._module()
+        self.home.mkdir(parents=True)
+        payload = mod.VoyagerUserConfig.defaults(self.home).to_dict()
+        payload["runtime"] = {"max_concurrent_tasks": 64}
         (self.home / "config.json").write_text(json.dumps(payload), encoding="utf-8")
-        with self.assertRaisesRegex(mod.VoyagerUserConfigError, "max_concurrent_tasks"):
+        with self.assertRaisesRegex(mod.VoyagerUserConfigError, "config schema is invalid"):
             mod.VoyagerUserConfig.load(self.home)
 
 
@@ -311,15 +327,16 @@ class VoyagerConfigConsumersV107Tests(unittest.TestCase):
             self.assertEqual(mcp_server._worker_profile_resolver().root, profiles.resolve())
             self.assertTrue(hasattr(mcp_server, "_worker_skill_resolver"))
 
-    def test_runtime_concurrency_limit_rejects_new_task_until_slot_is_released(self) -> None:
+    def test_crew_concurrency_limits_are_independent_and_release_slots(self) -> None:
         import threading
         import time
         mcp_server = _import_mcp_server()
 
-        def set_limit(payload):
-            payload["runtime"]["max_concurrent_tasks"] = 1
+        def set_limits(payload):
+            payload["crew"]["qoder"]["max_concurrent_tasks"] = 1
+            payload["crew"]["codebuddy"]["max_concurrent_tasks"] = 1
 
-        self._write_config(set_limit)
+        self._write_config(set_limits)
         database = self.root / "runtime" / "tp_voyager.db"
         database.parent.mkdir(parents=True)
         mcp_server.configure_runtime_database(database)
@@ -329,32 +346,44 @@ class VoyagerConfigConsumersV107Tests(unittest.TestCase):
             del task, timeout
             release.wait(2)
 
-        kwargs = dict(
-            runtime="qoder",
-            task_type="qoder",
-            route="acp_read_only",
-            resumable_routes=frozenset({"acp_read_only"}),
-            worker_target=worker,
-            prompt="bounded",
-            cwd=str(self.root),
-            timeout_seconds=2,
-            model="lite",
-            idle_timeout_seconds=1,
-            max_task_duration_seconds=2,
-        )
+        def kwargs(runtime: str):
+            return dict(
+                runtime=runtime,
+                task_type=runtime,
+                route="acp_read_only" if runtime == "qoder" else "sdk_context_read_only",
+                resumable_routes=frozenset(
+                    {"acp_read_only"} if runtime == "qoder" else {"sdk_context_read_only"}
+                ),
+                worker_target=worker,
+                prompt=f"bounded-{runtime}",
+                cwd=str(self.root),
+                timeout_seconds=2,
+                model="lite" if runtime == "qoder" else "hy3",
+                idle_timeout_seconds=1,
+                max_task_duration_seconds=2,
+            )
         with self._runtime_env():
-            first = mcp_server._durable_cli_start(**kwargs)
+            qoder_first = mcp_server._durable_cli_start(**kwargs("qoder"))
             try:
-                second = mcp_server._durable_cli_start(**kwargs)
-                self.assertTrue(first["ok"], first)
-                self.assertFalse(second["ok"], second)
-                self.assertEqual(second.get("reason_code"), "RUNTIME_BUSY")
+                codebuddy_first = mcp_server._durable_cli_start(**kwargs("codebuddy"))
+                qoder_second = mcp_server._durable_cli_start(**kwargs("qoder"))
+                codebuddy_second = mcp_server._durable_cli_start(**kwargs("codebuddy"))
+                self.assertTrue(qoder_first["ok"], qoder_first)
+                self.assertTrue(codebuddy_first["ok"], codebuddy_first)
+                self.assertFalse(qoder_second["ok"], qoder_second)
+                self.assertEqual(qoder_second.get("reason_code"), "RUNTIME_BUSY")
+                self.assertIn("qoder", qoder_second.get("error", ""))
+                self.assertFalse(codebuddy_second["ok"], codebuddy_second)
+                self.assertEqual(codebuddy_second.get("reason_code"), "RUNTIME_BUSY")
+                self.assertIn("codebuddy", codebuddy_second.get("error", ""))
             finally:
                 release.set()
             time.sleep(0.1)
-            third = mcp_server._durable_cli_start(**kwargs)
+            qoder_third = mcp_server._durable_cli_start(**kwargs("qoder"))
+            codebuddy_third = mcp_server._durable_cli_start(**kwargs("codebuddy"))
             release.set()
-        self.assertTrue(third["ok"], third)
+        self.assertTrue(qoder_third["ok"], qoder_third)
+        self.assertTrue(codebuddy_third["ok"], codebuddy_third)
 
 
 class VoyagerCliV107Tests(unittest.TestCase):

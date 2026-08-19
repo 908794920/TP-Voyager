@@ -66,13 +66,14 @@ python -m agent_runtime.cli init
 `config.json` 是机器级/用户策略的唯一普通配置事实源，包含：
 
 ```text
-crew.qoder.enabled / cli_path
-crew.codebuddy.enabled / cli_path / internet_environment
+crew.qoder.enabled / cli_path / max_concurrent_tasks
+crew.codebuddy.enabled / cli_path / internet_environment / max_concurrent_tasks
 dispatch.allowed_models / preferred_models / task_kind_allowed_models
 trusted_roots.model_evidence / instructions
 resources.worker_profiles_root / worker_skills_root
-runtime.max_concurrent_tasks
 ```
+
+Qoder / CodeBuddy 各自拥有独立 worker 槽位池，`max_concurrent_tasks` 默认都是 `2`，合法范围 `1..64`。不存在额外的 Runtime 总并发上限；某个 Crew 达到自身上限时，新任务以 `RUNTIME_BUSY` 明确拒绝，但不会占用或阻塞另一个 Crew 的可用槽位。长期调整直接修改 `~/.tp-voyager/config.json`。
 
 Crew CLI 临时覆盖优先级：
 

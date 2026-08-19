@@ -51,7 +51,7 @@ TP-Voyager 的机器级配置统一放在用户目录：
 .\.venv\Scripts\python.exe -m agent_runtime.cli init
 ```
 
-`init` 会创建目录、尝试从 PATH 发现 Qoder / CodeBuddy CLI，并生成严格的 `tp-voyager.config/v1`。重复执行不会覆盖已有 `config.json`。
+`init` 会创建目录、尝试从 PATH 发现 Qoder / CodeBuddy CLI，并生成严格的 `tp-voyager.config/v2`。重复执行不会覆盖已有 `config.json`。
 
 模型目录继续保持数据驱动：
 
@@ -137,10 +137,19 @@ $env:TP_VOYAGER_PYTHON = "D:\path\to\python.exe"
 
 ```json
 {
-  "schema": "tp-voyager.config/v1",
+  "schema": "tp-voyager.config/v2",
   "crew": {
-    "qoder": {"enabled": true, "cli_path": ""},
-    "codebuddy": {"enabled": true, "cli_path": "", "internet_environment": "internal"}
+    "qoder": {
+      "enabled": true,
+      "cli_path": "",
+      "max_concurrent_tasks": 2
+    },
+    "codebuddy": {
+      "enabled": true,
+      "cli_path": "",
+      "internet_environment": "internal",
+      "max_concurrent_tasks": 2
+    }
   },
   "dispatch": {
     "allowed_models": [
@@ -159,10 +168,11 @@ $env:TP_VOYAGER_PYTHON = "D:\path\to\python.exe"
   "resources": {
     "worker_profiles_root": "",
     "worker_skills_root": ""
-  },
-  "runtime": {"max_concurrent_tasks": 4}
+  }
 }
 ```
+
+Qoder 与 CodeBuddy 的并发槽位完全独立，默认各为 `2`，不存在额外的 Runtime 总任务上限。需要提高并发时，直接修改 `~/.tp-voyager/config.json` 对应 Crew 的 `max_concurrent_tasks`（合法范围 `1..64`）。`config/v2` 是 clean break；旧 `config/v1` 不会自动迁移或继续接受已移除的 `runtime.max_concurrent_tasks`。
 
 Crew CLI 的解析顺序是“临时环境变量覆盖 → `config.json` → PATH”。当前临时覆盖变量仍是 `QODER_CLI_PATH`、`CODEBUDDY_CODE_PATH` 和 `CODEBUDDY_INTERNET_ENVIRONMENT`；正常长期使用应写入 `config.json`。Token、Cookie、登录缓存等 Credential **不得**写入该文件。
 

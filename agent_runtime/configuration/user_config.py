@@ -1,8 +1,8 @@
 """Strict user-owned TP-Voyager configuration.
 
 The configuration is intentionally small: machine-specific Crew locations,
-dispatch authorization, trusted external roots, reusable worker resources, and
-a process-wide concurrency limit.  Credentials and task-specific controls are
+Crew-local concurrency limits, dispatch authorization, trusted external roots,
+and reusable worker resources. Credentials and task-specific controls are
 never persisted here.
 """
 
@@ -18,7 +18,7 @@ from pathlib import Path, PureWindowsPath
 from typing import Any
 
 
-_SCHEMA = "tp-voyager.config/v1"
+_SCHEMA = "tp-voyager.config/v2"
 _DEFAULT_ALLOWED_MODELS = (
     "qoder:lite",
     "qoder:qmodel_38max",
@@ -81,6 +81,12 @@ def _bool(value: object, field: str) -> bool:
     if type(value) is not bool:
         raise VoyagerUserConfigError(f"{field} must be boolean")
     return bool(value)
+
+
+def _concurrency_limit(value: object, field: str) -> int:
+    if type(value) is not int or not 1 <= value <= 64:
+        raise VoyagerUserConfigError(f"{field} must be an integer from 1 to 64")
+    return int(value)
 
 
 def _is_absolute_path(text: str) -> bool:
@@ -152,6 +158,7 @@ def _first_executable(names: tuple[str, ...]) -> str:
 class QoderCrewConfig:
     enabled: bool = True
     cli_path: str = ""
+    max_concurrent_tasks: int = 2
 
 
 @dataclass(frozen=True)
@@ -159,6 +166,7 @@ class CodeBuddyCrewConfig:
     enabled: bool = True
     cli_path: str = ""
     internet_environment: str = "internal"
+    max_concurrent_tasks: int = 2
 
 
 @dataclass(frozen=True)
@@ -196,11 +204,6 @@ class ResourcesConfig:
 
 
 @dataclass(frozen=True)
-class RuntimeConfig:
-    max_concurrent_tasks: int = 4
-
-
-@dataclass(frozen=True)
 class VoyagerUserConfig:
     schema: str
     home: Path
@@ -208,7 +211,6 @@ class VoyagerUserConfig:
     dispatch: DispatchConfig
     trusted_roots: TrustedRootsConfig
     resources: ResourcesConfig
-    runtime: RuntimeConfig
 
     @classmethod
     def defaults(cls, home: str | Path | None = None) -> "VoyagerUserConfig":
@@ -222,7 +224,6 @@ class VoyagerUserConfig:
             dispatch=DispatchConfig(_DEFAULT_ALLOWED_MODELS, (), ()),
             trusted_roots=TrustedRootsConfig((), ()),
             resources=ResourcesConfig(),
-            runtime=RuntimeConfig(),
         )
 
     @property
@@ -249,17 +250,21 @@ class VoyagerUserConfig:
         top = _require_object(
             raw,
             "config",
-            {"schema", "crew", "dispatch", "trusted_roots", "resources", "runtime"},
+            {"schema", "crew", "dispatch", "trusted_roots", "resources"},
         )
         if top["schema"] != _SCHEMA:
             raise VoyagerUserConfigError("config.schema is unsupported")
 
         crew_raw = _require_object(top["crew"], "crew", {"qoder", "codebuddy"})
-        qoder_raw = _require_object(crew_raw["qoder"], "crew.qoder", {"enabled", "cli_path"})
+        qoder_raw = _require_object(
+            crew_raw["qoder"],
+            "crew.qoder",
+            {"enabled", "cli_path", "max_concurrent_tasks"},
+        )
         codebuddy_raw = _require_object(
             crew_raw["codebuddy"],
             "crew.codebuddy",
-            {"enabled", "cli_path", "internet_environment"},
+            {"enabled", "cli_path", "internet_environment", "max_concurrent_tasks"},
         )
         environment = codebuddy_raw["internet_environment"]
         if not isinstance(environment, str) or environment.strip().lower() not in {
@@ -305,10 +310,6 @@ class VoyagerUserConfig:
         resources_raw = _require_object(
             top["resources"], "resources", {"worker_profiles_root", "worker_skills_root"}
         )
-        runtime_raw = _require_object(top["runtime"], "runtime", {"max_concurrent_tasks"})
-        limit = runtime_raw["max_concurrent_tasks"]
-        if type(limit) is not int or not 1 <= limit <= 64:
-            raise VoyagerUserConfigError("runtime.max_concurrent_tasks must be an integer from 1 to 64")
 
         return cls(
             schema=_SCHEMA,
@@ -317,11 +318,19 @@ class VoyagerUserConfig:
                 QoderCrewConfig(
                     enabled=_bool(qoder_raw["enabled"], "crew.qoder.enabled"),
                     cli_path=_path(qoder_raw["cli_path"], "crew.qoder.cli_path"),
+                    max_concurrent_tasks=_concurrency_limit(
+                        qoder_raw["max_concurrent_tasks"],
+                        "crew.qoder.max_concurrent_tasks",
+                    ),
                 ),
                 CodeBuddyCrewConfig(
                     enabled=_bool(codebuddy_raw["enabled"], "crew.codebuddy.enabled"),
                     cli_path=_path(codebuddy_raw["cli_path"], "crew.codebuddy.cli_path"),
                     internet_environment=environment.strip().lower(),
+                    max_concurrent_tasks=_concurrency_limit(
+                        codebuddy_raw["max_concurrent_tasks"],
+                        "crew.codebuddy.max_concurrent_tasks",
+                    ),
                 ),
             ),
             dispatch=DispatchConfig(
@@ -345,7 +354,6 @@ class VoyagerUserConfig:
                     resources_raw["worker_skills_root"], "resources.worker_skills_root"
                 ),
             ),
-            runtime=RuntimeConfig(max_concurrent_tasks=int(limit)),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -355,11 +363,13 @@ class VoyagerUserConfig:
                 "qoder": {
                     "enabled": self.crew.qoder.enabled,
                     "cli_path": self.crew.qoder.cli_path,
+                    "max_concurrent_tasks": self.crew.qoder.max_concurrent_tasks,
                 },
                 "codebuddy": {
                     "enabled": self.crew.codebuddy.enabled,
                     "cli_path": self.crew.codebuddy.cli_path,
                     "internet_environment": self.crew.codebuddy.internet_environment,
+                    "max_concurrent_tasks": self.crew.codebuddy.max_concurrent_tasks,
                 },
             },
             "dispatch": {
@@ -377,7 +387,6 @@ class VoyagerUserConfig:
                 "worker_profiles_root": self.resources.worker_profiles_root,
                 "worker_skills_root": self.resources.worker_skills_root,
             },
-            "runtime": {"max_concurrent_tasks": self.runtime.max_concurrent_tasks},
         }
 
     @classmethod
@@ -405,6 +414,7 @@ class VoyagerUserConfig:
                 QoderCrewConfig(
                     enabled=True,
                     cli_path=_first_executable(("qodercli", "qodercli.cmd", "qodercli.exe")),
+                    max_concurrent_tasks=defaults.crew.qoder.max_concurrent_tasks,
                 ),
                 CodeBuddyCrewConfig(
                     enabled=True,
@@ -412,12 +422,12 @@ class VoyagerUserConfig:
                         ("codebuddy", "codebuddy.cmd", "codebuddy.exe", "cbc", "cbc.cmd", "cbc.exe")
                     ),
                     internet_environment="internal",
+                    max_concurrent_tasks=defaults.crew.codebuddy.max_concurrent_tasks,
                 ),
             ),
             dispatch=defaults.dispatch,
             trusted_roots=defaults.trusted_roots,
             resources=defaults.resources,
-            runtime=defaults.runtime,
         )
         encoded = (json.dumps(discovered.to_dict(), ensure_ascii=False, indent=2) + "\n").encode("utf-8")
         fd, temp_name = tempfile.mkstemp(prefix=".config-", suffix=".json", dir=str(base))
