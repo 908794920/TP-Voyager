@@ -13,7 +13,7 @@ Captain 仍须读取当前目录/策略、显式选择 Crew 与模型，并在�
 或扩大范围时停下等待人类决定。
 
 ```text
-Captain Skill 1.0.9
+Captain Skill 1.0.9.1
 ```
 
 ## Captain MCP 合约
@@ -44,7 +44,7 @@ task_result + Verification / Evidence
 Captain 接受 / 拒绝 / 决定下一步
 ```
 
-`render_voyager_panel` 是 v1.0.9 的只读 observability 工具。Codex host integration 会在 dispatch 返回明确 `task_id` 后立即调用一次，用状态点/边框给当前会话提供 Agent presence，并允许展开 Conversation / Timeline / Files / Usage。它不会重复 dispatch，不会自动挑选其他 Runtime 任务，也不是第二套 Task truth。Provider-visible assistant 内容和安全 Tool/File 活动只进入进程内有界 observation stream；Prompt、secret、raw tool output 与隐藏/private chain-of-thought 不进入该流。
+`render_voyager_panel` 是 v1.0.9.1 的只读 observability 工具。Codex host integration 会在 dispatch 返回明确 `task_id` 后立即调用一次，用状态点/边框给当前会话提供 Agent presence，并允许展开 Conversation / Timeline / Files / Usage。它不会重复 dispatch，不会自动挑选其他 Runtime 任务，也不是第二套 Task truth。Provider-visible assistant 内容和安全 Tool/File 活动只进入进程内有界 observation stream；Prompt、secret、raw tool output 与隐藏/private chain-of-thought 不进入该流。
 
 Codex 的本地加载/插件包装位于 [`integrations/codex/`](integrations/codex/)。未来其他 Host（例如 Claude Code）在真实实现出现时使用 `integrations/<host>/` 同级目录，不把 Host 逻辑塞进 Runtime。
 
@@ -192,16 +192,23 @@ Provider 没返回的消耗字段保持 unknown。
 
 ## 安装
 
-`tp-voyager.manifest.json` 是 Skill 的 MCP 启动事实来源。安装或更新 Skill 后，宿主仍需完成自己的 MCP 注册。
+`tp-voyager.manifest.json` 是 Skill 的 MCP 启动事实来源。Codex Desktop 使用同一个安装器完成 Skill、MCP、observability plugin 与 managed guidance 的收敛：
 
-Codex Desktop 使用明确、幂等的全局同步入口：
+```powershell
+python .\skills\tp-voyager-captain\install_codex_desktop.py
+python .\skills\tp-voyager-captain\install_codex_desktop.py --check
+```
+
+安装器只让现有 `mcp_servers.tp_voyager` 拥有 Runtime 启动配置；observability plugin 保持 skills-only，不带第二份 `.mcp.json`。它同时以 begin/end marker 合并 `$CODEX_HOME\AGENTS.md`，保留所有 block 外用户规则。Codex 配置/plugin/guidance 变化后，若安装结果要求重启，请完全重启 Desktop 并创建新任务/新会话。
+
+如只需要维护已经安装 Skill 的 MCP entry，仍可使用兼容稳定的低层同步入口：
 
 ```powershell
 python "$HOME\.codex\skills\tp-voyager-captain\sync_codex_desktop.py"
 python "$HOME\.codex\skills\tp-voyager-captain\sync_codex_desktop.py" --check
 ```
 
-同步器只维护全局 Codex 配置里的 `mcp_servers.tp_voyager`，不会删除项目级 `.codex/config.toml`。配置变化后必须完全重启 Codex Desktop 或新建任务；已有任务不会热加载 MCP。
+同步器只维护全局 Codex 配置里的 `mcp_servers.tp_voyager`，不会删除项目级 `.codex/config.toml`。
 
 完整说明和验收命令见 [`CODEX_DESKTOP.md`](CODEX_DESKTOP.md)。其他 Captain 宿主可按同一 manifest 注册自己的 MCP transport。
 

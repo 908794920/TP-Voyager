@@ -417,7 +417,7 @@ class VoyagerCliV107Tests(unittest.TestCase):
 
     def test_pyproject_exposes_tp_voyager_console_script_and_v107(self) -> None:
         text = (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8")
-        self.assertIn('version = "1.0.9"', text)
+        self.assertIn('version = "1.0.9.1"', text)
         self.assertIn('tp-voyager = "agent_runtime.cli:main"', text)
         self.assertNotIn('agent-runtime = "agent_runtime.cli:main"', text)
 
@@ -430,8 +430,8 @@ class VoyagerCliV107Tests(unittest.TestCase):
         skill = (root / "skills" / "tp-voyager-captain" / "SKILL.md").read_text(encoding="utf-8")
         readme = (root / "skills" / "tp-voyager-captain" / "README.md").read_text(encoding="utf-8")
         desktop = (root / "skills" / "tp-voyager-captain" / "CODEX_DESKTOP.md").read_text(encoding="utf-8")
-        self.assertIn('version: "1.0.9"', skill)
-        self.assertIn("Captain Skill 1.0.9", readme)
+        self.assertIn('version: "1.0.9.1"', skill)
+        self.assertIn("Captain Skill 1.0.9.1", readme)
         self.assertNotIn("$env:CODEBUDDY_CODE_PATH", desktop)
         self.assertNotIn("$env:QODER_CLI_PATH", desktop)
         self.assertIn("Crew CLI 路径不再属于 Codex MCP binding", desktop)

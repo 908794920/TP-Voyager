@@ -7,6 +7,8 @@ import json
 import os
 from pathlib import Path, PureWindowsPath
 import shutil
+import stat
+import sys
 import tempfile
 import unittest
 
@@ -88,6 +90,229 @@ class CodexDesktopInstallTests(unittest.TestCase):
         self.assertEqual(second["action"], "no-op")
         self.assertEqual(second["mcp_action"], "no-op")
         self.assertEqual(extra.read_text(encoding="utf-8"), "keep me")
+
+    def test_install_converges_observability_plugin_marketplace_and_global_agents_without_overwrite(self) -> None:
+        installer = _module(INSTALLER, "tp_voyager_install_host_integration")
+        user_home = self.tempdir() / "user"
+        codex_home = user_home / ".codex"
+        codex_home.mkdir(parents=True)
+        agents = codex_home / "AGENTS.md"
+        agents.write_text("# My existing rules\n\n- keep this rule\n", encoding="utf-8")
+        marketplace = user_home / ".agents" / "plugins" / "marketplace.json"
+        marketplace.parent.mkdir(parents=True)
+        marketplace.write_text(
+            json.dumps(
+                {
+                    "name": "personal",
+                    "interface": {"displayName": "Personal"},
+                    "plugins": [
+                        {
+                            "name": "existing-plugin",
+                            "source": {"source": "local", "path": "./plugins/existing-plugin"},
+                            "policy": {"installation": "AVAILABLE", "authentication": "ON_INSTALL"},
+                            "category": "Developer Tools",
+                        }
+                    ],
+                },
+                indent=2,
+            ) + "\n",
+            encoding="utf-8",
+        )
+
+        result = installer.install(SKILL, codex_home, user_home=user_home)
+
+        self.assertTrue(result["ok"], result)
+        self.assertTrue(result["mcp_registered"])
+        self.assertTrue(result["plugin_files_installed"])
+        self.assertFalse(result["plugin_installed"])
+        self.assertTrue(result["plugin_installation_pending"])
+        self.assertEqual(result["plugin_install_method"], "marketplace-default")
+        self.assertTrue(result["agents_guidance_installed"])
+        self.assertTrue(result["restart_required"])
+        self.assertTrue(result["new_conversation_required"])
+        rendered_agents = agents.read_text(encoding="utf-8")
+        self.assertIn("# My existing rules", rendered_agents)
+        self.assertIn("keep this rule", rendered_agents)
+        self.assertIn("TP-Voyager managed guidance", rendered_agents)
+        self.assertIn("do not auto-dispatch", rendered_agents.lower())
+        self.assertIn("render_voyager_panel", rendered_agents)
+
+        plugin = codex_home / "plugins" / "tp-voyager-observability"
+        self.assertTrue((plugin / ".codex-plugin" / "plugin.json").is_file())
+        self.assertFalse((plugin / ".mcp.json").exists())
+        market = json.loads(marketplace.read_text(encoding="utf-8"))
+        self.assertEqual([item["name"] for item in market["plugins"]], ["existing-plugin", "tp-voyager-observability"])
+        voyager = market["plugins"][-1]
+        self.assertEqual(voyager["source"]["source"], "local")
+        self.assertEqual(voyager["source"]["path"], "./.codex/plugins/tp-voyager-observability")
+        self.assertEqual(voyager["policy"]["installation"], "INSTALLED_BY_DEFAULT")
+
+        second = installer.install(SKILL, codex_home, user_home=user_home)
+        self.assertTrue(second["ok"])
+        self.assertEqual(second["action"], "no-op")
+        self.assertTrue(second["plugin_installation_pending"])
+        self.assertTrue(second["restart_required"])
+        self.assertTrue(second["new_conversation_required"])
+        self.assertEqual(agents.read_text(encoding="utf-8"), rendered_agents)
+        self.assertEqual(
+            [item["name"] for item in json.loads(marketplace.read_text(encoding="utf-8"))["plugins"]],
+            ["existing-plugin", "tp-voyager-observability"],
+        )
+
+
+    def test_agents_first_insert_preserves_existing_user_bytes_before_managed_block(self) -> None:
+        installer = _module(INSTALLER, "tp_voyager_agents_prefix_preservation")
+        existing = "# User rules\nkeep trailing spaces  \n\n"
+
+        rendered, changed = installer._managed_block(existing)
+
+        self.assertTrue(changed)
+        self.assertTrue(rendered.startswith(existing))
+        self.assertIn("TP-Voyager managed guidance", rendered)
+
+    def test_install_updates_only_managed_agents_block_and_reports_override_shadowing(self) -> None:
+        installer = _module(INSTALLER, "tp_voyager_install_agents_update")
+        user_home = self.tempdir() / "user"
+        codex_home = user_home / ".codex"
+        codex_home.mkdir(parents=True)
+        agents = codex_home / "AGENTS.md"
+        agents.write_text(
+            "before\n\n<!-- >>> TP-Voyager managed guidance >>> -->\nold voyager text\n"
+            "<!-- <<< TP-Voyager managed guidance <<< -->\n\nafter\n",
+            encoding="utf-8",
+        )
+        (codex_home / "AGENTS.override.md").write_text("temporary override\n", encoding="utf-8")
+
+        result = installer.install(SKILL, codex_home, user_home=user_home)
+
+        rendered = agents.read_text(encoding="utf-8")
+        self.assertIn("before", rendered)
+        self.assertIn("after", rendered)
+        self.assertNotIn("old voyager text", rendered)
+        self.assertEqual(rendered.count("<!-- >>> TP-Voyager managed guidance >>> -->"), 1)
+        self.assertTrue(result["agents_guidance_installed"])
+        self.assertFalse(result["agents_guidance_effective"])
+        self.assertTrue(result["agents_override_present"])
+
+    def test_check_detects_plugin_agents_or_marketplace_drift_without_writing(self) -> None:
+        installer = _module(INSTALLER, "tp_voyager_install_host_check")
+        user_home = self.tempdir() / "user"
+        codex_home = user_home / ".codex"
+        installer.install(SKILL, codex_home, user_home=user_home)
+
+        plugin_manifest = codex_home / "plugins" / "tp-voyager-observability" / ".codex-plugin" / "plugin.json"
+        plugin_manifest.write_text("{}\n", encoding="utf-8")
+        agents = codex_home / "AGENTS.md"
+        agents.write_text(agents.read_text(encoding="utf-8").replace("render_voyager_panel", "render_missing_panel"), encoding="utf-8")
+        marketplace = user_home / ".agents" / "plugins" / "marketplace.json"
+        market = json.loads(marketplace.read_text(encoding="utf-8"))
+        market["plugins"] = []
+        marketplace.write_text(json.dumps(market, indent=2) + "\n", encoding="utf-8")
+        before_plugin = plugin_manifest.read_bytes()
+        before_agents = agents.read_bytes()
+        before_market = marketplace.read_bytes()
+
+        checked = installer.install(SKILL, codex_home, user_home=user_home, check_only=True)
+
+        self.assertFalse(checked["ok"])
+        self.assertFalse(checked["plugin_files_installed"])
+        self.assertFalse(checked["plugin_installed"])
+        self.assertFalse(checked["agents_guidance_installed"])
+        self.assertFalse(checked["marketplace_registered"])
+        self.assertEqual(plugin_manifest.read_bytes(), before_plugin)
+        self.assertEqual(agents.read_bytes(), before_agents)
+        self.assertEqual(marketplace.read_bytes(), before_market)
+
+
+    def _fake_codex_cli(self, script_body: str) -> Path:
+        """Materialize a fake Codex CLI runnable on both POSIX and Windows.
+
+        POSIX executes the script directly through its shebang; Windows cannot
+        execute extension-less shebang files, so a ``.cmd`` launcher drives the
+        same script through ``sys.executable``.
+        """
+        base = self.tempdir() / "codex"
+        script = base.with_suffix(".py")
+        script.write_text(script_body, encoding="utf-8")
+        script.chmod(script.stat().st_mode | stat.S_IXUSR)
+        if os.name == "nt":
+            launcher = base.with_suffix(".cmd")
+            launcher.write_text(
+                f'@echo off\r\n"{sys.executable}" "%~dp0{script.name}" %*\r\n',
+                encoding="utf-8",
+            )
+            return launcher
+        return base
+
+    def test_installer_uses_codex_cli_to_install_and_verify_local_plugin_when_available(self) -> None:
+        installer = _module(INSTALLER, "tp_voyager_install_codex_cli")
+        user_home = self.tempdir() / "user"
+        codex_home = user_home / ".codex"
+        base = self.tempdir() / "codex"
+        state = base.with_suffix(".installed")
+        fake_cli = self._fake_codex_cli(
+            "#!/usr/bin/env python3\n"
+            "import json, pathlib, sys\n"
+            f"state = pathlib.Path({str(state)!r})\n"
+            "args = sys.argv[1:]\n"
+            "if args[:2] == ['plugin', 'list']:\n"
+            "    installed = []\n"
+            "    if state.exists():\n"
+            "        installed = [{'name':'tp-voyager-observability','marketplaceName':'personal','installed':True,'enabled':True}]\n"
+            "    print(json.dumps({'installed': installed, 'available': []}))\n"
+            "    raise SystemExit(0)\n"
+            "if args[:2] == ['plugin', 'add']:\n"
+            "    state.write_text('installed')\n"
+            "    print(json.dumps({'name':'tp-voyager-observability','marketplaceName':'personal','installedPath':'cache/local'}))\n"
+            "    raise SystemExit(0)\n"
+            "print(json.dumps({'error':'unexpected','args':args}))\n"
+            "raise SystemExit(2)\n"
+        )
+
+        first = installer.install(SKILL, codex_home, user_home=user_home, codex_cli=fake_cli)
+
+        self.assertTrue(first["ok"], first)
+        self.assertTrue(first["plugin_files_installed"])
+        self.assertTrue(first["plugin_installed"])
+        self.assertTrue(first["plugin_enabled"])
+        self.assertFalse(first["plugin_installation_pending"])
+        self.assertEqual(first["plugin_install_method"], "codex-cli")
+        self.assertTrue(state.exists())
+
+        second = installer.install(SKILL, codex_home, user_home=user_home, codex_cli=fake_cli)
+        self.assertTrue(second["plugin_installed"])
+        self.assertTrue(second["plugin_enabled"])
+        self.assertFalse(second["plugin_installation_pending"])
+        self.assertEqual(second["action"], "no-op")
+
+    def test_check_only_uses_codex_cli_status_without_installing(self) -> None:
+        installer = _module(INSTALLER, "tp_voyager_check_codex_cli")
+        user_home = self.tempdir() / "user"
+        codex_home = user_home / ".codex"
+        base = self.tempdir() / "codex"
+        calls = base.with_suffix(".calls")
+        fake_cli = self._fake_codex_cli(
+            "#!/usr/bin/env python3\n"
+            "import json, pathlib, sys\n"
+            f"calls = pathlib.Path({str(calls)!r})\n"
+            "args = sys.argv[1:]\n"
+            "calls.write_text((calls.read_text() if calls.exists() else '') + ' '.join(args) + '\\n')\n"
+            "if args[:2] == ['plugin', 'list']:\n"
+            "    print(json.dumps({'installed': [], 'available': []}))\n"
+            "    raise SystemExit(0)\n"
+            "raise SystemExit(9)\n"
+        )
+        installer.install(SKILL, codex_home, user_home=user_home, codex_cli="")
+
+        checked = installer.install(
+            SKILL, codex_home, user_home=user_home, codex_cli=fake_cli, check_only=True
+        )
+
+        self.assertTrue(checked["plugin_files_installed"])
+        self.assertFalse(checked["plugin_installed"])
+        self.assertTrue(checked["plugin_installation_pending"])
+        self.assertIn("plugin list --json", calls.read_text(encoding="utf-8"))
+        self.assertNotIn("plugin add", calls.read_text(encoding="utf-8"))
 
     def test_installed_skill_cli_check_uses_saved_repository_root_and_is_read_only(self) -> None:
         installer = _module(INSTALLER, "tp_voyager_install")

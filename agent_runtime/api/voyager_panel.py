@@ -71,13 +71,18 @@ def render_voyager_panel_html() -> str:
   .title-row { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
   .title { font-weight: 720; font-size: 13.5px; letter-spacing: .01em; }
   .state { color: var(--state-color); font-size: 12px; font-weight: 650; text-transform: lowercase; }
-  .meta { margin-top: 3px; font-size: 11.5px; color: var(--muted); overflow-wrap: anywhere; }
+  .meta { margin-top: 5px; display: flex; gap: 5px 10px; flex-wrap: wrap; font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+  .fact { display: inline-flex; gap: 4px; min-width: 0; }
+  .fact-key { color: color-mix(in srgb, CanvasText 42%, Canvas 58%); }
+  .fact-value { color: color-mix(in srgb, CanvasText 78%, Canvas 22%); font-weight: 550; }
   button {
     appearance: none; border: 1px solid var(--line); border-radius: 8px; background: var(--surface);
     color: CanvasText; padding: 6px 9px; font: inherit; font-size: 11.5px; cursor: pointer;
   }
   button:disabled { opacity: .45; cursor: default; }
-  .summary { border-top: 1px solid var(--line); padding: 9px 12px; font-size: 12px; line-height: 1.45; white-space: pre-wrap; }
+  .summary { border-top: 1px solid var(--line); padding: 10px 12px; font-size: 12px; line-height: 1.45; white-space: pre-wrap; }
+  .summary-title { font-weight: 680; margin-bottom: 3px; }
+  .summary-detail { color: var(--muted); font-size: 11px; }
   .empty { color: var(--muted); }
   .details { border-top: 1px solid var(--line); padding: 0 12px 9px; }
   details { border-bottom: 1px solid var(--line); padding: 7px 0; }
@@ -144,9 +149,14 @@ def render_voyager_panel_html() -> str:
 
   function stateLabel(value) {
     return ({
-      queued: "queued", connecting: "starting", running: "running", observing: "running",
-      completed: "completed", failed: "failed", cancelled: "cancelled", lost: "lost", orphaned: "orphaned"
+      queued: "Queued", connecting: "Starting", running: "Running", observing: "Running",
+      completed: "Completed", failed: "Failed", cancelled: "Cancelled", lost: "Lost", orphaned: "Orphaned"
     })[value] || value || "unknown";
+  }
+
+  function humanize(value) {
+    const text = String(value || "").replaceAll("_", " ").trim();
+    return text ? text.charAt(0).toUpperCase() + text.slice(1) : "";
   }
 
   function formatTime(value) {
@@ -155,12 +165,12 @@ def render_voyager_panel_html() -> str:
     catch (_) { return ""; }
   }
 
-  function section(title, rows, open) {
+  function section(title, rows, open, emptyText = "No data.") {
     const wrapper = document.createElement("details");
     wrapper.open = !!open;
     wrapper.appendChild(node("summary", `${title} (${rows.length})`));
     const list = node("div", null, "list");
-    if (!rows.length) list.appendChild(node("div", "No data.", "row empty"));
+    if (!rows.length) list.appendChild(node("div", emptyText, "row empty"));
     for (const row of rows) list.appendChild(row);
     wrapper.appendChild(list);
     return wrapper;
@@ -178,7 +188,7 @@ def render_voyager_panel_html() -> str:
   function timelineRows(items) {
     return (items || []).map((item) => {
       const row = node("div", null, "row");
-      const parts = [formatTime(item.timestamp), item.tool, item.action, item.path, item.status || item.kind].filter(Boolean);
+      const parts = [formatTime(item.timestamp), item.tool, item.action, item.path, item.phase ? humanize(item.phase) : null, item.status || item.kind].filter(Boolean);
       row.appendChild(node("div", parts.join(" · ") || "activity"));
       if (item.reason || item.summary) row.appendChild(node("div", item.reason || item.summary, "label"));
       return row;
@@ -215,34 +225,81 @@ def render_voyager_panel_html() -> str:
     return null;
   }
 
+  function renderIdentity(task) {
+    metaEl.replaceChildren();
+    const facts = [
+      ["Crew", task?.crew],
+      ["Model", task?.model],
+      ["Task", task?.task_id],
+    ];
+    for (const [key, value] of facts) {
+      if (!value) continue;
+      const fact = node("span", null, "fact");
+      fact.appendChild(node("span", key, "fact-key"));
+      fact.appendChild(node("span", value, "fact-value"));
+      metaEl.appendChild(fact);
+    }
+    if (!metaEl.childNodes.length) metaEl.appendChild(node("span", "No active Agent selected"));
+  }
+
+  function latestActivity(data) {
+    const timeline = Array.isArray(data?.timeline) ? data.timeline : [];
+    const item = timeline.length ? timeline[timeline.length - 1] : null;
+    if (!item) return "";
+    return [item.tool, item.action, item.path, item.phase ? humanize(item.phase) : null, item.status || item.kind]
+      .filter(Boolean).join(" · ");
+  }
+
+  function renderSummary(task, state, data, lastMessage) {
+    summaryEl.replaceChildren();
+    if (data.error?.message) {
+      summaryEl.className = "summary error";
+      summaryEl.appendChild(node("div", "Agent execution failed", "summary-title"));
+      const details = [];
+      if (data.error.stage) details.push(`Stage: ${humanize(data.error.stage)}`);
+      details.push(`Reason: ${data.error.message}`);
+      summaryEl.appendChild(node("div", details.join(" · "), "summary-detail"));
+      return;
+    }
+    if (lastMessage) {
+      summaryEl.className = "summary";
+      summaryEl.appendChild(node("div", lastMessage));
+      return;
+    }
+    if (task) {
+      summaryEl.className = "summary";
+      const activity = latestActivity(data);
+      if (activity) {
+        summaryEl.appendChild(node("div", "Current activity", "summary-title"));
+        summaryEl.appendChild(node("div", activity, "summary-detail"));
+      } else {
+        summaryEl.appendChild(node("div", task.active ? "Agent is active." : "Agent finished.", "summary-title"));
+        summaryEl.appendChild(node("div", task.active ? "Waiting for the next visible Agent event." : "Trace and evidence are available below.", "summary-detail"));
+      }
+      return;
+    }
+    summaryEl.className = "summary empty";
+    summaryEl.appendChild(node("div", "No Agent data yet."));
+  }
+
   function render(data) {
     latestData = data && typeof data === "object" ? data : {};
     const task = pickTask(latestData);
     const state = task?.state || (latestData.ok === false ? "failed" : "queued");
     panel.dataset.state = state;
     stateEl.textContent = stateLabel(state);
-    const meta = [task?.crew, task?.model, task?.task_id].filter(Boolean).join(" · ");
-    metaEl.textContent = meta || "No active Agent selected";
+    renderIdentity(task);
 
     const conversation = Array.isArray(latestData.conversation) ? latestData.conversation : [];
     const lastMessage = conversation.length ? conversation[conversation.length - 1]?.content : "";
-    if (latestData.error?.message) {
-      summaryEl.textContent = latestData.error.message;
-      summaryEl.className = "summary error";
-    } else if (lastMessage) {
-      summaryEl.textContent = lastMessage;
-      summaryEl.className = "summary";
-    } else if (task) {
-      summaryEl.textContent = task.active ? "Agent is active. Open details for live execution trace." : "Agent finished. Open details for trace and evidence.";
-      summaryEl.className = "summary";
-    } else {
-      summaryEl.textContent = "No Agent data yet.";
-      summaryEl.className = "summary empty";
-    }
+    renderSummary(task, state, latestData, lastMessage);
 
     detailsEl.replaceChildren();
-    detailsEl.appendChild(section("Conversation", conversationRows(conversation), true));
-    detailsEl.appendChild(section("Timeline", timelineRows(latestData.timeline), false));
+    const conversationEmpty = latestData.error?.message
+      ? "Agent did not produce conversation output before the failure."
+      : "Agent has not produced conversation output yet.";
+    detailsEl.appendChild(section("Conversation", conversationRows(conversation), true, conversationEmpty));
+    detailsEl.appendChild(section("Timeline", timelineRows(latestData.timeline), true, "No execution activity yet."));
     detailsEl.appendChild(section("Files", fileRows(latestData.files), false));
     detailsEl.appendChild(section("Usage", usageRows(latestData.usage), false));
     stampEl.textContent = task?.updated_at ? `updated ${formatTime(task.updated_at)}` : "";
@@ -330,7 +387,7 @@ def render_voyager_panel_html() -> str:
   }, { passive: true });
 
   const bridgeReady = request("ui/initialize", {
-    appInfo: { name: "tp-voyager-agent-panel", version: "1.0.9" },
+    appInfo: { name: "tp-voyager-agent-panel", version: "1.0.9.1" },
     appCapabilities: {},
     protocolVersion: "2026-01-26",
   }).then(() => {

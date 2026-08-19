@@ -1831,7 +1831,8 @@ def _run_official_cli_task(
         if not _persist_failed_with_partial_artifacts(task):
             _persist_failed(task)
         _note_task_activity(task, "failed")
-        _AGENT_OBSERVATIONS.failed(task, reason=type(exc).__name__)
+        failure_phase = getattr(exc, "phase", None)
+        _AGENT_OBSERVATIONS.failed(task, reason=type(exc).__name__, phase=failure_phase)
         activity_logger.terminal(
             f"{backend_name} task failed",
             status=type(exc).__name__,

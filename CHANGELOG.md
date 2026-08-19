@@ -1,6 +1,13 @@
 # Changelog
 
-### v1.0.9 — Unreleased
+### v1.0.9.1 — Unreleased
+
+- Harden read-only workspace snapshots for aggregate Windows workspaces: `.git`, `.codebuddy`, `.qoder` and the existing mandatory forbidden directory set are pruned when they appear at **any** relative path component, so nested repositories/tool metadata are never descended into. Snapshot copy failures now expose a bounded `workspace_snapshot` phase plus relative-path context instead of leaking raw host exceptions into the Agent panel.
+- Converge Codex first-use setup behind the existing `install_codex_desktop.py`: Captain Skill/MCP registration, the skills-only observability plugin, personal marketplace entry, and TP-Voyager's global `AGENTS.md` managed block are installed/checked together. The personal plugin entry is `INSTALLED_BY_DEFAULT`; when a stable Codex CLI is available the installer also runs `codex plugin add` and verifies `plugin list` state, otherwise it reports installation as pending instead of claiming success. The plugin still contains no second MCP server declaration.
+- Add idempotent managed guidance under explicit TP-Voyager markers. Existing user `AGENTS.md` content is preserved; a non-empty `AGENTS.override.md` is reported as shadowing rather than overwritten. Guidance may recommend evaluating Captain MCP for bounded work but explicitly forbids automatic dispatch/retry/model switching/scope or permission expansion.
+- Polish the MCP Apps Agent panel around human-visible identity and activity: Crew/Model/Task fields, humanized state, default-visible Timeline, meaningful Conversation empty states, current activity summary, and safe `Stage`/`Reason` failure presentation. The MCP Apps resource URI and seven-tool Captain Surface remain unchanged.
+
+### v1.0.9 Agent Observability MVP — 2026-08-19
 
 - Open release line `v1.0.9` (1.0.8 → 1.0.9).
 - Add a bounded, transient Agent observability projection under `application/voyage`: Provider-visible assistant text plus safe Tool/File activity is held only in current-process memory; SQLite Task/Event/Evidence remains the sole Durable truth and no persistence schema changes are introduced.

@@ -20,7 +20,7 @@ RUNTIME_MANIFEST = CAPTAIN / "tp-voyager.manifest.json"
 class CodexObservabilityPluginTests(unittest.TestCase):
     def test_captain_manifest_exposes_seven_tools_including_render_panel(self) -> None:
         manifest = json.loads(RUNTIME_MANIFEST.read_text(encoding="utf-8"))
-        self.assertEqual(manifest["skill"]["version"], "1.0.9")
+        self.assertEqual(manifest["skill"]["version"], "1.0.9.1")
         tools = manifest["mcp"]["required_captain_tools"]
         self.assertEqual(len(tools), 7)
         self.assertIn("render_voyager_panel", tools)
@@ -36,7 +36,7 @@ class CodexObservabilityPluginTests(unittest.TestCase):
     def test_plugin_is_skills_only_and_does_not_duplicate_existing_mcp_server(self) -> None:
         manifest = json.loads(PLUGIN_MANIFEST.read_text(encoding="utf-8"))
         self.assertEqual(manifest["name"], "tp-voyager-observability")
-        self.assertEqual(manifest["version"], "1.0.9")
+        self.assertEqual(manifest["version"], "1.0.9.1")
         self.assertEqual(manifest["skills"], "./skills/")
         self.assertNotIn("mcpServers", manifest)
         self.assertNotIn("apps", manifest)
@@ -62,7 +62,7 @@ class CodexObservabilityPluginTests(unittest.TestCase):
         self.assertEqual(entry["name"], "tp-voyager-observability")
         self.assertEqual(entry["source"]["source"], "local")
         self.assertEqual(entry["source"]["path"], "./plugins/tp-voyager-observability")
-        self.assertEqual(entry["policy"]["installation"], "AVAILABLE")
+        self.assertEqual(entry["policy"]["installation"], "INSTALLED_BY_DEFAULT")
         self.assertEqual(entry["policy"]["authentication"], "ON_INSTALL")
 
 

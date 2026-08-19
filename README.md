@@ -16,7 +16,7 @@ Crew
 └── Qoder CLI
 ```
 
-> 当前版本：**v1.0.9 — 开发中**
+> 当前版本：**v1.0.9.1 — 开发中**
 
 ## 为什么需要 TP-Voyager
 
@@ -28,7 +28,7 @@ TP-Voyager 把这些问题收在执行层：
 - **受控执行**：read-only、patch、verification 都有明确边界，不使用隐藏 fallback；
 - **隔离修改**：Patch 在 Runtime-owned Git worktree 中完成，Passenger Workspace 不由 Runtime 直接修改；
 - **Verification + Evidence**：把测试、Patch、Usage、执行结果变成可追溯事实；
-- **小型 Captain Surface**：v1.0.9 默认只有 7 个 MCP 工具；原有 6 个控制/查询工具保持兼容，新增的 `render_voyager_panel` 仅用于只读 Agent 可见性。
+- **小型 Captain Surface**：v1.0.9.1 默认只有 7 个 MCP 工具；原有 6 个控制/查询工具保持兼容，新增的 `render_voyager_panel` 仅用于只读 Agent 可见性。
 
 ## v1.0.7：统一配置与受控执行
 
@@ -178,6 +178,16 @@ Crew CLI 的解析顺序是“临时环境变量覆盖 → `config.json` → PAT
 
 `model_routing_profiles.json` 继续独立存在，因为它是可更新、带 Evidence/provenance 的模型认知资料，而不是普通机器配置。`tp-voyager init` 会在缺失时 materialize 随包的 26-route baseline；当前账号快照有 27 个可见条目，但 Qoder GLM-5.3 的 account-specific route id 未在本构建环境捕获，因此 baseline 不猜测该 alias。也可以单独执行 `python -m agent_runtime.cli model-routing-init`。
 
+### 4. Codex Desktop 一体化接入（可选）
+
+需要在 Codex Desktop 中使用 Captain MCP 与 Agent 面板时，从仓库根目录运行：
+
+```powershell
+.\.venv\Scripts\python.exe .\skills\tp-voyager-captain\install_codex_desktop.py
+```
+
+同一个安装器会收敛 Captain Skill、唯一的 `tp_voyager` MCP 注册、skills-only observability plugin、`INSTALLED_BY_DEFAULT` personal marketplace entry，以及全局 `$CODEX_HOME\AGENTS.md` 中的 TP-Voyager managed block；不会覆盖 block 外的用户规则，也不会让 plugin 再启动一份 MCP。若检测到 Codex CLI，会直接安装并复核 plugin；否则返回 `plugin_installation_pending=true` 而不是伪称已安装，重启 Desktop 后由 Host 收敛。若输出 `restart_required=true` / `new_conversation_required=true`，请重启 Codex Desktop 并创建新任务/新会话后验收。
+
 ## Captain 怎么用
 
 默认 MCP Surface 有 7 个高层工具：
@@ -192,7 +202,7 @@ task_dispatch
 task_result
 ```
 
-其中 `render_voyager_panel(task_id=...)` 是只读可见性工具，不改变原有六工具控制流程。v1.0.9 同时把 `task_dispatch` 关联到同一 MCP Apps UI resource：支持 MCP Apps 的 Codex Host 可在子代理启动返回 `task_id` 时立即显示当前对话内的 Agent Presence 卡片；卡片刷新只调用只读 render 工具，不会重复 dispatch。无 UI 的 Host 仍可读取同一结构化结果。
+其中 `render_voyager_panel(task_id=...)` 是只读可见性工具，不改变原有六工具控制流程。v1.0.9.1 继续把 `task_dispatch` 关联到同一 MCP Apps UI resource：支持 MCP Apps 的 Codex Host 可在子代理启动返回 `task_id` 时立即显示当前对话内的 Agent Presence 卡片；卡片刷新只调用只读 render 工具，不会重复 dispatch。无 UI 的 Host 仍可读取同一结构化结果。
 
 Panel 可展示 Crew、模型、状态、Provider-visible assistant 输出、Tool/File 活动、Provider 实报 Usage 与失败类别。Assistant/Tool observation 只保存在当前 Runtime 进程的有界内存中，Runtime 重启即丢失；Prompt、system message、secret、raw tool output 和隐藏/私有 chain-of-thought 不进入该流。Durable Task/Event/Evidence 仍由 SQLite 独占。
 

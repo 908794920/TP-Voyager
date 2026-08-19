@@ -293,7 +293,12 @@ class AgentObservationRecorder:
         )
 
     def failed(
-        self, task: Any, *, reason: str = "failed", timestamp: float | None = None
+        self,
+        task: Any,
+        *,
+        reason: str = "failed",
+        phase: str | None = None,
+        timestamp: float | None = None,
     ) -> None:
         self._append(
             task,
@@ -302,6 +307,7 @@ class AgentObservationRecorder:
                 "timestamp": timestamp or time.time(),
                 "status": "failed",
                 "reason": reason,
+                "phase": phase,
                 **self._identity(task),
             },
         )
@@ -518,6 +524,14 @@ class VoyageAgentProjection:
         )
         code = _bounded_string(getattr(task, "error_code", None), 160)
         terminal_reason = _bounded_string(getattr(task, "terminal_reason", None), 160)
+        observed_stage = next(
+            (
+                _bounded_string(item.get("phase"), 160)
+                for item in reversed(events)
+                if item.get("kind") == "agent_failed" and item.get("phase")
+            ),
+            None,
+        )
         return {
             "code": code,
             # Durable backend error text may contain local paths or provider
@@ -525,6 +539,7 @@ class VoyageAgentProjection:
             # or bounded control-plane category, never the raw exception text.
             "message": observed_reason or terminal_reason or code or "runtime_error",
             "terminal_reason": terminal_reason,
+            "stage": observed_stage,
         }
 
     @staticmethod

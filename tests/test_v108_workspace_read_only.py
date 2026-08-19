@@ -13,6 +13,7 @@ from agent_runtime.application.dispatch import CaptainDispatchService
 from agent_runtime.backends.base import BackendActivity, BackendResult, BackendStartRequest
 from agent_runtime.backends.qoder.acp_client import AcpRunResult
 from agent_runtime.backends.qoder.backend import QoderBackend
+from agent_runtime.backends.workspace_snapshot import materialize_workspace_snapshot
 from agent_runtime.backends.qoder.captain_dispatch import QoderReadOnlyDispatcher
 from agent_runtime.domain.crew import CrewDescriptor
 from agent_runtime.domain.dispatch import CaptainDispatchRequest, ReadScope, _MANDATORY_FORBIDDEN
@@ -69,6 +70,58 @@ class V108WorkspaceReadOnlyTests(unittest.TestCase):
             {"qoder": lambda request: calls.append(request) or {"ok": True, "task_id": "task-v108"}},
         )
         return service, calls
+
+    def test_snapshot_prunes_nested_sensitive_directories_in_aggregate_workspace(self) -> None:
+        workspace = self.root / "aggregate"
+        repo = workspace / "dev" / "TP_Voyager-Dev"
+        (repo / "src").mkdir(parents=True)
+        (repo / "src" / "main.py").write_text("print('ok')\n", encoding="utf-8")
+        (repo / ".git" / "refs" / "codex" / "turn-diffs" / ("x" * 80)).mkdir(parents=True)
+        (repo / ".git" / "refs" / "codex" / "turn-diffs" / ("x" * 80) / "ref").write_text("deadbeef\n", encoding="utf-8")
+        (workspace / "other" / ".codebuddy" / "cache").mkdir(parents=True)
+        (workspace / "other" / ".codebuddy" / "cache" / "state.json").write_text("{}", encoding="utf-8")
+        (workspace / "tools" / ".qoder" / "sessions").mkdir(parents=True)
+        (workspace / "tools" / ".qoder" / "sessions" / "s.json").write_text("{}", encoding="utf-8")
+        (workspace / "tools" / ".codex" / "state").mkdir(parents=True)
+        (workspace / "tools" / ".codex" / "state" / "session.json").write_text("{}", encoding="utf-8")
+        (workspace / "web" / "node_modules" / "pkg").mkdir(parents=True)
+        (workspace / "web" / "node_modules" / "pkg" / "index.js").write_text("module.exports = {}", encoding="utf-8")
+        (workspace / "py" / ".venv" / "Lib").mkdir(parents=True)
+        (workspace / "py" / ".venv" / "Lib" / "site.py").write_text("# generated", encoding="utf-8")
+        (workspace / "py" / "pkg" / "__pycache__").mkdir(parents=True)
+        (workspace / "py" / "pkg" / "__pycache__" / "mod.pyc").write_bytes(b"cache")
+
+        temp, snapshot = materialize_workspace_snapshot(str(workspace))
+        try:
+            self.assertTrue((snapshot / "dev" / "TP_Voyager-Dev" / "src" / "main.py").is_file())
+            self.assertFalse((snapshot / "dev" / "TP_Voyager-Dev" / ".git").exists())
+            self.assertFalse((snapshot / "other" / ".codebuddy").exists())
+            self.assertFalse((snapshot / "tools" / ".qoder").exists())
+            self.assertFalse((snapshot / "tools" / ".codex").exists())
+            self.assertFalse((snapshot / "web" / "node_modules").exists())
+            self.assertFalse((snapshot / "py" / ".venv").exists())
+            self.assertFalse((snapshot / "py" / "pkg" / "__pycache__").exists())
+        finally:
+            temp.cleanup()
+
+    def test_snapshot_wraps_copy_os_error_with_bounded_relative_context(self) -> None:
+        from agent_runtime.backends import workspace_snapshot as snapshot_module
+
+        workspace = self.root / "aggregate-error"
+        (workspace / "src").mkdir(parents=True)
+        (workspace / "src" / "main.py").write_text("print('ok')\n", encoding="utf-8")
+
+        with patch.object(
+            snapshot_module.shutil,
+            "copyfile",
+            side_effect=FileNotFoundError(3, "The system cannot find the path specified"),
+        ):
+            with self.assertRaises(RuntimeError) as caught:
+                materialize_workspace_snapshot(str(workspace))
+
+        self.assertEqual(type(caught.exception).__name__, "WorkspaceSnapshotError")
+        self.assertIn("src/main.py", str(caught.exception).replace("\\", "/"))
+        self.assertNotIn(str(workspace), str(caught.exception))
 
     def test_large_workspace_fixture_exceeds_legacy_read_scope_capacity(self) -> None:
         workspace = build_large_workspace(self.root)

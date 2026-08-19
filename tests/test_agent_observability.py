@@ -197,6 +197,23 @@ class AgentObservationRecorderTests(unittest.TestCase):
             self.assertEqual(event["kind"], "agent_failed")
             self.assertEqual(event["reason"], "BackendTimeoutError")
 
+    def test_failed_records_safe_execution_phase(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = AgentObservationStore(Path(tmp))
+            recorder = AgentObservationRecorder(store)
+            state = SimpleNamespace(task_id="task-1", runtime="codebuddy", model="hy3")
+
+            recorder.failed(
+                state,
+                reason="WorkspaceSnapshotError",
+                phase="workspace_snapshot",
+                timestamp=2.0,
+            )
+
+            event = store.read("task-1")[-1]
+            self.assertEqual(event["reason"], "WorkspaceSnapshotError")
+            self.assertEqual(event["phase"], "workspace_snapshot")
+
 
 class BackendActivityProjectionTests(unittest.TestCase):
     def test_backend_activity_projection_accepts_only_explicit_observation_fields(self) -> None:
@@ -391,6 +408,26 @@ class VoyageAgentProjectionTests(unittest.TestCase):
             self.assertEqual(detail["error"]["message"], "BackendTimeoutError")
             self.assertNotIn("secret credential", encoded)
             self.assertNotIn("C:/Users", encoded)
+
+    def test_failed_detail_projects_safe_failure_stage(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = AgentObservationStore(Path(tmp))
+            store.append(
+                "task-1",
+                {
+                    "kind": "agent_failed",
+                    "timestamp": 5.0,
+                    "reason": "WorkspaceSnapshotError",
+                    "phase": "workspace_snapshot",
+                    "status": "failed",
+                },
+            )
+            projection = VoyageAgentProjection(FakeTaskService([task("task-1", "failed")]), store)
+
+            detail = projection.detail("task-1")
+
+            self.assertEqual(detail["error"]["message"], "WorkspaceSnapshotError")
+            self.assertEqual(detail["error"]["stage"], "workspace_snapshot")
 
     def test_unknown_task_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

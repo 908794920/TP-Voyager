@@ -26,6 +26,7 @@ class VoyagerPanelHtmlTests(unittest.TestCase):
         self.assertIn('ui/notifications/initialized', html)
         self.assertIn('2026-01-26', html)
         self.assertIn('ui/notifications/tool-input', html)
+        self.assertIn('version: "1.0.9.1"', html)
         self.assertIn('setTimeout(refresh', html)
         self.assertIn('snapshot?.task_id', html)
         self.assertIn('setTimeout(refresh, 80)', html)
@@ -54,6 +55,19 @@ class VoyagerPanelHtmlTests(unittest.TestCase):
         self.assertIn("Files", html)
         self.assertIn("Usage", html)
 
+    def test_panel_prioritizes_agent_identity_failure_stage_and_live_activity(self) -> None:
+        html = render_voyager_panel_html()
+        self.assertIn("Agent execution failed", html)
+        self.assertIn("Stage", html)
+        self.assertIn("Crew", html)
+        self.assertIn("Model", html)
+        self.assertIn("Task", html)
+        self.assertIn("Current activity", html)
+        self.assertIn("Agent has not produced conversation output yet.", html)
+        self.assertIn("Agent did not produce conversation output before the failure.", html)
+        self.assertIn('section("Timeline", timelineRows(latestData.timeline), true', html)
+        self.assertNotIn('section("Timeline", timelineRows(latestData.timeline), false', html)
+
     def test_panel_escapes_dynamic_text_via_text_content(self) -> None:
         html = render_voyager_panel_html()
         self.assertIn("textContent", html)
@@ -81,6 +95,11 @@ class VoyagerPanelMcpContractTests(unittest.TestCase):
         self.assertIn('"resourceUri": VOYAGER_PANEL_URI', dispatch_metadata)
         self.assertIn('structured_output=True', dispatch_metadata)
         self.assertIn('"openai/toolInvocation/invoking"', dispatch_metadata)
+
+    def test_server_projects_safe_exception_phase_into_failed_observation(self) -> None:
+        source = (ROOT / "agent_runtime" / "api" / "mcp_server.py").read_text(encoding="utf-8")
+        self.assertIn('failure_phase = getattr(exc, "phase", None)', source)
+        self.assertIn('_AGENT_OBSERVATIONS.failed(task, reason=type(exc).__name__, phase=failure_phase)', source)
 
     def test_render_tool_without_task_id_does_not_auto_select_another_runtime_task(self) -> None:
         source = (ROOT / "agent_runtime" / "api" / "mcp_server.py").read_text(encoding="utf-8")

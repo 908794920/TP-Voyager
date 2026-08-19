@@ -2,13 +2,13 @@
 name: tp-voyager-captain
 description: Use when bounded repository research, code review, failure analysis, independent verification, or a small scoped patch could benefit from TP-Voyager MCP delegation; proactively evaluate it without requiring the user to invoke this skill.
 metadata:
-  version: "1.0.9"
+  version: "1.0.9.1"
   protocol: "tp-voyager-captain/v1"
 ---
 
 # TP-Voyager Captain Skill
 
-> Version: 1.0.9
+> Version: 1.0.9.1
 >
 > Role: Captain-side orchestration skill for TP-Voyager.
 >
@@ -1090,7 +1090,7 @@ known run_id + step_key
 → task_result(run_id=..., step_key=...)
 ```
 
-The default Captain surface is exactly seven tools in v1.0.9: the original six control/query tools plus the read-only `render_voyager_panel`. The render tool must be pinned to an explicit `task_id`, must never dispatch/mutate, and must never expose prompts, secrets, raw tool output, or hidden/private chain-of-thought.
+The default Captain surface is exactly seven tools in v1.0.9.1: the original six control/query tools plus the read-only `render_voyager_panel`. The render tool must be pinned to an explicit `task_id`, must never dispatch/mutate, and must never expose prompts, secrets, raw tool output, or hidden/private chain-of-thought.
 
 ## 16. Completion Standard
 

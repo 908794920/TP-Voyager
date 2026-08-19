@@ -1,6 +1,6 @@
 {
   "name": "tp-voyager-observability",
-  "version": "1.0.9",
+  "version": "1.0.9.1",
   "description": "Show TP-Voyager delegated Crew presence and execution trace inside the current Codex conversation.",
   "license": "MIT",
   "keywords": [
