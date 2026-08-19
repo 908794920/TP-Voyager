@@ -22,13 +22,14 @@ from agent_runtime.backends.base import (
     BackendStartRequest,
     BackendUsage,
 )
-from agent_runtime.domain.dispatch import CommandSpec
+from agent_runtime.domain.dispatch import CommandSpec, _MANDATORY_FORBIDDEN
 from agent_runtime.backends.errors import (
     BackendCancelledError,
     BackendProtocolError,
 )
 from agent_runtime.backends.qoder.acp_client import QoderAcpClient
 from agent_runtime.backends.qoder.process import resolve_qoder_cli
+from agent_runtime.backends.workspace_snapshot import materialize_workspace_snapshot
 
 @dataclass
 class _LiveExecution:
@@ -276,6 +277,7 @@ class QoderBackend:
                 except ValueError as exc:
                     raise BackendProtocolError("Qoder patch policy contains an invalid command spec") from exc
         read_scope_snapshot: tempfile.TemporaryDirectory[str] | None = None
+        workspace_snapshot: tempfile.TemporaryDirectory[str] | None = None
         if mode == "read_only":
             routing = request.metadata.get("routing_metadata")
             routing = routing if isinstance(routing, dict) else {}
@@ -283,7 +285,25 @@ class QoderBackend:
             read_scope = read_scope if isinstance(read_scope, dict) else None
             factory = self._read_only_acp_client_factory
             if read_scope is None:
-                client = factory(cwd=request.cwd, on_activity=callbacks.on_activity)
+                # Broad read-only research runs against a sensitive-path-free
+                # workspace snapshot, not the live Passenger cwd.  Qoder's
+                # native Read/Grep/Glob tools bypass the ACP fs callback, so
+                # only physical exclusion can keep .env/*.pem/.git etc. out of
+                # vendor output.
+                workspace_snapshot, snapshot_root = materialize_workspace_snapshot(request.cwd)
+                try:
+                    client = factory(
+                        cwd=str(snapshot_root),
+                        on_activity=callbacks.on_activity,
+                        context_window_tokens=request.context_window_tokens,
+                        forbidden_paths=_MANDATORY_FORBIDDEN,
+                        visible_tools=("Read", "Grep", "Glob"),
+                        allowed_tools=("Read", "Grep", "Glob"),
+                    )
+                except Exception:
+                    workspace_snapshot.cleanup()
+                    workspace_snapshot = None
+                    raise
             else:
                 resolved_files = tuple(
                     str(item) for item in read_scope.get("resolved_files", [])
@@ -298,7 +318,9 @@ class QoderBackend:
                         on_activity=callbacks.on_activity,
                         context_window_tokens=request.context_window_tokens,
                         allowed_paths=resolved_files,
-                        forbidden_paths=(".git", ".codebuddy", ".qoder"),
+                        forbidden_paths=_MANDATORY_FORBIDDEN,
+                        visible_tools=("Read", "Grep", "Glob"),
+                        allowed_tools=("Read", "Grep", "Glob"),
                     )
                 except Exception:
                     read_scope_snapshot.cleanup()
@@ -383,3 +405,5 @@ class QoderBackend:
             self._unregister(request.task_id)
             if read_scope_snapshot is not None:
                 _cleanup_read_scope_snapshot(read_scope_snapshot)
+            if workspace_snapshot is not None:
+                _cleanup_read_scope_snapshot(workspace_snapshot)

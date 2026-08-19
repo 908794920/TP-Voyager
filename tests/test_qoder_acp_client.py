@@ -183,6 +183,39 @@ class QoderAcpProtocolTests(unittest.TestCase):
         self.assertEqual(result.usage["outputTokens"], 3)
         self.assertGreaterEqual(activity.count("stream_activity"), 2)
 
+    def test_read_only_vendor_tool_visibility_is_restricted_at_cli_start(self) -> None:
+        fake = FakeAcpProcess()
+        with (
+            patch("agent_runtime.backends.qoder.acp_client.popen_command", return_value=fake) as spawn,
+            patch("agent_runtime.backends.qoder.acp_client.terminate_process_tree"),
+        ):
+            client = QoderAcpClient(
+                cwd=str(Path.cwd()),
+                cli_path="qodercli",
+                on_activity=lambda item: None,
+                read_only=True,
+                allow_permissions=False,
+                visible_tools=("Read", "Grep", "Glob"),
+                allowed_tools=("Read", "Grep", "Glob"),
+            )
+            command = list(spawn.call_args.args[0])
+            client.close()
+
+        self.assertEqual(
+            command,
+            [
+                "qodercli",
+                "--acp",
+                "--tools",
+                "Read",
+                "Grep",
+                "Glob",
+                "--allowed-tools",
+                "Read,Grep,Glob",
+            ],
+        )
+        self.assertNotIn("--yolo", command)
+
     def test_read_only_policy_denies_mutating_client_capabilities(self) -> None:
         fake = FakeAcpProcess()
         with (
@@ -221,6 +254,45 @@ class QoderAcpProtocolTests(unittest.TestCase):
             )
             self.assertEqual(permission, {"outcome": {"outcome": "cancelled"}})
             client.close()
+
+    def test_read_only_host_callbacks_allow_workspace_reads_and_deny_escape_and_forbidden_paths(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "workspace"
+            root.mkdir()
+            (root / "src").mkdir()
+            (root / "src" / "allowed.txt").write_text("allowed\n", encoding="utf-8")
+            (root / ".git").mkdir()
+            (root / ".git" / "config").write_text("secret\n", encoding="utf-8")
+            outside = Path(tmp) / "outside.txt"
+            outside.write_text("outside\n", encoding="utf-8")
+            fake = FakeAcpProcess()
+            with (
+                patch("agent_runtime.backends.qoder.acp_client.popen_command", return_value=fake),
+                patch("agent_runtime.backends.qoder.acp_client.terminate_process_tree"),
+            ):
+                client = QoderAcpClient(
+                    cwd=str(root),
+                    cli_path="qodercli",
+                    on_activity=lambda item: None,
+                    read_only=True,
+                    allow_permissions=False,
+                    forbidden_paths=(".git", ".codebuddy", ".qoder"),
+                )
+                read = client._dispatch_client_method(
+                    "fs/read_text_file", {"path": "src/allowed.txt"}
+                )
+                self.assertIn("allowed", read["content"])
+                with self.assertRaises(PermissionError):
+                    client._dispatch_client_method(
+                        "fs/read_text_file", {"path": str(outside)}
+                    )
+                with self.assertRaises(PermissionError):
+                    client._dispatch_client_method(
+                        "fs/read_text_file", {"path": ".git/config"}
+                    )
+                client.close()
 
     def test_requested_context_window_is_a_cli_start_option_not_an_acp_config_option(self) -> None:
         fake = FakeAcpProcess()

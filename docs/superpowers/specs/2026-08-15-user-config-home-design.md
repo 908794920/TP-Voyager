@@ -1,5 +1,7 @@
 # TP-Voyager User Configuration and Home Design
 
+> **Historical v1.0.7 design.** TP-Voyager v1.0.8 `tp-voyager.config/v2` supersedes only the concurrency portion: the process-wide Runtime limit is removed and Qoder / CodeBuddy each own an independent `max_concurrent_tasks` limit defaulting to `2`. The v1 schema and examples below are retained as the v1.0.7 design record.
+
 ## Goal
 
 Make TP-Voyager v1.0.7 use a product-specific user home at `~/.tp-voyager` and consolidate machine-specific, cross-project configuration into one strict `config.json` created by `tp-voyager init`.

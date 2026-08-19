@@ -13,7 +13,7 @@ Captain 仍须读取当前目录/策略、显式选择 Crew 与模型，并在�
 或扩大范围时停下等待人类决定。
 
 ```text
-Captain Skill 1.0.7
+Captain Skill 1.0.8
 ```
 
 ## Captain MCP 合约
@@ -114,12 +114,17 @@ allowed/denied。模型授权与能力认知始终是两套不同事实。
 
 ```text
 GOAL
-SCOPE / read_scope
+WORKSPACE / SCOPE
 CONSTRAINTS
 VALIDATION
 DELIVERABLE
 TIMEOUT
 ```
+
+普通本地仓库的 **normal workspace read-only**（`research` / `code_review` /
+`test_failure_triage`）默认使用真实 `cwd`，**do not provide `read_scope` by
+default**。任务的 mission、权限、时间和角色仍然有界，但不要让 Captain 预估
+仓库有多少文件或字节来决定能不能 dispatch。
 
 Patch 还必须明确：
 
@@ -130,9 +135,9 @@ Patch 还必须明确：
 
 不要为了“让任务成功”自动扩大边界。
 
-## 统一 Read Scope
+## Explicit frozen/bounded corpus
 
-推荐：
+只有当任务明确要求 **explicit frozen/bounded corpus** 时才传 `read_scope`：
 
 ```json
 {
@@ -144,7 +149,9 @@ Patch 还必须明确：
 }
 ```
 
-TP-Voyager 会将同一逻辑范围映射到各 Crew 的受控读取机制，不允许供应商差异扩大权限。
+此时现有 `max_files` / `max_bytes` 继续 fail-closed。`repository_research`、
+`verification` 和显式 frozen-context review 仍保留 bounded scope，不因普通
+workspace read-only 的默认路线变化而放宽。
 
 ## 超时预设
 

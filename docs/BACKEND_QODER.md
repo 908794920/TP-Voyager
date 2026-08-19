@@ -19,12 +19,16 @@ acp_patch
 
 ## `acp_read_only`
 
-- 不向 Worker 开放写文件能力；
-- 不开放 Terminal；
-- 权限升级请求 fail-closed；
-- Runtime 将 concrete `read_scope` materialize 到一次性 snapshot，并以该 snapshot 作为 Qoder cwd；源 Passenger repo 不再作为 bounded read-only route 的工作目录；
+v1.0.8 把普通 workspace 与显式 frozen/bounded corpus 分成两个清晰模式，但两者都保持只读：
+
+- **Normal workspace read-only**：Captain 默认不提供 `read_scope`；Qoder ACP 直接以真实 repository `cwd` 启动，不做全仓 admission scan，也不预估 `max_files` / `max_bytes`；Vendor Built-in Tool 可见集合限制为 `Read` / `Grep` / `Glob`，并使用同一集合的 allow rule。
+- **Explicit bounded read-only**：当 Captain 明确提供 `read_scope` 时，仍由 Runtime materialize 一次性 snapshot，并以 snapshot 作为 Qoder cwd；`routing_metadata.read_scope` 继续是唯一 scope 真源。
+- 两种模式都不向 Worker 开放文件写入、Terminal、Web、Agent/Subagent 或 MCP；ACP host 的 file-write / terminal / permission escalation 保持 fail-closed。
+- `forbidden_paths` 的 Runtime host policy 继续包含 `.git` / `.qoder` / `.codebuddy`；但 Vendor-native `Read/Grep/Glob` 是否在所有真实会话中都经过该 host callback，不能由单元测试推断。敏感路径必须以 Windows account-live acceptance 为准。
 - v1.0.3 起只读终态不扫描/归属源工作区既有 Git diff。
-- 该机制提供 **workspace-exposure isolation**，不是 OS sandbox：Qoder 仍以宿主用户权限运行，因此 TP-Voyager 不宣称能防御恶意本机二进制主动访问宿主机任意绝对路径。
+- bounded snapshot 提供 **workspace-exposure isolation**，不是 OS sandbox；normal workspace 模式更明确依赖 Vendor 原生只读能力与真实 Live Gate。
+
+当前实现已通过 ACP command/host-policy 单元回归，但 v1.0.8 的 Windows Qoder Live Matrix 在本次 Linux sandbox 中无法执行，因此本文件不把该 Live Gate 写成 PASS。
 
 ## `acp_patch`
 

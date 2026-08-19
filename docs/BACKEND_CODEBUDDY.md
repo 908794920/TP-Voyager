@@ -2,10 +2,10 @@
 
 ## 官方资料
 
-- https://www.workbuddy.ai/docs/cli/
-- https://www.workbuddy.ai/docs/cli/reference
-- https://www.workbuddy.ai/docs/cli/iam
-- https://www.workbuddy.ai/docs/cli/sdk-python
+- https://www.codebuddy.ai/docs/cli/sdk
+- https://www.codebuddy.ai/docs/cli/sdk-python
+- https://www.codebuddy.ai/docs/cli/sdk-permissions
+- https://www.codebuddy.ai/docs/cli/tools-reference
 
 ## TP-Voyager 当前受控路线
 
@@ -25,11 +25,23 @@ Captain 路径使用官方 Python SDK。
 
 ### `sdk_context_read_only`
 
-- Runtime 先验证 Context Manifest / `read_scope`；
-- 只把受控、Hash 验证后的上下文提供给 CodeBuddy；
-- CodeBuddy 原生工具关闭；
-- 不允许扩大文件读取边界；
-- v1.0.3 起只读终态不扫描工作区 Git diff，`changed_files=[]`，不生成 `workspace.patch`。
+v1.0.8 保留同一路由名，但明确分成两个 delivery mode：
+
+1. **Workspace Native Read-only (`context_delivery=vendor_workspace`)**
+   - `context_id` 缺省时直接使用真实 repository `cwd`；
+   - SDK `permission_mode=plan`；
+   - native tool 集合只配置 `Read` / `Glob` / `Grep`；其余 Built-in Tool 显式列入 `disallowed_tools`；
+   - `can_use_tool` 代码对 workspace 越界与 `.git` / `.codebuddy` / `.qoder` 路径 fail-closed，并拒绝 Edit/Write/Bash/Web/Task/未知 future tool；
+   - `mcp_servers={}`、`setting_sources=[]`，不把 repository agent config 当成 trusted execution config。
+
+2. **Explicit Frozen Context (`context_delivery=runtime_snapshot`)**
+   - 显式 `context_id` 继续走已有 Context Manifest verify/render；
+   - Snapshot 仍受现有 256 KiB render 上限；
+   - 所有 CodeBuddy native tools 继续关闭。
+
+两种模式都保留 v1.0.3 的只读终态归属规则：`changed_files=[]`，不把 Passenger Workspace 既有 diff 投影成本次任务产物。
+
+重要：当前 CodeBuddy SDK 文档把 `canUseTool` 描述为工具需要权限确认时的 callback，同时 trusted allow rules 可能直接放行。因而 TP-Voyager 的 callback 单元测试不能替代真实 Vendor session 证明。v1.0.8 在 Windows Live Matrix 通过前，`controlled_capabilities` **不宣称** `read_files` / `search_code` 已验收。
 
 ### `sdk_patch`
 
@@ -40,7 +52,7 @@ Captain 路径使用官方 Python SDK。
 
 ## Captain 只读入口
 
-新任务优先使用：
+普通本地 repository research / review 默认使用 workspace-native 模式，不提供 `read_scope` 或 `context_id`：
 
 ```text
 task_dispatch(
@@ -48,12 +60,11 @@ task_dispatch(
   task_kind="research",
   access_mode="read_only",
   cwd=<repo>,
-  read_scope={...},
   timeout_seconds=600
 )
 ```
 
-`context_files` 仍作为 v1.0.1 兼容入口。TP-Voyager 会把统一 read scope 映射为 Context Manifest，再做 Hash/漂移校验和有界 Snapshot 渲染。
+只有显式 frozen/bounded corpus 才使用 `context_id` / Context Manifest。`context_files` 仍作为 v1.0.1 兼容入口，并继续映射为经过 Hash/漂移校验和有界 render 的 frozen Context；它不是普通大仓 workspace 模式的默认入口。
 
 ## Model Catalog / Billing 语义
 

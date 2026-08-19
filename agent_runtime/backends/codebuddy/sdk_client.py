@@ -1,10 +1,8 @@
-"""Official CodeBuddy Python SDK transport for bounded context-only analysis.
+"""Official CodeBuddy Python SDK transport for controlled execution.
 
-TP-Voyager deliberately does not expose CodeBuddy's native filesystem or
-command tools on this route.  The caller must supply bounded context in the
-prompt.  This gives us a real host-controlled read-only route without relying
-on blanket permission bypass or CodeBuddy's intentionally broad native read
-scope.
+Normal workspace read-only may expose only Read/Glob/Grep behind TP-Voyager's
+path gate. Explicit frozen-context read-only keeps native tools disabled.
+Patch and verification retain their existing bounded policies.
 """
 
 from __future__ import annotations
@@ -113,6 +111,7 @@ class CodeBuddySdkClient:
         access_mode: str = "read_only",
         allowed_paths: tuple[str, ...] = (),
         forbidden_paths: tuple[str, ...] = (),
+        native_read_tools: bool = True,
         command_specs: tuple[CommandSpec, ...] = (),
     ) -> None:
         self.cwd = Path(cwd).resolve()
@@ -123,6 +122,7 @@ class CodeBuddySdkClient:
         self.access_mode = str(access_mode or "read_only").strip().lower()
         self.allowed_paths = tuple(str(item).replace("\\", "/").strip("/") for item in allowed_paths if str(item).strip())
         self.forbidden_paths = tuple(str(item).replace("\\", "/").strip("/") for item in forbidden_paths if str(item).strip())
+        self.native_read_tools = bool(native_read_tools)
         self.command_specs = tuple(command_specs)
         self._lock = threading.Lock()
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -342,7 +342,10 @@ class CodeBuddySdkClient:
                 observability={
                     "route": "sdk_patch" if self.access_mode == "patch" else ("sdk_verify" if self.access_mode == "verification" else "sdk_context_read_only"),
                     "access_mode": self.access_mode,
-                    "native_tools_enabled": self.access_mode in {"patch", "verification"},
+                    "native_tools_enabled": (
+                        self.access_mode in {"patch", "verification"}
+                        or (self.access_mode == "read_only" and self.native_read_tools)
+                    ),
                     "command_whitelist_size": len(self.command_specs),
                     "event_count": event_count,
                     "duration_seconds": round(time.monotonic() - started, 3),
@@ -418,13 +421,32 @@ class CodeBuddySdkClient:
             name = str(tool_name or "")
             data = dict(tool_input or {})
             if self.access_mode == "read_only":
-                return sdk.PermissionResultDeny(
-                    message=(
-                        "TP-Voyager context-only route denies native tools; "
-                        f"requested={name[:80]}"
-                    ),
-                    interrupt=False,
-                )
+                if not self.native_read_tools:
+                    return sdk.PermissionResultDeny(
+                        message=(
+                            "TP-Voyager frozen-context route denies native tools; "
+                            f"requested={name[:80]}"
+                        ),
+                        interrupt=False,
+                    )
+                if name == "Read":
+                    raw = data.get("file_path", data.get("path"))
+                    allowed = self._path_allowed(raw, write=False)
+                elif name in {"Glob", "Grep"}:
+                    raw = data.get("path")
+                    if raw in {None, "", "."}:
+                        data["path"] = "."
+                        raw = "."
+                    allowed = self._path_allowed(raw, write=False)
+                else:
+                    allowed = False
+
+                if not allowed:
+                    return sdk.PermissionResultDeny(
+                        message=f"TP-Voyager read-only policy denied tool: {name[:80]}",
+                        interrupt=False,
+                    )
+                return sdk.PermissionResultAllow(updated_input=data)
 
             # T4 patch route: only bounded filesystem tools and exact
             # Captain-authorized commands are eligible.  Unknown tools fail
@@ -484,9 +506,9 @@ class CodeBuddySdkClient:
             permission_mode = "default"
             disallowed = [tool for tool in _CODEBUDDY_BUILTIN_TOOLS if tool not in allowed_native]
         else:
-            allowed_native = set()
+            allowed_native = {"Read", "Glob", "Grep"} if self.native_read_tools else set()
             permission_mode = "plan"
-            disallowed = list(_CODEBUDDY_BUILTIN_TOOLS)
+            disallowed = [tool for tool in _CODEBUDDY_BUILTIN_TOOLS if tool not in allowed_native]
 
         kwargs: dict[str, Any] = {
             "cwd": str(self.cwd),
@@ -496,7 +518,7 @@ class CodeBuddySdkClient:
             "session_id": session_id.strip() or None,
             "max_turns": 30,
             "permission_mode": permission_mode,
-            "allowed_tools": [],
+            "allowed_tools": (sorted(allowed_native) if self.access_mode == "read_only" else []),
             "disallowed_tools": disallowed,
             "mcp_servers": {},
             "setting_sources": [],

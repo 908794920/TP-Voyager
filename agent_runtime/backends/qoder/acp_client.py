@@ -92,6 +92,8 @@ class QoderAcpClient:
         context_window_tokens: int | None = None,
         allowed_paths: tuple[str, ...] = (),
         forbidden_paths: tuple[str, ...] = (),
+        visible_tools: tuple[str, ...] = (),
+        allowed_tools: tuple[str, ...] = (),
         command_specs: tuple[CommandSpec, ...] = (),
     ) -> None:
         self.cwd = Path(cwd).resolve()
@@ -103,11 +105,17 @@ class QoderAcpClient:
         self.context_window_tokens = context_window_tokens
         self.allowed_paths = tuple(str(item).replace("\\", "/").strip("/") for item in allowed_paths if str(item).strip())
         self.forbidden_paths = tuple(str(item).replace("\\", "/").strip("/") for item in forbidden_paths if str(item).strip())
+        self.visible_tools = tuple(str(item).strip() for item in visible_tools if str(item).strip())
+        self.allowed_tools = tuple(str(item).strip() for item in allowed_tools if str(item).strip())
         self.command_specs = tuple(command_specs)
         cli = cli_path or resolve_qoder_cli()
         command = [cli, "--acp"]
         if self.context_window_tokens is not None:
             command.extend(["--context-window", str(self.context_window_tokens)])
+        if self.visible_tools:
+            command.extend(["--tools", *self.visible_tools])
+        if self.allowed_tools:
+            command.extend(["--allowed-tools", ",".join(self.allowed_tools)])
         self.process = popen_command(command, cwd=str(self.cwd))
         self._write_lock = threading.Lock()
         self._responses: dict[int, queue.Queue[dict[str, Any]]] = {}

@@ -1,5 +1,19 @@
 # Changelog
 
+### v1.0.8 Workspace Read-Only Convergence — 2026-08-19
+
+- User config advances to strict `tp-voyager.config/v2`: remove the process-wide `runtime.max_concurrent_tasks` guard and replace it with independent `crew.qoder.max_concurrent_tasks` / `crew.codebuddy.max_concurrent_tasks` limits, both defaulting to 2 (`1..64`). A saturated Crew still returns `RUNTIME_BUSY` without consuming capacity from the other Crew.
+- Normal local `research` / `code_review` / `test_failure_triage` read-only dispatch no longer predicts repository corpus capacity; Captain defaults to no `read_scope`. Explicit frozen/bounded `read_scope` remains capped and fail-closed, and `repository_research` / deterministic verification retain their existing high-assurance contracts.
+- Qoder remains on ACP. Normal read-only runs from the real repository `cwd` with Vendor-visible Built-in Tools restricted to `Read` / `Grep` / `Glob`; explicit `read_scope` still flows through `routing_metadata.read_scope` into the existing snapshot path. No second `allowed_paths` scope truth was added.
+- CodeBuddy remains on the official Python Agent SDK. Read-only now has workspace-native mode (`Read` / `Glob` / `Grep`, plan mode, empty MCP/settings sources) and the existing explicit frozen-context mode with native tools denied. Patch/verify routes are not widened.
+- Added permanent regressions for 32 / 64 / 150 / 220 / 300 / 1000 files and >12 MiB workspaces, plus the TP-Spec role-action composition gate.
+- No durable SQLite/persistence schema change from the workspace read-only work, and no MCP Crew passthrough, Vendor subagent, Aider RepoMap, ResourceSpace DSL, permission bypass, or transport migration. User-owned `config.json` does advance separately to `tp-voyager.config/v2` as noted above.
+- Merge-gate integration regressions introduced by the incremental patch were fixed on the Windows merge host before this line: `routing_metadata.context_delivery` was added to the `allowed_routing_keys` whitelist in `mcp_server.py`; full suite passes (`444 passed, 1 skipped, 78 subtests`).
+- Windows live acceptance (Task 7) found and fixed a real sensitive-path enforcement gap: `forbidden_paths` lacked credential-file globs, Qoder's no-scope built-in `Read`/`Grep`/`Glob` bypassed the ACP fs callback, and CodeBuddy's `Glob`/`Grep` were authorized by search root only. No-scope read-only routes now run against a sensitive-path-free workspace snapshot (`agent_runtime/backends/workspace_snapshot.py`), physically excluding `.env`/`*.pem`/`*.key`/private keys and `.git`/`.svn`/`.hg`/`.codebuddy`/`.qoder`/`.qoderwork` trees.
+- Qoder Windows Live Matrix **PASSED 6/6** and CodeBuddy Windows Live Matrix **PASSED 6/6** (see `docs/records/V1.0.8_READ_ONLY_WORKSPACE_ACCEPTANCE.md`).
+- TP-Spec live role smoke **PASSED**: Live Role Matrix 5/5 (Requirement research, Architecture broad analysis, Independent Review, `small_patch`, `verify_only`), UltraPlan 4/4, UltraReview 4/4 — all executed against real Qoder/CodeBuddy vendor sessions on the Windows merge host. `verify_only` was validated end-to-end against a hash-pinned apply receipt reconstructed from the captured Patch Artifact. See `docs/records/V1.0.8_TP_SPEC_ROLE_EXECUTION_ACCEPTANCE.md`.
+- **All Task 7 live gates are satisfied; `RELEASE v1.0.8` is authorized.**
+
 本项目从 TP-Voyager 正式基线开始记录对外版本。
 
 ### v1.0.7 Hardening Closure

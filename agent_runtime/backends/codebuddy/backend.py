@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import tempfile
 import threading
 from dataclasses import dataclass
 from typing import Any, Callable
@@ -21,7 +22,8 @@ from agent_runtime.backends.base import (
 from agent_runtime.backends.codebuddy.process import resolve_codebuddy_cli
 from agent_runtime.backends.codebuddy.sdk_client import CodeBuddySdkClient, load_codebuddy_sdk
 from agent_runtime.backends.errors import BackendCancelledError, BackendProtocolError
-from agent_runtime.domain.dispatch import CommandSpec
+from agent_runtime.backends.workspace_snapshot import materialize_workspace_snapshot
+from agent_runtime.domain.dispatch import CommandSpec, _MANDATORY_FORBIDDEN
 
 
 @dataclass
@@ -202,6 +204,7 @@ class CodeBuddyBackend:
                     command_specs.append(CommandSpec.from_dict(item))
                 except ValueError:
                     raise BackendProtocolError("CodeBuddy patch policy contains an invalid command spec")
+        workspace_snapshot: tempfile.TemporaryDirectory[str] | None = None
         if route in {"sdk_patch", "sdk_verify"}:
             client = self._sdk_client_factory(
                 cwd=request.cwd,
@@ -212,13 +215,30 @@ class CodeBuddyBackend:
                 command_specs=tuple(command_specs),
             )
         else:
-            # Preserve the long-standing custom transport/factory contract for
-            # the accepted T3 read-only route.  Patch-only policy parameters
-            # are passed only when the new patch route actually needs them.
-            client = self._sdk_client_factory(
-                cwd=request.cwd,
-                on_activity=callbacks.on_activity,
-            )
+            routing = request.metadata.get("routing_metadata")
+            routing = routing if isinstance(routing, dict) else {}
+            native_read_tools = routing.get("context_delivery") == "vendor_workspace"
+            client_cwd = request.cwd
+            if native_read_tools:
+                # Broad read-only research with native tools runs against a
+                # sensitive-path-free snapshot.  Glob/Grep are only authorized
+                # by their search root, so the only reliable way to keep
+                # .env/*.pem/.git out of vendor output is physical exclusion.
+                workspace_snapshot, snapshot_root = materialize_workspace_snapshot(request.cwd)
+                client_cwd = str(snapshot_root)
+            try:
+                client = self._sdk_client_factory(
+                    cwd=client_cwd,
+                    on_activity=callbacks.on_activity,
+                    access_mode="read_only",
+                    forbidden_paths=_MANDATORY_FORBIDDEN,
+                    native_read_tools=native_read_tools,
+                )
+            except Exception:
+                if workspace_snapshot is not None:
+                    workspace_snapshot.cleanup()
+                    workspace_snapshot = None
+                raise
         live = _LiveExecution(route=route, client=client)
         self._register(request.task_id, live)
         try:
@@ -267,3 +287,5 @@ class CodeBuddyBackend:
         finally:
             client.close()
             self._unregister(request.task_id)
+            if workspace_snapshot is not None:
+                workspace_snapshot.cleanup()

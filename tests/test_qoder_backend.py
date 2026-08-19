@@ -15,6 +15,7 @@ from agent_runtime.backends.fake import FakeBackend
 from agent_runtime.backends.qoder.acp_client import AcpRunResult
 from agent_runtime.backends.qoder.backend import QoderBackend
 from agent_runtime.application.dispatch.repository_research import RepositoryResearchService
+from agent_runtime.domain.dispatch import _MANDATORY_FORBIDDEN
 
 
 class Callbacks:
@@ -69,20 +70,36 @@ class QoderBackendTests(unittest.TestCase):
         )
 
     def test_controlled_read_only_route_uses_read_only_factory(self) -> None:
-        calls = []
+        with tempfile.TemporaryDirectory() as tmp:
+            calls = []
 
-        def factory(**kwargs):
-            calls.append(kwargs)
-            return FakeAcpClient(**kwargs)
+            def factory(**kwargs):
+                calls.append(kwargs)
+                return FakeAcpClient(**kwargs)
 
-        callbacks = Callbacks()
-        result = QoderBackend(read_only_acp_client_factory=factory).start(
-            self.request(), callbacks
-        )
-        self.assertEqual(result.answer, "qoder answer")
-        self.assertEqual(result.observability["access_mode"], "read_only")
-        self.assertEqual(callbacks.accepted, ["qoder-session"])
-        self.assertEqual(len(calls), 1)
+            callbacks = Callbacks()
+            request = BackendStartRequest(
+                task_id="qoder-task",
+                attempt_id="at-qoder",
+                runtime_session_id="rs-qoder",
+                prompt="do work",
+                cwd=tmp,
+                metadata={"route": "acp_read_only"},
+            )
+            result = QoderBackend(read_only_acp_client_factory=factory).start(
+                request, callbacks
+            )
+            self.assertEqual(result.answer, "qoder answer")
+            self.assertEqual(result.observability["access_mode"], "read_only")
+            self.assertEqual(callbacks.accepted, ["qoder-session"])
+            self.assertEqual(len(calls), 1)
+            # No-scope read-only runs against a sensitive-path-free snapshot,
+            # never the live Passenger cwd.
+            self.assertNotEqual(Path(calls[0]["cwd"]).resolve(), Path(tmp).resolve())
+            self.assertEqual(calls[0]["forbidden_paths"], _MANDATORY_FORBIDDEN)
+            self.assertEqual(calls[0]["visible_tools"], ("Read", "Grep", "Glob"))
+            self.assertEqual(calls[0]["allowed_tools"], ("Read", "Grep", "Glob"))
+            self.assertNotIn("allowed_paths", calls[0])
 
     def test_read_only_scope_runs_from_runtime_snapshot_not_source_repo(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
