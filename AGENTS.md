@@ -12,7 +12,7 @@
 
 ## 当前基线
 
-**TP-Voyager v1.0.8 — 开发中**
+**TP-Voyager v1.0.9 — 开发中**
 
 v1.0.7 在 v1.0.6 stable 基线上统一用户机器配置：默认 Home 改为 `~/.tp-voyager`，新增严格 `config.json`，Crew CLI 路径、模型授权、trusted roots、worker resources 与并发上限归一到同一配置事实源。Runtime 继续保持六工具 Captain Surface、显式 Crew/model/effort、Durable Core、Patch/Receipt/Verification 与 RunControl 边界不变。
 

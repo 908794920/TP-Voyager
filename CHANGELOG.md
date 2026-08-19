@@ -1,5 +1,9 @@
 # Changelog
 
+### v1.0.9 — Unreleased
+
+- Open release line `v1.0.9` (1.0.8 → 1.0.9).
+
 ### v1.0.8 Workspace Read-Only Convergence — 2026-08-19
 
 - User config advances to strict `tp-voyager.config/v2`: remove the process-wide `runtime.max_concurrent_tasks` guard and replace it with independent `crew.qoder.max_concurrent_tasks` / `crew.codebuddy.max_concurrent_tasks` limits, both defaulting to 2 (`1..64`). A saturated Crew still returns `RUNTIME_BUSY` without consuming capacity from the other Crew.

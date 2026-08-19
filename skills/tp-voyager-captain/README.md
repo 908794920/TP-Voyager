@@ -13,7 +13,7 @@ Captain 仍须读取当前目录/策略、显式选择 Crew 与模型，并在�
 或扩大范围时停下等待人类决定。
 
 ```text
-Captain Skill 1.0.8
+Captain Skill 1.0.9
 ```
 
 ## Captain MCP 合约

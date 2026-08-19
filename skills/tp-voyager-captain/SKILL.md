@@ -2,13 +2,13 @@
 name: tp-voyager-captain
 description: Use when bounded repository research, code review, failure analysis, independent verification, or a small scoped patch could benefit from TP-Voyager MCP delegation; proactively evaluate it without requiring the user to invoke this skill.
 metadata:
-  version: "1.0.8"
+  version: "1.0.9"
   protocol: "tp-voyager-captain/v1"
 ---
 
 # TP-Voyager Captain Skill
 
-> Version: 1.0.8
+> Version: 1.0.9
 >
 > Role: Captain-side orchestration skill for TP-Voyager.
 >
