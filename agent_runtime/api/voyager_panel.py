@@ -146,6 +146,8 @@ def render_voyager_panel_html() -> str:
   let latestToolInput = null;
   let latestData = null;
   let refreshTimer = null;
+  // v1.0.9.3: iframe-memory presentation state only. Never persisted.
+  const PanelUIStateStore = new Map();
   let refreshing = false;
 
   const terminalStates = new Set(["completed", "failed", "cancelled", "lost", "orphaned"]);
@@ -304,13 +306,36 @@ def render_voyager_panel_html() -> str:
     resultPart("结论", "暂无可展示的结构化结果。");
   }
 
+  function escapeHtml(value) {
+    return String(value ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#39;");
+  }
+
+  // Safe minimal markdown renderer. It only emits known tags and escapes input.
+  function renderSafeMarkdown(value) {
+    let text = escapeHtml(value);
+    text = text.replace(/```([\s\S]*?)```/g, (_, code) => `<pre><code>${code.trim()}</code></pre>`);
+    text = text.replace(/^### (.*)$/gm, "<h3>$1</h3>");
+    text = text.replace(/^## (.*)$/gm, "<h2>$1</h2>");
+    text = text.replace(/^# (.*)$/gm, "<h1>$1</h1>");
+    text = text.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
+    text = text.replace(/^- (.*)$/gm, "<li>$1</li>");
+    text = text.replace(/(<li>[\s\S]*?<\/li>)/g, "<ul>$1</ul>");
+    return text.replace(/\n/g, "<br>");
+  }
+
   function answerRows(data) {
     const rows = [];
     const full = typeof data?.full_answer === "string" ? data.full_answer : "";
     const conversation = Array.isArray(data?.conversation) ? data.conversation : [];
     if (full) {
       const row = node("div", null, "row");
-      const content = node("div", full);
+      const content = document.createElement("div");
+      content.replaceChildren(document.createTextNode(full));
       content.className = "answer markdown";
       row.appendChild(content);
       rows.push(row);
@@ -319,7 +344,8 @@ def render_voyager_panel_html() -> str:
     for (const item of conversation) {
       if (!item?.content) continue;
       const row = node("div", null, "row");
-      const content = node("div", item.content);
+      const content = document.createElement("div");
+      content.replaceChildren(document.createTextNode(String(item.content || "")));
       content.className = "answer markdown";
       row.appendChild(content);
       rows.push(row);
@@ -397,6 +423,24 @@ def render_voyager_panel_html() -> str:
     if (groupId) return { presentation_group_id: groupId };
     const taskId = String(input?.task_id || "").trim();
     return taskId ? { task_id: taskId } : null;
+  }
+
+  function panelStateKey(data = latestData) {
+    const group = String(data?.presentation_group_id || "").trim();
+    const task = String(pickTask(data)?.task_id || "").trim();
+    return `${group || "single"}/${task || "none"}/panel`;
+  }
+
+  function savePanelUIState() {
+    const key = panelStateKey();
+    PanelUIStateStore.set(key, {
+      scrollTop: document.documentElement.scrollTop || document.body.scrollTop || 0,
+    });
+  }
+
+  function restorePanelUIState() {
+    const state = PanelUIStateStore.get(panelStateKey());
+    if (state?.scrollTop !== undefined) window.scrollTo(0, state.scrollTop);
   }
 
   function currentSelector() {
@@ -543,8 +587,10 @@ def render_voyager_panel_html() -> str:
   }
 
   function renderData(data) {
+    savePanelUIState();
     if (data?.mode === "group") renderGroup(data);
     else renderSingle(data);
+    restorePanelUIState();
   }
 
   function renderSyncing(selector, hintTask = null) {

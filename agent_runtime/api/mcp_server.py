@@ -1965,7 +1965,7 @@ def _durable_cli_start(
     except ValueError as exc:
         return {"ok": False, "error": str(exc)}
     routing = dict(routing_metadata or {})
-    allowed_routing_keys = {"read_scope", "worker_profile_ref", "worker_skill_refs", "input_artifact_refs", "trusted_instruction_refs", "captain_request_contract", "effective_model_policy", "correlation_id", "presentation_group_id", "model_policy", "model_parameters", "repository_research", "repository_snapshot_ref", "scope_segment", "run_control", "step_key", "apply_receipt", "verification_policy", "verification_subject", "context_delivery"}
+    allowed_routing_keys = {"read_scope", "worker_profile_ref", "worker_skill_refs", "input_artifact_refs", "trusted_instruction_refs", "captain_request_contract", "effective_model_policy", "correlation_id", "presentation_group_id", "model_policy", "model_parameters", "repository_research", "repository_snapshot_ref", "scope_segment", "run_control", "step_key", "apply_receipt", "verification_policy", "verification_subject", "context_delivery", "workspace_strategy"}
     if set(routing) - allowed_routing_keys:
         return {"ok": False, "error": "routing_metadata contains unsupported keys"}
     try:
@@ -3324,6 +3324,7 @@ def task_dispatch(
     repository_research: dict[str, Any] | None = None,
     repository_snapshot_ref: dict[str, Any] | None = None,
     scope_segment: dict[str, Any] | None = None,
+    workspace_strategy: str = "isolated_patch",
 ) -> dict[str, Any]:
     """Dispatch one explicit Captain-selected Crew task under bounded policy.
 
@@ -3337,6 +3338,20 @@ def task_dispatch(
     normalized_crew = str(crew or "").strip().lower()
     normalized_kind = str(task_kind or "").strip().lower()
     normalized_mode = str(access_mode or "read_only").strip().lower()
+    normalized_workspace_strategy = str(workspace_strategy or "isolated_patch").strip().lower()
+    if normalized_workspace_strategy not in {"model_only", "live_readonly", "frozen_context", "isolated_patch"}:
+        return reject("INVALID_WORKSPACE_STRATEGY", "workspace_strategy must be one of model_only/live_readonly/frozen_context/isolated_patch")
+
+    # Workspace policy is an explicit dispatch contract.  Do not prepare an
+    # isolation workspace for model checks or read-only inspection.  The
+    # strategy only controls workspace preparation; it never changes the
+    # durable task_result source of truth.
+    if normalized_workspace_strategy == "model_only":
+        cwd = ""
+        repository_snapshot_ref = None
+        repository_research = None
+    elif normalized_workspace_strategy == "live_readonly":
+        patch_policy = None
 
     def reject(reason_code: str, detail: str) -> dict[str, Any]:
         return {
@@ -3435,7 +3450,7 @@ def task_dispatch(
 
     resolved_files: tuple[str, ...] = ()
     context_auto_created = False
-    if supplied_files:
+    if supplied_files and normalized_workspace_strategy != "model_only":
         try:
             registered = _context_service().register(effective_cwd, supplied_files)
             effective_context_id = str(registered.manifest.get("context_id") or "")
@@ -3444,7 +3459,7 @@ def task_dispatch(
             return reject("CONTEXT_INVALID", str(exc))
         except RuntimePersistenceError:
             return reject("RUNTIME_UNAVAILABLE", "runtime database unavailable")
-    elif parsed_scope is not None and normalized_kind != "repository_research" and normalized_mode != "verification":
+    elif parsed_scope is not None and normalized_kind != "repository_research" and normalized_mode != "verification" and normalized_workspace_strategy != "model_only":
         try:
             resolved_files = tuple(_context_service().resolve_read_scope(effective_cwd, parsed_scope))
             # ContextManifest is the provider-neutral Scope Manifest truth.
@@ -3892,6 +3907,7 @@ def task_dispatch(
             scope_segment=parsed_scope_segment,
             correlation_id=external_correlation_id,
             presentation_group_id=external_presentation_group_id,
+            workspace_strategy=normalized_workspace_strategy,
         )
     )
     if verification_workspace is not None and (not result.get("ok") or bool(result.get("replayed"))):
@@ -3933,6 +3949,7 @@ def task_dispatch(
             **result,
             "context_id": effective_context_id,
             "context_auto_created": True,
+            "workspace_strategy": normalized_workspace_strategy,
         }
         if parsed_scope is not None:
             result = {**result, "read_scope_resolved_file_count": len(resolved_files)}

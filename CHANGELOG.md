@@ -1,5 +1,11 @@
 # Changelog
 
+### v1.0.9.3 — Unreleased
+
+- Add an explicit `workspace_strategy` dispatch contract (`model_only` / `live_readonly` / `frozen_context` / `isolated_patch`, default `isolated_patch`). The strategy only controls workspace preparation and never changes the durable `task_result` source of truth: `model_only` skips workspace/snapshot/context preparation for model checks, `live_readonly` omits the patch policy. Invalid values fail closed (`INVALID_WORKSPACE_STRATEGY` at the MCP boundary, `ValueError` in `CaptainDispatchRequest`).
+- Harden the MCP Apps Agent panel against injected HTML: assistant/conversation text is rendered through `createTextNode` and a safe minimal Markdown renderer that escapes all input and emits only known tags; the previous direct inner-HTML sink is removed.
+- Keep panel UI state (scroll position) per presentation group/task in iframe memory only; the state is never persisted and disappears with the Runtime process.
+
 ### v1.0.9.2 — Unreleased
 
 - Make MCP Apps status truthful on open/resume: the card enters a presentation-only `syncing` state (中文“正在同步”) and immediately performs a read-only `render_voyager_panel` refresh before showing current task state, so a cached historical `running` snapshot is never presented as current truth.
