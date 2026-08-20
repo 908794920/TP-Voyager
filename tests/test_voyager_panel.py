@@ -15,10 +15,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class VoyagerPanelHtmlTests(unittest.TestCase):
-    def test_panel_is_self_contained_mcp_app_with_live_refresh(self) -> None:
+    def test_panel_is_self_contained_mcp_app_with_read_only_live_refresh(self) -> None:
         html = render_voyager_panel_html()
         self.assertEqual(VOYAGER_PANEL_URI, "ui://tp-voyager/agent-panel/v1.html")
         self.assertEqual(VOYAGER_PANEL_MIME_TYPE, "text/html;profile=mcp-app")
+        self.assertIn('<html lang="zh-CN">', html)
         self.assertIn('request("tools/call"', html)
         self.assertIn('name: "render_voyager_panel"', html)
         self.assertIn('ui/notifications/tool-result', html)
@@ -26,16 +27,74 @@ class VoyagerPanelHtmlTests(unittest.TestCase):
         self.assertIn('ui/notifications/initialized', html)
         self.assertIn('2026-01-26', html)
         self.assertIn('ui/notifications/tool-input', html)
-        self.assertIn('version: "1.0.9.1"', html)
+        self.assertIn('version: "1.0.9.2"', html)
         self.assertIn('setTimeout(refresh', html)
-        self.assertIn('snapshot?.task_id', html)
-        self.assertIn('setTimeout(refresh, 80)', html)
+        self.assertNotIn('setTimeout(refresh, 80)', html)
+        self.assertNotIn("task_dispatch", html)
+        self.assertNotIn("task_resume", html)
+        self.assertNotIn("task_cancel", html)
         self.assertNotIn("localStorage", html)
         self.assertNotRegex(html, r"https?://")
+
+    def test_panel_syncs_immediately_on_dispatch_and_host_resume_without_showing_stale_running(self) -> None:
+        html = render_voyager_panel_html()
+        self.assertIn('data-state="syncing"', html)
+        self.assertIn('syncing: "正在同步"', html)
+        self.assertIn('pending: "等待中"', html)
+        self.assertIn('requested: "已请求"', html)
+        self.assertIn('tool_activity: "工具活动"', html)
+        self.assertIn('function actionLabel(', html)
+        self.assertIn('function toolLabel(', html)
+        self.assertIn('toolLabel(item.tool)', html)
+        self.assertIn('function renderSyncing(', html)
+        self.assertIn('renderSyncing(selector', html)
+        self.assertIn('void refresh();', html)
+        self.assertIn('document.addEventListener("visibilitychange"', html)
+        self.assertIn('window.addEventListener("pageshow"', html)
+        self.assertIn('window.addEventListener("focus"', html)
+        self.assertIn('正在同步最新任务状态…', html)
+        self.assertNotIn('state = String(snapshot.status || "connecting")', html)
+
+    def test_completed_panel_is_chinese_result_first_and_process_is_collapsed(self) -> None:
+        html = render_voyager_panel_html()
+        for label in (
+            "状态",
+            "执行单元",
+            "执行模型",
+            "耗时",
+            "结论",
+            "关键依据",
+            "风险",
+            "下一步",
+            "完整回答",
+            "执行活动",
+            "文件变更",
+            "用量",
+            "刷新",
+        ):
+            self.assertIn(label, html)
+        self.assertIn('appendSection("执行活动", timelineRows(latestData.timeline), false)', html)
+        self.assertNotIn('["Crew", task?.crew]', html)
+        self.assertIn('if (!rows.length) return;', html)
+        self.assertNotIn('Conversation', html)
+        self.assertNotIn('Current activity', html)
+        self.assertNotIn('Agent has not produced conversation output yet.', html)
+        self.assertNotIn('lastMessage', html)
+
+    def test_panel_preserves_answer_formatting_and_avoids_nested_log_scroll(self) -> None:
+        html = render_voyager_panel_html()
+        self.assertIn('white-space: pre-wrap', html)
+        self.assertIn('className = "answer markdown"', html)
+        self.assertIn("textContent", html)
+        self.assertNotIn("innerHTML =", html)
+        self.assertNotRegex(html, r"\.list\s*\{[^}]*max-height")
+        self.assertNotRegex(html, r"\.list\s*\{[^}]*overflow:\s*auto")
+        self.assertNotIn("TP_VOYAGER_CREW_OUTCOME_JSON", html)
 
     def test_panel_has_obvious_status_dot_and_border_states(self) -> None:
         html = render_voyager_panel_html()
         for state in (
+            "syncing",
             "queued",
             "connecting",
             "running",
@@ -50,23 +109,6 @@ class VoyagerPanelHtmlTests(unittest.TestCase):
         self.assertIn("status-dot", html)
         self.assertIn("@keyframes pulse", html)
         self.assertIn("border-color", html)
-        self.assertIn("Conversation", html)
-        self.assertIn("Timeline", html)
-        self.assertIn("Files", html)
-        self.assertIn("Usage", html)
-
-    def test_panel_prioritizes_agent_identity_failure_stage_and_live_activity(self) -> None:
-        html = render_voyager_panel_html()
-        self.assertIn("Agent execution failed", html)
-        self.assertIn("Stage", html)
-        self.assertIn("Crew", html)
-        self.assertIn("Model", html)
-        self.assertIn("Task", html)
-        self.assertIn("Current activity", html)
-        self.assertIn("Agent has not produced conversation output yet.", html)
-        self.assertIn("Agent did not produce conversation output before the failure.", html)
-        self.assertIn('section("Timeline", timelineRows(latestData.timeline), true', html)
-        self.assertNotIn('section("Timeline", timelineRows(latestData.timeline), false', html)
 
     def test_panel_escapes_dynamic_text_via_text_content(self) -> None:
         html = render_voyager_panel_html()
@@ -95,11 +137,35 @@ class VoyagerPanelMcpContractTests(unittest.TestCase):
         self.assertIn('"resourceUri": VOYAGER_PANEL_URI', dispatch_metadata)
         self.assertIn('structured_output=True', dispatch_metadata)
         self.assertIn('"openai/toolInvocation/invoking"', dispatch_metadata)
+        self.assertIn('正在启动 TP-Voyager 任务…', dispatch_metadata)
+        render_index = source.index('def render_voyager_panel(')
+        render_metadata = source[max(0, render_index - 900):render_index]
+        self.assertIn('正在加载 TP-Voyager 任务…', render_metadata)
 
     def test_server_projects_safe_exception_phase_into_failed_observation(self) -> None:
         source = (ROOT / "agent_runtime" / "api" / "mcp_server.py").read_text(encoding="utf-8")
         self.assertIn('failure_phase = getattr(exc, "phase", None)', source)
         self.assertIn('_AGENT_OBSERVATIONS.failed(task, reason=type(exc).__name__, phase=failure_phase)', source)
+
+    def test_render_tool_accepts_only_explicit_single_or_group_selectors(self) -> None:
+        source = (ROOT / "agent_runtime" / "api" / "mcp_server.py").read_text(encoding="utf-8")
+        start = source.index("def render_voyager_panel(")
+        end = source.index("\n\n@_mcp_tool(", start)
+        render_source = source[start:end]
+        self.assertIn('presentation_group_id: str = ""', render_source)
+        self.assertIn('task_ids: list[str] | None = None', render_source)
+        self.assertIn('AMBIGUOUS_PANEL_SELECTOR', render_source)
+        self.assertIn('projection.group(', render_source)
+        self.assertNotIn("correlation_id", render_source)
+        self.assertNotIn("projection.presence(", render_source)
+
+    def test_panel_html_can_keep_an_explicit_group_selector_for_read_only_refresh(self) -> None:
+        html = render_voyager_panel_html()
+        self.assertIn("presentation_group_id", html)
+        self.assertIn("task_ids", html)
+        self.assertIn('mode === "group"', html)
+        self.assertIn("并发任务组", html)
+        self.assertIn("子任务", html)
 
     def test_render_tool_without_task_id_does_not_auto_select_another_runtime_task(self) -> None:
         source = (ROOT / "agent_runtime" / "api" / "mcp_server.py").read_text(encoding="utf-8")

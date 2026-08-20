@@ -5,10 +5,10 @@
   },
   "plugins": [
     {
-      "name": "tp-voyager-observability",
+      "name": "tp-voyager",
       "source": {
         "source": "local",
-        "path": "./plugins/tp-voyager-observability"
+        "path": "./plugins/tp-voyager"
       },
       "policy": {
         "installation": "INSTALLED_BY_DEFAULT",

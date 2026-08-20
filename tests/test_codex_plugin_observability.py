@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import unittest
 from pathlib import Path
 
@@ -11,59 +12,97 @@ INTEGRATIONS = CAPTAIN / "integrations"
 CODEX = INTEGRATIONS / "codex"
 MARKETPLACE_ROOT = CODEX / "local-marketplace"
 MARKETPLACE = MARKETPLACE_ROOT / ".agents" / "plugins" / "marketplace.json"
-PLUGIN = MARKETPLACE_ROOT / "plugins" / "tp-voyager-observability"
+PLUGIN = MARKETPLACE_ROOT / "plugins" / "tp-voyager"
+LEGACY_PLUGIN = MARKETPLACE_ROOT / "plugins" / "tp-voyager-observability"
 PLUGIN_MANIFEST = PLUGIN / ".codex-plugin" / "plugin.json"
-PLUGIN_SKILL = PLUGIN / "skills" / "tp-voyager-observability" / "SKILL.md"
+PLUGIN_SKILL = PLUGIN / "skills" / "captain" / "SKILL.md"
+LEGACY_ROOT_SKILL = CAPTAIN / "SKILL.md"
 RUNTIME_MANIFEST = CAPTAIN / "tp-voyager.manifest.json"
 
 
-class CodexObservabilityPluginTests(unittest.TestCase):
-    def test_captain_manifest_exposes_seven_tools_including_render_panel(self) -> None:
+class CodexPluginConsolidationTests(unittest.TestCase):
+    def test_captain_manifest_keeps_exactly_seven_existing_tools(self) -> None:
         manifest = json.loads(RUNTIME_MANIFEST.read_text(encoding="utf-8"))
-        self.assertEqual(manifest["skill"]["version"], "1.0.9.1")
+        self.assertEqual(manifest["skill"]["version"], "1.0.9.2")
         tools = manifest["mcp"]["required_captain_tools"]
         self.assertEqual(len(tools), 7)
+        self.assertIn("task_dispatch", tools)
+        self.assertIn("task_result", tools)
         self.assertIn("render_voyager_panel", tools)
 
-    def test_integration_layout_has_codex_host_slot_and_future_host_guidance(self) -> None:
-        integration_doc = (INTEGRATIONS / "README.md").read_text(encoding="utf-8")
-        codex_doc = (CODEX / "README.md").read_text(encoding="utf-8")
-        self.assertIn("codex/", integration_doc)
-        self.assertIn("claude-code/", integration_doc)
-        self.assertIn("local-marketplace", codex_doc)
-        self.assertIn("render_voyager_panel", codex_doc)
-
-    def test_plugin_is_skills_only_and_does_not_duplicate_existing_mcp_server(self) -> None:
+    def test_new_plugin_is_skills_only_and_exports_exactly_one_namespaced_captain_skill(self) -> None:
         manifest = json.loads(PLUGIN_MANIFEST.read_text(encoding="utf-8"))
-        self.assertEqual(manifest["name"], "tp-voyager-observability")
-        self.assertEqual(manifest["version"], "1.0.9.1")
+        self.assertEqual(manifest["name"], "tp-voyager")
+        self.assertEqual(manifest["version"], "1.0.9.2")
         self.assertEqual(manifest["skills"], "./skills/")
+        self.assertEqual(manifest["interface"]["displayName"], "TP-Voyager")
         self.assertNotIn("mcpServers", manifest)
         self.assertNotIn("apps", manifest)
         self.assertFalse((PLUGIN / ".mcp.json").exists())
         self.assertFalse((PLUGIN / ".app.json").exists())
 
-    def test_plugin_skill_keeps_dispatch_single_and_observability_read_only(self) -> None:
+        skill_dirs = [path for path in (PLUGIN / "skills").iterdir() if path.is_dir()]
+        self.assertEqual([path.name for path in skill_dirs], ["captain"])
         skill = PLUGIN_SKILL.read_text(encoding="utf-8")
-        self.assertIn("task_dispatch", skill)
-        self.assertIn("render_voyager_panel", skill)
-        self.assertIn("appears automatically", skill.lower())
-        self.assertIn("same read-only render tool", skill.lower())
-        self.assertIn("never re-dispatch", skill.lower())
-        self.assertIn("read-only", skill.lower())
-        self.assertIn("native subagent", skill.lower())
+        self.assertRegex(skill, r"(?m)^name:\s*captain\s*$")
+        # Codex namespaces plugin skills as <plugin-name>:<skill-name>, so this
+        # pair is intentionally chosen to surface as $tp-voyager:captain.
+        self.assertEqual(f"{manifest['name']}:captain", "tp-voyager:captain")
 
-    def test_local_marketplace_points_at_plugin_with_required_policy(self) -> None:
+    def test_captain_skill_is_the_single_behavioral_source_and_contains_panel_rules(self) -> None:
+        skill = PLUGIN_SKILL.read_text(encoding="utf-8")
+        for required in (
+            "task_dispatch",
+            "task_result",
+            "render_voyager_panel",
+            "presentation_group_id",
+            "read-only",
+            "Never re-dispatch",
+            "prompt",
+            "secret",
+            "raw tool output",
+            "hidden/private",
+        ):
+            self.assertIn(required.lower(), skill.lower())
+        self.assertIn("Captain chooses Crew", skill)
+        self.assertIn("Captain chooses model", skill)
+
+        self.assertNotIn("must be pinned to an explicit `task_id`", skill)
+        self.assertIn("exact `presentation_group_id` or exact `task_ids`", skill)
+
+        self.assertNotIn("sibling `tp-voyager.manifest.json`", skill)
+        self.assertIn("runtime-side `tp-voyager.manifest.json`", skill)
+
+        legacy = LEGACY_ROOT_SKILL.read_text(encoding="utf-8")
+        self.assertIn("legacy migration shim", legacy.lower())
+        self.assertIn("tp-voyager:captain", legacy)
+        self.assertNotIn("## 3. Captain Responsibilities", legacy)
+        self.assertNotIn("### Rule 1", legacy)
+
+    def test_repo_marketplace_advertises_only_tp_voyager_but_retains_old_source_for_migration(self) -> None:
         marketplace = json.loads(MARKETPLACE.read_text(encoding="utf-8"))
         self.assertEqual(marketplace["name"], "tp-voyager-local")
         entries = marketplace["plugins"]
-        self.assertEqual(len(entries), 1)
+        self.assertEqual([entry["name"] for entry in entries], ["tp-voyager"])
         entry = entries[0]
-        self.assertEqual(entry["name"], "tp-voyager-observability")
         self.assertEqual(entry["source"]["source"], "local")
-        self.assertEqual(entry["source"]["path"], "./plugins/tp-voyager-observability")
+        self.assertEqual(entry["source"]["path"], "./plugins/tp-voyager")
         self.assertEqual(entry["policy"]["installation"], "INSTALLED_BY_DEFAULT")
-        self.assertEqual(entry["policy"]["authentication"], "ON_INSTALL")
+        self.assertTrue((LEGACY_PLUGIN / ".codex-plugin" / "plugin.json").is_file())
+        self.assertTrue((LEGACY_PLUGIN / "skills" / "tp-voyager-observability" / "SKILL.md").is_file())
+
+    def test_codex_docs_describe_new_conversation_and_explicit_legacy_cleanup(self) -> None:
+        codex_doc = (CAPTAIN / "CODEX_DESKTOP.md").read_text(encoding="utf-8")
+        integration_doc = (CODEX / "README.md").read_text(encoding="utf-8")
+        combined = codex_doc + "\n" + integration_doc
+        self.assertIn("tp-voyager:captain", combined)
+        self.assertIn("new conversation", combined.lower())
+        self.assertIn("tp-voyager-observability", combined)
+        self.assertRegex(combined.lower(), r"(remove|uninstall).+tp-voyager-observability")
+        self.assertIn("tp-voyager-captain", combined)
+        self.assertRegex(combined.lower(), r"(remove|delete).+tp-voyager-captain")
+        self.assertIn("清理前验证", combined)
+        self.assertIn("清理后最终验收", combined)
 
 
 if __name__ == "__main__":

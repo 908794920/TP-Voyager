@@ -4,16 +4,20 @@ Captain Skill 是上层 AI 使用 TP-Voyager 的操作规范。
 
 它只教 Captain **怎么查事实、怎么选择、怎么显式派遣、怎么验收**；不保存任务状态、不直接绕过 Runtime 调供应商 CLI，也不把 TP-Voyager 变成第二个规划 AI。
 
+## 当前 Codex 入口
+
+Codex v1.0.9.2 的规范入口是唯一 `TP-Voyager` 插件中的 `$tp-voyager:captain`。仓库根部 `SKILL.md` 只保留 legacy migration shim；完整行为规则以 `integrations/codex/local-marketplace/plugins/tp-voyager/skills/captain/SKILL.md` 为准。
+
 ## 自动触发
 
-无需在每个新会话输入 `$tp-voyager-captain`。对有界仓库调研、Code Review、
+无需在每个新会话手工输入 `$tp-voyager:captain`；需要显式调用时使用该 namespaced Skill。对有界仓库调研、Code Review、
 故障分析、独立验证和小范围补丁，Captain 会主动判断是否应通过已挂载的 MCP
 委派 Crew；普通问答和一步即可完成的修改保持直接处理。自动触发不代表自动选模：
 Captain 仍须读取当前目录/策略、显式选择 Crew 与模型，并在失败、重试、fallback
 或扩大范围时停下等待人类决定。
 
 ```text
-Captain Skill 1.0.9.1
+Captain Skill 1.0.9.2
 ```
 
 ## Captain MCP 合约
@@ -44,7 +48,7 @@ task_result + Verification / Evidence
 Captain 接受 / 拒绝 / 决定下一步
 ```
 
-`render_voyager_panel` 是 v1.0.9.1 的只读 observability 工具。Codex host integration 会在 dispatch 返回明确 `task_id` 后立即调用一次，用状态点/边框给当前会话提供 Agent presence，并允许展开 Conversation / Timeline / Files / Usage。它不会重复 dispatch，不会自动挑选其他 Runtime 任务，也不是第二套 Task truth。Provider-visible assistant 内容和安全 Tool/File 活动只进入进程内有界 observation stream；Prompt、secret、raw tool output 与隐藏/private chain-of-thought 不进入该流。
+`render_voyager_panel` 是 v1.0.9.2 的只读 observability 工具。单任务按精确 `task_id`；并发视图按精确 `presentation_group_id` 或明确 `task_ids`。面板打开/恢复先同步最新状态，完成态优先使用 durable structured result 的 canonical final answer；Conversation 与 Timeline 独立限长，过程默认折叠。刷新不会重复 dispatch/resume/cancel，也不会自动挑选其他 Runtime 任务。Prompt、secret、raw tool output、绝对宿主路径与隐藏/private chain-of-thought 不进入该流。
 
 Codex 的本地加载/插件包装位于 [`integrations/codex/`](integrations/codex/)。未来其他 Host（例如 Claude Code）在真实实现出现时使用 `integrations/<host>/` 同级目录，不把 Host 逻辑塞进 Runtime。
 
@@ -192,20 +196,20 @@ Provider 没返回的消耗字段保持 unknown。
 
 ## 安装
 
-`tp-voyager.manifest.json` 是 Skill 的 MCP 启动事实来源。Codex Desktop 使用同一个安装器完成 Skill、MCP、observability plugin 与 managed guidance 的收敛：
+`tp-voyager.manifest.json` 是 MCP 启动事实来源。Codex Desktop 使用同一个安装器收敛唯一 `tp-voyager` 插件、既有 `tp_voyager` MCP 与 managed guidance：
 
 ```powershell
 python .\skills\tp-voyager-captain\install_codex_desktop.py
 python .\skills\tp-voyager-captain\install_codex_desktop.py --check
 ```
 
-安装器只让现有 `mcp_servers.tp_voyager` 拥有 Runtime 启动配置；observability plugin 保持 skills-only，不带第二份 `.mcp.json`。它同时以 begin/end marker 合并 `$CODEX_HOME\AGENTS.md`，保留所有 block 外用户规则。Codex 配置/plugin/guidance 变化后，若安装结果要求重启，请完全重启 Desktop 并创建新任务/新会话。
+安装器只让现有 `mcp_servers.tp_voyager` 拥有 Runtime 启动配置；`tp-voyager` plugin 保持 skills-only，只导出 `captain`，不带第二份 `.mcp.json`。它同时以 begin/end marker 合并 `$CODEX_HOME\AGENTS.md`，保留所有 block 外用户规则。旧全局 Skill 与旧 `tp-voyager-observability` plugin 在真实新会话验收前只检测、不删除；验收后按 `CODEX_DESKTOP.md` 明确清理。
 
-如只需要维护已经安装 Skill 的 MCP entry，仍可使用兼容稳定的低层同步入口：
+如只需要维护 MCP entry，仍可从仓库使用兼容稳定的低层同步入口：
 
 ```powershell
-python "$HOME\.codex\skills\tp-voyager-captain\sync_codex_desktop.py"
-python "$HOME\.codex\skills\tp-voyager-captain\sync_codex_desktop.py" --check
+python .\skills\tp-voyager-captain\sync_codex_desktop.py
+python .\skills\tp-voyager-captain\sync_codex_desktop.py --check
 ```
 
 同步器只维护全局 Codex 配置里的 `mcp_servers.tp_voyager`，不会删除项目级 `.codex/config.toml`。

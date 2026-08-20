@@ -12,9 +12,9 @@
 
 ## 当前基线
 
-**TP-Voyager v1.0.9.1 — 开发中**
+**TP-Voyager v1.0.9.2 — 开发中**
 
-v1.0.8 已完成 workspace read-only convergence 与 Windows 实机验收。v1.0.9.1 在 v1.0.9 Agent Observability MVP 之上补齐 Windows 聚合目录快照、Codex 一体化安装、全局 managed guidance 与面板失败体验：默认 Captain Surface 从六个控制/查询工具增为七个，其中新增的 `render_voyager_panel` 只做只读可见性投影；原有六个工具的请求/响应与显式 Crew/model/effort、Durable Core、Patch/Receipt/Verification、RunControl 边界保持不变。
+v1.0.8 已完成 workspace read-only convergence 与 Windows 实机验收。v1.0.9.2 在 v1.0.9.1 host hardening 基线上一次性收敛 Observability 与 Codex 安装形态：完成态面板以 durable task result / canonical final answer 为结果真源，流式 Conversation 与 Timeline 独立限长；面板打开/恢复先进入“正在同步”并只读拉取最新状态；显式 `presentation_group_id` / `task_ids` 支持同一 Host 卡片展示并发子任务；Codex 入口收敛为唯一 `tp-voyager` 插件和 `$tp-voyager:captain` Skill。默认 Captain Surface 仍严格为七个工具，Runtime/Captain/Durable Core/Patch/Receipt/Verification/RunControl 边界不变。
 
 ```text
 Passenger → Captain AI → TP-Voyager → Crew
@@ -101,7 +101,7 @@ task_dispatch
 task_result
 ```
 
-其中 `render_voyager_panel` 仍是 v1.0.9.1 默认 Surface 中唯一相对 v1.0.8 新增的工具：它只能按显式 `task_id` 读取当前 Runtime 的 Agent 可见性投影，不能 dispatch / resume / cancel / mutate Task，也不能成为第二套 Task truth。无 `task_id` 时必须返回当前会话空状态，禁止自动选择其他 Runtime 历史任务。
+其中 `render_voyager_panel` 仍是默认 Surface 中唯一相对 v1.0.8 新增的工具：它只能按显式 `task_id`、显式 `presentation_group_id` 或明确 `task_ids` 读取当前 Runtime 的 Agent 可见性投影，不能 dispatch / resume / cancel / mutate Task，也不能成为第二套 Task truth。无显式 selector 时必须返回当前会话空状态，禁止按最近任务、全局任务或模糊 correlation 自动选择 Runtime 历史任务。
 
 Agent 可观察内容遵循最小暴露原则：Provider 明确返回给用户的 assistant 文本、受限 Tool/File 活动与 Usage 可进入**进程内、限长、非持久化**的 observation stream；Prompt、system message、secret、raw tool output、隐藏/私有 chain-of-thought 不得进入该投影。Runtime 重启后该 stream 消失，SQLite Task/Event/Evidence 仍是唯一 Durable truth。
 
@@ -117,7 +117,7 @@ Vendor CLI 内部参数
 SQLite 内部结构
 ```
 
-大内容通过 Artifact 按需读取；v1.0.9.1 panel 只显示受限观察投影，不等同于完整 Worker transcript。
+大内容通过 Artifact 按需读取；v1.0.9.2 panel 只显示受限观察投影，不等同于完整 Worker transcript。
 
 ### 模型目录事实所有权
 

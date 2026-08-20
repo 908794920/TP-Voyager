@@ -990,6 +990,7 @@ def _repository_research_captain_fingerprint(
     model_policy: ModelPolicy | None,
     worker_profile_ref: WorkerProfileRef | None,
     correlation_id: str,
+    presentation_group_id: str,
     required_capabilities: list[str] | None,
     repository_research: RepositoryResearchSpec,
     repository_snapshot_ref: RepositorySnapshotRef | None = None,
@@ -1014,6 +1015,7 @@ def _repository_research_captain_fingerprint(
         "model_policy": model_policy.to_dict() if model_policy is not None else None,
         "worker_profile_ref": worker_profile_ref.to_dict() if worker_profile_ref is not None else None,
         "correlation_id": str(correlation_id or ""),
+        "presentation_group_id": str(presentation_group_id or ""),
         "required_capabilities": sorted(
             {str(item).strip() for item in (required_capabilities or []) if str(item).strip()}
         ),
@@ -1963,7 +1965,7 @@ def _durable_cli_start(
     except ValueError as exc:
         return {"ok": False, "error": str(exc)}
     routing = dict(routing_metadata or {})
-    allowed_routing_keys = {"read_scope", "worker_profile_ref", "worker_skill_refs", "input_artifact_refs", "trusted_instruction_refs", "captain_request_contract", "effective_model_policy", "correlation_id", "model_policy", "model_parameters", "repository_research", "repository_snapshot_ref", "scope_segment", "run_control", "step_key", "apply_receipt", "verification_policy", "verification_subject", "context_delivery"}
+    allowed_routing_keys = {"read_scope", "worker_profile_ref", "worker_skill_refs", "input_artifact_refs", "trusted_instruction_refs", "captain_request_contract", "effective_model_policy", "correlation_id", "presentation_group_id", "model_policy", "model_parameters", "repository_research", "repository_snapshot_ref", "scope_segment", "run_control", "step_key", "apply_receipt", "verification_policy", "verification_subject", "context_delivery"}
     if set(routing) - allowed_routing_keys:
         return {"ok": False, "error": "routing_metadata contains unsupported keys"}
     try:
@@ -2578,6 +2580,9 @@ def _routing_projection(task: TaskState) -> dict[str, Any]:
     correlation_id = routing.get("correlation_id")
     if isinstance(correlation_id, str) and correlation_id:
         output["correlation_id"] = correlation_id
+    presentation_group_id = routing.get("presentation_group_id")
+    if isinstance(presentation_group_id, str) and presentation_group_id:
+        output["presentation_group_id"] = presentation_group_id
     profile = routing.get("worker_profile_ref")
     if isinstance(profile, dict):
         output["worker_profile_ref"] = dict(profile)
@@ -3203,65 +3208,79 @@ def voyager_overview(limit: int = 5) -> dict[str, Any]:
     meta={
         "ui": {"resourceUri": VOYAGER_PANEL_URI},
         "openai/outputTemplate": VOYAGER_PANEL_URI,
-        "openai/toolInvocation/invoking": "Loading TP-Voyager Agent…",
-        "openai/toolInvocation/invoked": "TP-Voyager Agent ready",
+        "openai/toolInvocation/invoking": "正在加载 TP-Voyager 任务…",
+        "openai/toolInvocation/invoked": "TP-Voyager 任务已就绪",
     },
     structured_output=True,
 )
-def render_voyager_panel(task_id: str = "", limit: int = 200) -> dict[str, Any]:
-    """Render a read-only Agent presence/trace snapshot for the MCP Apps panel.
+def render_voyager_panel(
+    task_id: str = "",
+    presentation_group_id: str = "",
+    task_ids: list[str] | None = None,
+    limit: int = 200,
+) -> dict[str, Any]:
+    """Render an exact, read-only Agent snapshot for the MCP Apps panel.
 
-    This tool never dispatches, resumes, cancels, or mutates a Task.  Supplying
-    ``task_id`` pins the view to that delegated task.  Without a task id the
-    tool returns an empty current-conversation view rather than leaking another
-    Runtime task into this chat.  The structured result remains useful in MCP
-    hosts that do not render the associated UI resource.
+    Selection is explicit: one ``task_id``, one ``presentation_group_id``, or
+    an explicit bounded ``task_ids`` list. No recent/global/correlation-based
+    heuristic is allowed to choose tasks for the current conversation.
     """
     try:
         bounded_limit = max(1, min(int(limit), 1000))
     except (TypeError, ValueError):
         return {
-            "ok": False,
-            "schema": "tp-voyager.agent_panel/v1",
+            "ok": False, "schema": "tp-voyager.agent_panel/v1",
             "reason_code": "INVALID_LIMIT",
             "error": {"message": "limit must be an integer between 1 and 1000"},
         }
-
     canonical_task_id = str(task_id or "").strip()
+    canonical_group_id = str(presentation_group_id or "").strip()
+    explicit_task_ids = list(task_ids or [])
+    selector_count = int(bool(canonical_task_id)) + int(bool(canonical_group_id)) + int(bool(explicit_task_ids))
+    if selector_count > 1:
+        return {
+            "ok": False, "schema": "tp-voyager.agent_panel/v1",
+            "reason_code": "AMBIGUOUS_PANEL_SELECTOR",
+            "error": {"message": "pass exactly one of task_id, presentation_group_id, or task_ids"},
+        }
+    if len(explicit_task_ids) > 16:
+        return {
+            "ok": False, "schema": "tp-voyager.agent_panel/v1",
+            "reason_code": "INVALID_PANEL_SELECTOR",
+            "error": {"message": "task_ids may contain at most 16 explicit task ids"},
+        }
     try:
         projection = _voyage_agent_projection()
         if canonical_task_id:
             detail = projection.detail(canonical_task_id, limit=bounded_limit)
             if not bool(detail.get("ok")):
                 return {
-                    "ok": False,
-                    "schema": "tp-voyager.agent_panel/v1",
+                    "ok": False, "schema": "tp-voyager.agent_panel/v1",
                     "reason_code": str(detail.get("reason_code") or "TASK_NOT_FOUND"),
                     "task_id": detail.get("task_id") or canonical_task_id,
                     "error": {"message": "TP-Voyager task was not found."},
                 }
-            return {
-                **detail,
-                "schema": "tp-voyager.agent_panel/v1",
-                "mode": "detail",
-            }
-
+            return {**detail, "schema": "tp-voyager.agent_panel/v1", "mode": "detail"}
+        if canonical_group_id or explicit_task_ids:
+            grouped = projection.group(
+                presentation_group_id=canonical_group_id,
+                task_ids=explicit_task_ids or None,
+                limit=bounded_limit,
+            )
+            if not bool(grouped.get("ok")):
+                return {
+                    **grouped, "schema": "tp-voyager.agent_panel/v1", "mode": "group",
+                    "error": {"message": "TP-Voyager explicit task group was not found."},
+                }
+            return {**grouped, "schema": "tp-voyager.agent_panel/v1", "mode": "group"}
         return {
-            "ok": True,
-            "schema": "tp-voyager.agent_panel/v1",
-            "mode": "empty",
-            "scope": "current_conversation",
-            "tasks": [],
-            "conversation": [],
-            "timeline": [],
-            "files": [],
-            "usage": {},
-            "error": None,
+            "ok": True, "schema": "tp-voyager.agent_panel/v1", "mode": "empty",
+            "scope": "current_conversation", "tasks": [], "conversation": [],
+            "timeline": [], "files": [], "usage": {}, "error": None,
         }
     except (RuntimePersistenceError, ValueError, TypeError):
         return {
-            "ok": False,
-            "schema": "tp-voyager.agent_panel/v1",
+            "ok": False, "schema": "tp-voyager.agent_panel/v1",
             "reason_code": "OBSERVABILITY_UNAVAILABLE",
             "error": {"message": "TP-Voyager observability data is unavailable."},
         }
@@ -3271,8 +3290,8 @@ def render_voyager_panel(task_id: str = "", limit: int = 200) -> dict[str, Any]:
     meta={
         "ui": {"resourceUri": VOYAGER_PANEL_URI},
         "openai/outputTemplate": VOYAGER_PANEL_URI,
-        "openai/toolInvocation/invoking": "Starting TP-Voyager Agent…",
-        "openai/toolInvocation/invoked": "TP-Voyager Agent started",
+        "openai/toolInvocation/invoking": "正在启动 TP-Voyager 任务…",
+        "openai/toolInvocation/invoked": "TP-Voyager 任务已启动",
     },
     structured_output=True,
 )
@@ -3298,6 +3317,7 @@ def task_dispatch(
     apply_receipt: dict[str, Any] | None = None,
     verification_policy: dict[str, Any] | None = None,
     correlation_id: str = "",
+    presentation_group_id: str = "",
     timeout_seconds: int = 300,
     required_capabilities: list[str] | None = None,
     patch_policy: dict[str, Any] | None = None,
@@ -3522,6 +3542,19 @@ def task_dispatch(
         ):
             return reject("INVALID_CORRELATION_ID", "correlation_id must be printable and at most 160 characters")
 
+    external_presentation_group_id = str(presentation_group_id or "").strip()
+    if external_presentation_group_id:
+        if (
+            len(external_presentation_group_id) > 160
+            or not external_presentation_group_id.isascii()
+            or not external_presentation_group_id[0].isalnum()
+            or any(not (ch.isalnum() or ch in "._-") for ch in external_presentation_group_id)
+        ):
+            return reject(
+                "INVALID_PRESENTATION_GROUP_ID",
+                "presentation_group_id must use only letters, digits, dot, underscore, or hyphen and be at most 160 characters",
+            )
+
     context_root_hash = ""
     if effective_context_id:
         try:
@@ -3557,6 +3590,7 @@ def task_dispatch(
         repository_snapshot_ref=parsed_snapshot_ref.to_dict() if parsed_snapshot_ref is not None else None,
         scope_segment=parsed_scope_segment.to_dict(),
         correlation_id=external_correlation_id,
+        presentation_group_id=external_presentation_group_id,
     )
     canonical_key = str(idempotency_key or "").strip()
     if canonical_key and parsed_research is None:
@@ -3588,6 +3622,7 @@ def task_dispatch(
                     "replayed": True,
                     "effective_model_policy": dict(stored_policy) if isinstance(stored_policy, dict) else {},
                     **_public(_task_state_from_durable(durable, runtime)),
+                    **({"presentation_group_id": external_presentation_group_id} if external_presentation_group_id else {}),
                 }
 
     if parsed_profile is not None:
@@ -3659,6 +3694,7 @@ def task_dispatch(
             read_scope=parsed_scope,  # type: ignore[arg-type]
             model_policy=parsed_model_policy, worker_profile_ref=parsed_profile,
             correlation_id=external_correlation_id,
+            presentation_group_id=external_presentation_group_id,
             required_capabilities=required_capabilities,
             repository_research=parsed_research,
             repository_snapshot_ref=parsed_snapshot_ref,
@@ -3714,6 +3750,8 @@ def task_dispatch(
                 }
                 if external_correlation_id:
                     replay["correlation_id"] = external_correlation_id
+                if external_presentation_group_id:
+                    replay["presentation_group_id"] = external_presentation_group_id
                 if parsed_profile is not None:
                     replay["worker_profile_ref"] = parsed_profile.to_dict()
                 return replay
@@ -3853,6 +3891,7 @@ def task_dispatch(
             repository_snapshot_ref=parsed_snapshot_ref,
             scope_segment=parsed_scope_segment,
             correlation_id=external_correlation_id,
+            presentation_group_id=external_presentation_group_id,
         )
     )
     if verification_workspace is not None and (not result.get("ok") or bool(result.get("replayed"))):
@@ -3901,6 +3940,8 @@ def task_dispatch(
         result = {**result, "read_scope_resolved_file_count": len(resolved_files)}
     if external_correlation_id:
         result = {**result, "correlation_id": external_correlation_id}
+    if external_presentation_group_id:
+        result = {**result, "presentation_group_id": external_presentation_group_id}
     if parsed_run_control is not None:
         result = {**result, "run_id": parsed_run_control.run_id, "step_key": canonical_step_key}
     if parsed_profile is not None:

@@ -13,6 +13,11 @@ from agent_runtime.application.voyage.observability import (
     VoyageAgentProjection,
     observation_event_from_backend_activity,
 )
+from agent_runtime.domain.crew_outcome import (
+    CREW_OUTCOME_MARKER,
+    CREW_OUTCOME_SCHEMA,
+    strip_crew_outcome_marker,
+)
 
 
 class FakeTaskService:
@@ -53,6 +58,7 @@ def task(task_id: str, status: str, *, crew: str = "qoder", updated_at: float = 
         terminal_reason="backend_error" if status == "failed" else None,
         current_attempt_id="at-1",
         result_available=status == "completed",
+        result_json=None,
     )
 
 
@@ -130,6 +136,45 @@ class AgentObservationStoreTests(unittest.TestCase):
             )
             self.assertEqual(len(saved["text"]), 32)
 
+    def test_assistant_text_preserves_stream_whitespace_and_markdown(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = AgentObservationStore(Path(tmp))
+            first = store.append(
+                "task-1",
+                {"kind": "assistant_message", "text": "# 标题\n\n第一段 "},
+            )
+            second = store.append(
+                "task-1",
+                {"kind": "assistant_message", "text": " **加粗**\n- 项目\n"},
+            )
+
+            self.assertEqual(first["text"], "# 标题\n\n第一段 ")
+            self.assertEqual(second["text"], " **加粗**\n- 项目\n")
+
+    def test_conversation_stream_is_independent_from_high_frequency_activity_window(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = AgentObservationStore(Path(tmp), max_events_per_task=64)
+            store.append(
+                "task-1",
+                {"kind": "assistant_message", "text": "完整开头\n\n"},
+            )
+            store.append(
+                "task-1",
+                {"kind": "assistant_message", "text": "  保留缩进和结尾\n"},
+            )
+            for index in range(300):
+                store.append(
+                    "task-1",
+                    {"kind": "tool_activity", "tool": "Read", "status": "completed", "timestamp": index + 10},
+                )
+
+            conversation = store.read_conversation("task-1", limit=20)
+
+            self.assertEqual(
+                [item["text"] for item in conversation],
+                ["完整开头\n\n", "  保留缩进和结尾\n"],
+            )
+
 
 class AgentObservationRecorderTests(unittest.TestCase):
     def test_recorder_projects_lifecycle_activity_usage_and_terminal_answer(self) -> None:
@@ -167,7 +212,7 @@ class AgentObservationRecorderTests(unittest.TestCase):
             self.assertEqual(events[2]["usage"]["input_tokens"], 10)
             self.assertEqual(events[3]["text"], "Final answer")
 
-    def test_completed_does_not_duplicate_answer_when_stream_text_exists(self) -> None:
+    def test_completed_appends_canonical_answer_even_when_stream_text_exists(self) -> None:
         from agent_runtime.backends.base import BackendActivity
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -185,7 +230,8 @@ class AgentObservationRecorderTests(unittest.TestCase):
             recorder.completed(state, answer="final", timestamp=2.0)
             events = store.read("task-1", limit=20)
             messages = [item for item in events if item["kind"] == "assistant_message"]
-            self.assertEqual([item["text"] for item in messages], ["streamed"])
+            self.assertEqual([item["text"] for item in messages], ["streamed", "final"])
+            self.assertEqual(messages[-1]["source"], "canonical_final")
 
     def test_failed_records_safe_reason_without_exception_repr(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -337,6 +383,92 @@ class VoyageAgentProjectionTests(unittest.TestCase):
             self.assertEqual(detail["files"][0]["path"], "src/login.py")
             self.assertEqual(detail["usage"]["usage"]["input_tokens"], 100)
 
+    def test_running_conversation_never_exposes_machine_outcome_protocol(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = AgentObservationStore(Path(tmp))
+            store.append(
+                "task-1",
+                {
+                    "kind": "assistant_message",
+                    "timestamp": 3.0,
+                    "text": (
+                        "正在整理结论。\n\n"
+                        + CREW_OUTCOME_MARKER
+                        + '{"schema":"tp-voyager.crew_outcome/v1","status":"COMPLETED"}'
+                        + "\n"
+                    ),
+                },
+            )
+            projection = VoyageAgentProjection(
+                FakeTaskService([task("task-1", "running")]),
+                store,
+            )
+
+            detail = projection.detail("task-1")
+
+            encoded = json.dumps(detail["conversation"], ensure_ascii=False)
+            self.assertNotIn(CREW_OUTCOME_MARKER, encoded)
+            self.assertEqual(detail["conversation"][0]["content"], "正在整理结论。\n\n")
+
+    def test_terminal_detail_prefers_canonical_full_answer_and_projects_chinese_ready_result_card(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = AgentObservationStore(Path(tmp), max_events_per_task=64)
+            store.append(
+                "task-1",
+                {"kind": "assistant_message", "timestamp": 3.0, "text": "末尾片段"},
+            )
+            for index in range(300):
+                store.append(
+                    "task-1",
+                    {"kind": "tool_activity", "timestamp": 10.0 + index, "tool": "Read", "status": "completed"},
+                )
+            outcome = {
+                "schema": CREW_OUTCOME_SCHEMA,
+                "status": "COMPLETED",
+                "summary": "OpenMontage 最适合通用 Codex 视频制作。",
+                "requested_files": [],
+                "requested_commands": [],
+                "findings": ["覆盖 12 条视频生产流水线。", "存在明确 Codex 入口。"],
+                "evidence_refs": ["06-视频与音频生成/OpenMontage_智能体视频生产流水线.md"],
+            }
+            full_answer = (
+                "# 首选分析\n\nOpenMontage 最适合通用 Codex 视频制作。\n\n"
+                "## 注意\nAGPL-3.0；对外网络服务前需评估开源义务。\n\n"
+                + CREW_OUTCOME_MARKER
+                + json.dumps(outcome, ensure_ascii=False)
+            )
+            current = task("task-1", "completed")
+            current.result_json = json.dumps(
+                {
+                    "answer": full_answer,
+                    "risks": ["AGPL-3.0；对外服务前评估开源义务。"],
+                    "crew_outcome": {**outcome, "available": True},
+                },
+                ensure_ascii=False,
+            )
+            projection = VoyageAgentProjection(FakeTaskService([current]), store)
+
+            detail = projection.detail("task-1", limit=50)
+
+            self.assertEqual(
+                detail["full_answer"],
+                "# 首选分析\n\nOpenMontage 最适合通用 Codex 视频制作。\n\n## 注意\nAGPL-3.0；对外网络服务前需评估开源义务。\n\n",
+            )
+            self.assertNotIn(CREW_OUTCOME_MARKER, json.dumps(detail, ensure_ascii=False))
+            self.assertEqual(detail["conversation"][0]["content"], detail["full_answer"] )
+            self.assertEqual(detail["result_card"]["conclusion"], outcome["summary"] )
+            self.assertEqual(detail["result_card"]["key_evidence"], outcome["findings"] )
+            self.assertEqual(detail["result_card"]["risks"], ["AGPL-3.0；对外服务前评估开源义务。"] )
+            self.assertEqual(detail["task"]["duration_seconds"], 7.0)
+
+    def test_strip_crew_outcome_marker_removes_only_protocol_line(self) -> None:
+        marker = CREW_OUTCOME_MARKER + '{"schema":"tp-voyager.crew_outcome/v1"}'
+        answer = "前文  保留\n\n```json\n{\"x\": 1}\n```\n" + marker + "\n"
+
+        cleaned = strip_crew_outcome_marker(answer)
+
+        self.assertEqual(cleaned, "前文  保留\n\n```json\n{\"x\": 1}\n```\n")
+
     def test_detail_lists_safe_modified_path_from_tool_activity(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = AgentObservationStore(Path(tmp))
@@ -363,6 +495,36 @@ class VoyageAgentProjectionTests(unittest.TestCase):
                     "timestamp": 4.0,
                 }
             ])
+
+    def test_explicit_group_projection_returns_only_exact_members_and_independent_details(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = AgentObservationStore(Path(tmp))
+            tasks = [task("qoder-1", "completed", crew="qoder"), task("codebuddy-1", "running", crew="codebuddy"), task("other-1", "running", crew="qoder")]
+            sessions = {
+                "qoder-1": SimpleNamespace(metadata_json=json.dumps({"runtime": "qoder", "model": "lite", "routing_metadata": {"presentation_group_id": "grp-1"}})),
+                "codebuddy-1": SimpleNamespace(metadata_json=json.dumps({"runtime": "codebuddy", "model": "hy3", "routing_metadata": {"presentation_group_id": "grp-1"}})),
+                "other-1": SimpleNamespace(metadata_json=json.dumps({"runtime": "qoder", "model": "lite", "routing_metadata": {"presentation_group_id": "grp-other"}})),
+            }
+            projection = VoyageAgentProjection(FakeTaskService(tasks, sessions=sessions), store)
+
+            grouped = projection.group(presentation_group_id="grp-1", limit=50)
+
+            self.assertTrue(grouped["ok"])
+            self.assertEqual(grouped["presentation_group_id"], "grp-1")
+            self.assertEqual({item["task"]["task_id"] for item in grouped["tasks"]}, {"qoder-1", "codebuddy-1"})
+            self.assertNotIn("other-1", json.dumps(grouped))
+
+    def test_explicit_task_ids_group_projection_never_auto_selects_other_tasks(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = AgentObservationStore(Path(tmp))
+            projection = VoyageAgentProjection(
+                FakeTaskService([task("a", "running"), task("b", "completed"), task("c", "running")]), store
+            )
+
+            grouped = projection.group(task_ids=["b", "a"], limit=20)
+
+            self.assertEqual([item["task"]["task_id"] for item in grouped["tasks"]], ["b", "a"])
+            self.assertNotIn('"c"', json.dumps(grouped))
 
     def test_presence_defaults_to_active_then_recent_tasks(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -82,6 +82,21 @@ def unavailable_outcome(reason: str = "not_returned") -> dict[str, Any]:
     return {"schema": CREW_OUTCOME_SCHEMA, "available": False, "status": None, "reason": reason}
 
 
+def strip_crew_outcome_marker(answer: str) -> str:
+    """Remove machine outcome marker lines without rewriting user prose.
+
+    The Crew protocol is an internal transport contract.  Result/panel readers
+    may consume it, but it must never be rendered back to the user.  Keeping
+    line endings on all non-marker lines preserves Markdown, indentation and
+    streamed whitespace exactly as produced by the Crew.
+    """
+    return "".join(
+        line
+        for line in str(answer or "").splitlines(keepends=True)
+        if not line.startswith(CREW_OUTCOME_MARKER)
+    )
+
+
 def parse_crew_outcome(answer: str) -> dict[str, Any]:
     """Parse only an explicit marker line.  Never infer status from prose."""
     marker_line = ""

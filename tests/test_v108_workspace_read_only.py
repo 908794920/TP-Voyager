@@ -198,8 +198,11 @@ class V108WorkspaceReadOnlyTests(unittest.TestCase):
         self.assertEqual(result["reason_code"], "APPLY_RECEIPT_REQUIRED")
         self.assertEqual(calls, [])
 
-    def test_captain_skill_defaults_normal_workspace_read_only_to_no_read_scope(self) -> None:
-        skill = Path("skills/tp-voyager-captain/SKILL.md").read_text(encoding="utf-8")
+    def test_canonical_captain_skill_defaults_normal_workspace_read_only_to_no_read_scope(self) -> None:
+        skill = Path(
+            "skills/tp-voyager-captain/integrations/codex/local-marketplace/"
+            "plugins/tp-voyager/skills/captain/SKILL.md"
+        ).read_text(encoding="utf-8")
         readme = Path("skills/tp-voyager-captain/README.md").read_text(encoding="utf-8")
         combined = f"{skill}\n{readme}".lower()
 

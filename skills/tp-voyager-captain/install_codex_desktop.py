@@ -2,10 +2,10 @@
 """Install/update the TP-Voyager Codex host integration in one pass.
 
 The existing ``tp_voyager`` MCP registration remains the only Runtime server
-owner.  The same installer also deploys the skills-only observability plugin,
+owner.  The same installer deploys the single skills-only ``tp-voyager`` plugin,
 registers it in the user's personal marketplace, and merges a bounded routing
-block into global Codex ``AGENTS.md``. Repository files stay portable and
-unrelated user-owned content is preserved.
+block into global Codex ``AGENTS.md``. Existing legacy standalone Skill/plugin
+installations are detected and preserved until explicit post-validation cleanup.
 """
 
 from __future__ import annotations
@@ -27,7 +27,8 @@ _SCHEMA = "tp-voyager.codex_install/v1"
 _BINDINGS_SCHEMA = "tp-voyager.install_bindings/v1"
 _BINDINGS_FILE = "tp-voyager.bindings.json"
 _SKILL_NAME = "tp-voyager-captain"
-_PLUGIN_NAME = "tp-voyager-observability"
+_PLUGIN_NAME = "tp-voyager"
+_LEGACY_PLUGIN_NAME = "tp-voyager-observability"
 _PLUGIN_SOURCE_REL = Path("integrations/codex/local-marketplace/plugins") / _PLUGIN_NAME
 _AGENTS_BEGIN = "<!-- >>> TP-Voyager managed guidance >>> -->"
 _AGENTS_END = "<!-- <<< TP-Voyager managed guidance <<< -->"
@@ -37,7 +38,7 @@ _AGENTS_GUIDANCE = """## TP-Voyager Captain MCP routing
 - Simple tasks may be completed directly. Do not auto-dispatch merely because TP-Voyager is available.
 - If `tp_voyager` is not mounted or unavailable, say so accurately and continue normally unless the user explicitly requires TP-Voyager.
 - Do not auto-retry, silently switch Crew/model, widen task scope, expand permissions, or bypass approvals.
-- After a TP-Voyager task is dispatched, use the existing read-only `render_voyager_panel(task_id=...)` when current-conversation observability is useful; refresh must never re-dispatch.
+- After a TP-Voyager task is dispatched, use the existing read-only `render_voyager_panel` with the exact `task_id`, or an explicit `presentation_group_id` / exact `task_ids` for an intentional concurrent group; refresh must never re-dispatch, resume, cancel, or mutate.
 """.strip()
 _EXCLUDED_PARTS = frozenset({"__pycache__"})
 
@@ -145,10 +146,15 @@ def _binding_values(
     repository_root = _repository_root_from_source(source_skill)
     if repository_root is not None:
         values["repository_root"] = str(repository_root)
+    elif provided and provided.get("repository_root"):
+        candidate_root = provided["repository_root"]
+        if not isinstance(candidate_root, str) or not candidate_root.strip() or "\x00" in candidate_root:
+            raise InstallError("install binding is invalid: repository_root")
+        values["repository_root"] = candidate_root
     elif not values.get("repository_root"):
         raise InstallError(
             "repository_root binding is unavailable; run installation/update from the "
-            "TP-Voyager repository or restore the installed bindings file"
+            "TP-Voyager repository or pass --binding repository_root=<path>"
         )
     for name in names:
         if name == "repository_root":
@@ -213,9 +219,9 @@ def _resolved_user_home(codex_home: str | Path, user_home: str | Path | None) ->
 def _plugin_source(source_skill: Path) -> Path:
     path = source_skill / _PLUGIN_SOURCE_REL
     if not (path / ".codex-plugin" / "plugin.json").is_file():
-        raise InstallError("source observability plugin is incomplete")
+        raise InstallError("source TP-Voyager plugin is incomplete")
     if (path / ".mcp.json").exists():
-        raise InstallError("observability plugin must not bundle a duplicate MCP server")
+        raise InstallError("TP-Voyager plugin must not bundle a duplicate MCP server")
     return path
 
 
@@ -400,10 +406,16 @@ def _ensure_codex_plugin(
     codex_home: str | Path,
     user_home: Path,
     check_only: bool,
+    refresh_required: bool = False,
 ) -> dict[str, Any]:
+    base = {
+        "plugin_cli_available": executable is not None,
+        "plugin_cache_refresh_required": bool(refresh_required),
+        "plugin_cache_refreshed": False,
+    }
     if executable is None:
         return {
-            "plugin_cli_available": False,
+            **base,
             "plugin_installed": False,
             "plugin_enabled": False,
             "plugin_installation_pending": True,
@@ -415,24 +427,46 @@ def _ensure_codex_plugin(
     installed, enabled, status_error = _codex_plugin_status(
         executable, codex_home=codex_home, user_home=user_home
     )
+    if check_only:
+        return {
+            **base,
+            "plugin_installed": bool(status_error is None and installed),
+            "plugin_enabled": bool(status_error is None and installed and enabled),
+            "plugin_installation_pending": not bool(status_error is None and installed),
+            "plugin_install_method": "codex-cli-check",
+            "plugin_install_error": status_error,
+            "plugin_cli_changed": False,
+        }
+
+    refreshed = False
+    if status_error is None and installed and refresh_required:
+        _, remove_error = _run_codex_json(
+            executable,
+            ["plugin", "remove", f"{_PLUGIN_NAME}@{marketplace_name}", "--json"],
+            codex_home=codex_home,
+            user_home=user_home,
+        )
+        if remove_error is not None:
+            return {
+                **base,
+                "plugin_installed": True,
+                "plugin_enabled": enabled,
+                "plugin_installation_pending": True,
+                "plugin_install_method": "codex-cli-refresh",
+                "plugin_install_error": remove_error,
+                "plugin_cli_changed": False,
+            }
+        installed = False
+        refreshed = True
+
     if status_error is None and installed:
         return {
-            "plugin_cli_available": True,
+            **base,
             "plugin_installed": True,
             "plugin_enabled": enabled,
             "plugin_installation_pending": False,
             "plugin_install_method": "codex-cli",
             "plugin_install_error": None,
-            "plugin_cli_changed": False,
-        }
-    if check_only:
-        return {
-            "plugin_cli_available": True,
-            "plugin_installed": False,
-            "plugin_enabled": False,
-            "plugin_installation_pending": True,
-            "plugin_install_method": "codex-cli-check",
-            "plugin_install_error": status_error,
             "plugin_cli_changed": False,
         }
 
@@ -444,35 +478,38 @@ def _ensure_codex_plugin(
     )
     if add_error is not None:
         return {
-            "plugin_cli_available": True,
+            **base,
             "plugin_installed": False,
             "plugin_enabled": False,
             "plugin_installation_pending": True,
             "plugin_install_method": "marketplace-default",
             "plugin_install_error": add_error,
-            "plugin_cli_changed": False,
+            "plugin_cli_changed": refreshed,
+            "plugin_cache_refreshed": False,
         }
     installed, enabled, verify_error = _codex_plugin_status(
         executable, codex_home=codex_home, user_home=user_home
     )
     if verify_error is not None or not installed:
         return {
-            "plugin_cli_available": True,
+            **base,
             "plugin_installed": False,
             "plugin_enabled": False,
             "plugin_installation_pending": True,
             "plugin_install_method": "marketplace-default",
             "plugin_install_error": verify_error or "codex_cli_install_not_visible",
             "plugin_cli_changed": True,
+            "plugin_cache_refreshed": False,
         }
     return {
-        "plugin_cli_available": True,
+        **base,
         "plugin_installed": True,
         "plugin_enabled": enabled,
         "plugin_installation_pending": False,
         "plugin_install_method": "codex-cli",
         "plugin_install_error": None,
         "plugin_cli_changed": True,
+        "plugin_cache_refreshed": refreshed,
     }
 
 def _tree_drift(source_root: Path, target_root: Path) -> tuple[list[Path], list[str]]:
@@ -493,6 +530,23 @@ def _deploy_managed_tree(source_root: Path, target_root: Path, managed: list[Pat
     return changed
 
 
+def _legacy_install_state(codex_home: str | Path) -> tuple[Path, Path, bool, bool]:
+    home = Path(codex_home).expanduser().resolve()
+    legacy_skill = Path(installed_skill_path(home)).expanduser().resolve()
+    legacy_plugin = home / "plugins" / _LEGACY_PLUGIN_NAME
+    return legacy_skill, legacy_plugin, legacy_skill.exists(), legacy_plugin.exists()
+
+
+def _legacy_cleanup_steps(legacy_skill: Path, legacy_plugin: Path, marketplace_name: str) -> list[str]:
+    return [
+        f"After new-plugin validation: codex plugin remove {_LEGACY_PLUGIN_NAME}@{marketplace_name}",
+        f"Then manually remove the legacy standalone Skill directory: {legacy_skill}",
+        f"Then manually remove the legacy plugin source/cache directory if it still exists: {legacy_plugin}",
+        "Remove only the tp-voyager-observability entry from the personal marketplace if it remains; preserve unrelated entries.",
+        "Start a new Codex conversation/session and re-verify TP-Voyager before deleting any additional legacy material.",
+    ]
+
+
 def install(
     source_skill: str | Path,
     codex_home: str | Path,
@@ -504,17 +558,15 @@ def install(
 ) -> dict[str, Any]:
     source = Path(source_skill).expanduser().resolve()
     if not source.is_dir():
-        raise InstallError("source Captain Skill directory does not exist")
+        raise InstallError("source Captain bootstrap directory does not exist")
     sync_script = source / "sync_codex_desktop.py"
     manifest = source / "tp-voyager.manifest.json"
     if not sync_script.is_file() or not manifest.is_file():
-        raise InstallError("source Captain Skill is incomplete")
+        raise InstallError("source Captain bootstrap is incomplete")
     source_sync = _load_module(
         sync_script, "tp_voyager_source_sync", write_bytecode=not check_only
     )
 
-    target = Path(installed_skill_path(codex_home)).expanduser().resolve()
-    binding_path = target / _BINDINGS_FILE
     host_user_home = _resolved_user_home(codex_home, user_home)
     source_plugin = _plugin_source(source)
     target_plugin = _plugin_target(codex_home)
@@ -529,50 +581,21 @@ def install(
     if not isinstance(marketplace_name, str) or not marketplace_name.strip():
         raise InstallError("personal Codex marketplace name is missing or invalid")
     codex_executable = _resolve_codex_cli(codex_cli)
-    existing_bindings = _read_binding_file(binding_path) if target.exists() else {}
+
     values = _binding_values(
-        source, source_sync, provided=bindings, existing=existing_bindings, check_only=check_only
+        source, source_sync, provided=bindings, existing=None, check_only=check_only
     )
-    # Validate the portable manifest with resolved machine bindings before any write.
+    # Validate the portable manifest before any host write.
     source_sync.load_manifest(manifest, bindings=values)
     manifest_bytes = manifest.read_bytes()
-    managed = _managed_files(source)
-    drift = _skill_drift(source, target, managed)
-    desired_binding_bytes = _bindings_bytes(values)
-    bindings_changed = not binding_path.is_file() or binding_path.read_bytes() != desired_binding_bytes
-
     config_path = Path(codex_home).expanduser().resolve() / "config.toml"
+    legacy_skill, legacy_plugin, legacy_skill_present, legacy_plugin_present = _legacy_install_state(codex_home)
+    cleanup_steps = _legacy_cleanup_steps(legacy_skill, legacy_plugin, marketplace_name)
+
     if check_only:
-        if not target.exists():
-            drift = ["installed_skill_missing"]
-            mcp_result = {
-                "ok": False,
-                "action": "check-failed",
-                "drift": ["config_not_checked"],
-                "config_sha256_before": _sha256(config_path.read_bytes()) if config_path.exists() else _sha256(b""),
-                "config_sha256_after": _sha256(config_path.read_bytes()) if config_path.exists() else _sha256(b""),
-            }
-        else:
-            target_sync_path = target / "sync_codex_desktop.py"
-            target_manifest = target / "tp-voyager.manifest.json"
-            if not target_sync_path.is_file() or not target_manifest.is_file() or bindings_changed:
-                mcp_result = {
-                    "ok": False,
-                    "action": "check-failed",
-                    "drift": ["installed_skill_or_bindings_drift"],
-                    "config_sha256_before": _sha256(config_path.read_bytes()) if config_path.exists() else _sha256(b""),
-                    "config_sha256_after": _sha256(config_path.read_bytes()) if config_path.exists() else _sha256(b""),
-                }
-            else:
-                target_sync = _load_module(
-                    target_sync_path, "tp_voyager_installed_sync_check", write_bytecode=False
-                )
-                mcp_result = target_sync.sync(
-                    target_manifest,
-                    config_path,
-                    check_only=True,
-                    bindings_path=binding_path,
-                )
+        mcp_result = source_sync.sync(
+            manifest, config_path, check_only=True, bindings=values
+        )
         plugin_files_installed = not plugin_drift
         marketplace_registered = not marketplace_changed
         agents_guidance_installed = agents_current
@@ -582,11 +605,10 @@ def install(
             codex_home=codex_home,
             user_home=host_user_home,
             check_only=True,
+            refresh_required=bool(plugin_drift),
         )
         ok = (
-            not drift
-            and not bindings_changed
-            and bool(mcp_result.get("ok"))
+            bool(mcp_result.get("ok"))
             and plugin_files_installed
             and marketplace_registered
             and agents_guidance_installed
@@ -595,18 +617,16 @@ def install(
             "schema": _SCHEMA,
             "ok": ok,
             "action": "check-ok" if ok else "check-failed",
-            "source_skill_path": str(source),
-            "target_skill_path": str(target),
+            "source_bootstrap_path": str(source),
             "config_path": str(config_path),
             "manifest_sha256": _sha256(manifest_bytes),
             "config_sha256_before": mcp_result.get("config_sha256_before"),
             "config_sha256_after": mcp_result.get("config_sha256_after"),
-            "managed_file_count": len(managed),
-            "skill_drift": drift + (["tp-voyager.bindings.json"] if bindings_changed else []),
             "mcp_drift": list(mcp_result.get("drift") or []),
             "mcp_action": mcp_result.get("action"),
             "binding_keys": sorted(values),
             "mcp_registered": bool(mcp_result.get("ok")),
+            "plugin_name": _PLUGIN_NAME,
             "plugin_files_installed": plugin_files_installed,
             "plugin_drift": list(plugin_drift),
             **plugin_state,
@@ -616,59 +636,55 @@ def install(
             "agents_guidance_effective": agents_effective,
             "agents_override_present": agents_override_present,
             "agents_path": agents_path_text,
+            "legacy_skill_present": legacy_skill_present,
+            "legacy_observability_plugin_present": legacy_plugin_present,
+            "legacy_cleanup_steps": cleanup_steps,
             "restart_required": False,
             "new_conversation_required": False,
             "provider_invocation_performed": False,
             "task_dispatch_performed": False,
         }
 
-    changed_files = _deploy_managed_tree(source, target, managed)
     plugin_changed_files = _deploy_managed_tree(source_plugin, target_plugin, plugin_managed)
     agents_changed = not agents_current
     if agents_changed:
         _atomic_write(Path(agents_path_text), agents_bytes)
     if marketplace_changed:
         _atomic_write(marketplace_path, marketplace_bytes)
-    if bindings_changed:
-        _atomic_write(binding_path, desired_binding_bytes)
-        changed_files.append(_BINDINGS_FILE)
 
-    target_sync = _load_module(target / "sync_codex_desktop.py", "tp_voyager_installed_sync")
-    mcp_result = target_sync.sync(
-        target / "tp-voyager.manifest.json",
-        config_path,
-        bindings_path=binding_path,
-    )
+    # MCP configuration is synchronized directly from the repository bootstrap.
+    # v1.0.9.2 intentionally does not deploy/update the legacy standalone Skill.
+    mcp_result = source_sync.sync(manifest, config_path, bindings=values)
     plugin_state = _ensure_codex_plugin(
         codex_executable,
         marketplace_name=marketplace_name,
         codex_home=codex_home,
         user_home=host_user_home,
         check_only=False,
+        refresh_required=bool(plugin_changed_files),
     )
     host_changed = bool(
         plugin_changed_files
         or agents_changed
         or marketplace_changed
         or plugin_state.get("plugin_cli_changed")
+        or mcp_result.get("action") in {"added", "updated"}
     )
-    action = "changed" if changed_files or host_changed or mcp_result.get("action") in {"added", "updated"} else "no-op"
+    action = "changed" if host_changed else "no-op"
     return {
         "schema": _SCHEMA,
         "ok": bool(mcp_result.get("ok")),
         "action": action,
-        "source_skill_path": str(source),
-        "target_skill_path": str(target),
+        "source_bootstrap_path": str(source),
         "config_path": str(config_path),
         "manifest_sha256": _sha256(manifest_bytes),
         "config_sha256_before": mcp_result.get("config_sha256_before"),
         "config_sha256_after": mcp_result.get("config_sha256_after"),
-        "managed_file_count": len(managed),
-        "changed_file_count": len(changed_files),
         "mcp_action": mcp_result.get("action"),
         "binding_keys": sorted(values),
         "env_keys": list((mcp_result.get("entry") or {}).get("env_keys") or []),
         "mcp_registered": bool(mcp_result.get("ok")),
+        "plugin_name": _PLUGIN_NAME,
         "plugin_files_installed": True,
         "plugin_changed_file_count": len(plugin_changed_files),
         **plugin_state,
@@ -678,12 +694,14 @@ def install(
         "agents_guidance_effective": agents_effective,
         "agents_override_present": agents_override_present,
         "agents_path": agents_path_text,
+        "legacy_skill_present": legacy_skill_present,
+        "legacy_observability_plugin_present": legacy_plugin_present,
+        "legacy_cleanup_steps": cleanup_steps,
         "restart_required": bool(action != "no-op" or plugin_state.get("plugin_installation_pending")),
         "new_conversation_required": bool(action != "no-op" or plugin_state.get("plugin_installation_pending")),
         "provider_invocation_performed": False,
         "task_dispatch_performed": False,
     }
-
 
 def _parse_bindings(values: list[str]) -> dict[str, str]:
     output: dict[str, str] = {}
@@ -701,8 +719,8 @@ def _parse_bindings(values: list[str]) -> dict[str, str]:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Install/update TP-Voyager Captain Skill, MCP registration, "
-            "observability plugin, and managed Codex guidance"
+            "Install/update TP-Voyager plugin, existing MCP registration, "
+            "and managed Codex guidance"
         )
     )
     parser.add_argument("--source-skill", default=str(Path(__file__).resolve().parent))
@@ -716,7 +734,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--check",
         action="store_true",
-        help="Read-only validation; do not deploy Skill/plugin/guidance or edit Codex config",
+        help="Read-only validation; do not deploy plugin/guidance or edit Codex config",
     )
     return parser
 

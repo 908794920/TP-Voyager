@@ -24,12 +24,29 @@ class McpCaptainContractTests(unittest.TestCase):
         with patch.dict(os.environ, {"TP_VOYAGER_MCP_SURFACE": "diagnostic"}, clear=False):
             self.assertEqual(_mcp_surface(), "diagnostic")
 
-    def test_docs_and_skill_repeat_the_same_contract(self) -> None:
+    def test_docs_and_canonical_plugin_skill_repeat_the_same_contract(self) -> None:
         root = Path(__file__).resolve().parents[1]
-        for path in (root / "README.md", root / "skills" / "tp-voyager-captain" / "SKILL.md"):
+        canonical_skill = (
+            root
+            / "skills"
+            / "tp-voyager-captain"
+            / "integrations"
+            / "codex"
+            / "local-marketplace"
+            / "plugins"
+            / "tp-voyager"
+            / "skills"
+            / "captain"
+            / "SKILL.md"
+        )
+        for path in (root / "README.md", canonical_skill):
             text = path.read_text(encoding="utf-8")
             for name in self.expected:
                 self.assertIn(name, text, path)
+
+        legacy_shim = (root / "skills" / "tp-voyager-captain" / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("legacy migration shim", legacy_shim.lower())
+        self.assertNotIn("## 3. Captain Responsibilities", legacy_shim)
 
     def test_doctor_derives_same_exact_contract(self) -> None:
         with patch("agent_runtime.cli.probe_codebuddy_cli", return_value={"installed":True}), patch(

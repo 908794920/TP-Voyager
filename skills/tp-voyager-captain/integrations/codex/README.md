@@ -1,43 +1,45 @@
 # Codex integration
 
-This directory packages TP-Voyager's Codex-specific **loading and presentation** layer. It does not own Runtime state and never launches a second MCP server.
+This directory packages TP-Voyager's Codex-specific loading and presentation layer. It does not own Runtime state and never launches a second MCP server.
 
-## Components
+## Current v1.0.9.2 shape
 
-- `../../install_codex_desktop.py` is the single Codex host installer. It converges the Captain Skill, existing `tp_voyager` MCP registration, observability plugin, personal marketplace entry, and the TP-Voyager managed block in global `AGENTS.md`.
-- `../../sync_codex_desktop.py` remains the compatibility-stable owner of only `mcp_servers.tp_voyager` inside Codex `config.toml`.
-- `local-marketplace/` packages the skills-only `tp-voyager-observability` plugin source. The installed plugin relies on the already registered `tp_voyager` MCP server and deliberately has no `.mcp.json` or `.app.json`.
+- `../../install_codex_desktop.py` is the single Codex host installer.
+- `../../sync_codex_desktop.py` remains the compatibility-stable owner of only `mcp_servers.tp_voyager` in Codex `config.toml`.
+- `local-marketplace/plugins/tp-voyager/` is the current skills-only plugin.
+- That plugin exports exactly one Skill: `skills/captain/SKILL.md`, surfaced by Codex as `$tp-voyager:captain`.
+- The plugin contains no `.mcp.json` or `.app.json`; it reuses the already registered `tp_voyager` MCP server.
+- `local-marketplace/plugins/tp-voyager-observability/` is retained only as legacy migration evidence and is no longer advertised by the current marketplace.
+- `../../SKILL.md` is a legacy migration shim, not a second behavioral specification.
 
-## First-time local experience
+## First-time install or update
 
-From the repository root, initialize TP-Voyager and run the one host installer:
+From the repository root:
 
 ```powershell
 python -m agent_runtime.cli init
 python .\skills\tp-voyager-captain\install_codex_desktop.py
 ```
 
-The installer returns explicit states including `mcp_registered`, `plugin_files_installed`, `plugin_installed`, `plugin_enabled`, `plugin_installation_pending`, `marketplace_registered`, `agents_guidance_installed`, `agents_guidance_effective`, `restart_required`, and `new_conversation_required`.
+The installer converges the current `tp-voyager` plugin, personal marketplace, existing `tp_voyager` MCP registration, and the bounded TP-Voyager block in global `AGENTS.md`. It does not install a new standalone global Captain Skill on a clean machine.
 
-The personal marketplace entry uses `INSTALLED_BY_DEFAULT`. When a stable Codex CLI is available, the installer also runs the official `codex plugin add ... --json` path and verifies with `codex plugin list --json`. If the CLI is unavailable, it does not claim a verified install: `plugin_installation_pending=true` remains until the restarted Desktop host consumes the default-install marketplace entry. The plugin still never owns an MCP server.
+When a stable Codex CLI is available, the installer uses the official plugin add/list flow. If the installed `tp-voyager` source has changed, it removes and re-adds only the current plugin to refresh its cache. It never removes legacy entries automatically.
 
-When host-facing files changed, fully restart Codex Desktop and create a **new** task/conversation. `task_dispatch` is associated with the MCP Apps resource, so a compatible Codex host can show the Agent presence card as soon as the dispatch result contains the task ID. The card refreshes only through `render_voyager_panel(task_id=...)`; refresh never dispatches another Task.
+After host-facing files change, restart Codex Desktop when requested and open a **new conversation**. Existing conversations are not the acceptance environment for a newly loaded plugin Skill or MCP injection.
 
-If the host does not render MCP Apps UI, the render tool still returns structured Agent state, conversation, timeline, files, usage, and safe failure information. The panel is an in-conversation TP-Voyager UI; it does not register or impersonate entries in Codex's native subagent list.
+## Result-first observability
 
-## Global routing guidance
+The canonical Captain Skill owns the panel rules:
 
-The installer creates or updates only this bounded marker block inside global `$CODEX_HOME\AGENTS.md`:
+- `task_id` identifies a single Task; `presentation_group_id` identifies only an explicit concurrent presentation group.
+- `render_voyager_panel` is read-only and refreshes only exact task/group/task-list selectors.
+- `task_result` remains the canonical terminal result source.
+- Refresh never re-dispatches, resumes, cancels, changes model/Crew, widens scope, or changes permissions.
+- Prompt/system/secret/raw tool output/absolute host paths/hidden reasoning are excluded from presentation.
+- Machine outcome envelopes are parsed into user-readable result cards instead of being displayed verbatim.
+- Canonical final answers are independent of bounded Timeline event windows.
 
-```text
-<!-- >>> TP-Voyager managed guidance >>> -->
-...
-<!-- <<< TP-Voyager managed guidance <<< -->
-```
-
-User rules outside the markers are preserved. The guidance tells Codex to evaluate the mounted Captain MCP for relevant bounded work, not to dispatch automatically. It explicitly forbids automatic retries, silent Crew/model changes, scope widening, permission expansion, or approval bypass.
-
-A non-empty `$CODEX_HOME\AGENTS.override.md` may shadow normal global `AGENTS.md`; the installer reports that condition but never edits the user's override.
+A compatible Codex Host may aggregate concurrent dispatches into one visual tool block. The explicit presentation-group relationship lets a single TP-Voyager card render the exact group members without guessing from recent/global tasks or fuzzy correlation identifiers. Single-task `task_id` rendering remains compatible.
 
 ## Read-only status check
 
@@ -45,4 +47,35 @@ A non-empty `$CODEX_HOME\AGENTS.override.md` may shadow normal global `AGENTS.md
 python .\skills\tp-voyager-captain\install_codex_desktop.py --check
 ```
 
-The check is read-only across Skill, MCP config, plugin, personal marketplace, and managed global guidance. If Codex CLI is available it may call only `codex plugin list --json` to report host installation/enabled state; it never calls `plugin add`, never calls a Crew, and never dispatches a task.
+The check may use only `codex plugin list --json` when the CLI is available. It does not deploy files, call plugin add/remove, invoke Crew, or dispatch/resume/cancel work.
+
+## Legacy migration cleanup
+
+### 清理前验证
+
+During migration, preserve both old entry points until a real **new conversation** verifies the new `tp-voyager` plugin, `$tp-voyager:captain`, the seven existing Captain tools, task dispatch, read-only panel refresh, canonical `task_result`, and explicit concurrent-group rendering. The old plugin may therefore still be visible before cleanup; “only one plugin remains” is intentionally a post-cleanup criterion.
+
+After that validation, cleanup is explicit and user-controlled:
+
+```text
+Remove/uninstall tp-voyager-observability after validation.
+Remove/delete the legacy standalone tp-voyager-captain Skill after validation.
+```
+
+If they were CLI/plugin registrations, use the matching Codex plugin removal command for the machine's marketplace. If they are only leftover directories, confirm Codex no longer references them before deleting `$CODEX_HOME\plugins\tp-voyager-observability` and `$CODEX_HOME\skills\tp-voyager-captain`. The installer never silently deletes either legacy path.
+
+### 清理后最终验收
+
+Restart Codex Desktop and open another **new conversation**. Confirm the plugin page now contains only `TP-Voyager`, that it exports only `$tp-voyager:captain`, and that the existing `tp_voyager` MCP, single-task result flow, and explicit concurrent-group panel all still work.
+
+## Global routing guidance
+
+The installer owns only the bounded marker block in `$CODEX_HOME\AGENTS.md`:
+
+```text
+<!-- >>> TP-Voyager managed guidance >>> -->
+...
+<!-- <<< TP-Voyager managed guidance <<< -->
+```
+
+User rules outside the markers are preserved. A non-empty `$CODEX_HOME\AGENTS.override.md` may shadow normal global guidance; the installer reports that condition but never edits the user's override.

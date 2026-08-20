@@ -839,6 +839,7 @@ class CaptainDispatchRequest:
     scope_segment: ScopeSegmentSpec = field(default_factory=ScopeSegmentSpec)
     worker_profile_content: str = ""
     correlation_id: str = ""
+    presentation_group_id: str = ""
 
     def routing_metadata(self) -> dict[str, Any]:
         """Return bounded routing facts safe to persist with the durable Session."""
@@ -881,4 +882,6 @@ class CaptainDispatchRequest:
             data["scope_segment"] = self.scope_segment.to_dict()
         if self.correlation_id:
             data["correlation_id"] = self.correlation_id
+        if self.presentation_group_id:
+            data["presentation_group_id"] = self.presentation_group_id
         return data

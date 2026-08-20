@@ -1,6 +1,15 @@
 # Changelog
 
-### v1.0.9.1 — Unreleased
+### v1.0.9.2 — Unreleased
+
+- Make MCP Apps status truthful on open/resume: the card enters a presentation-only `syncing` state (中文“正在同步”) and immediately performs a read-only `render_voyager_panel` refresh before showing current task state, so a cached historical `running` snapshot is never presented as current truth.
+- Split result projection from the bounded activity window. Terminal panels now prefer the durable structured task result / canonical final answer, strip `TP_VOYAGER_CREW_OUTCOME_JSON` machine envelopes from user-visible prose, preserve Markdown whitespace/newlines, and keep Conversation and Timeline independently bounded so high-frequency tool events cannot evict the final answer.
+- Rebuild the panel as a Chinese, result-first view: status/model/duration plus conclusion, evidence, risks and next steps are first-screen content; full answer, execution activity, files and usage are independent foldouts; empty sections are hidden and process detail is collapsed by default.
+- Add explicit concurrent presentation groups without adding a second task model. `task_dispatch` accepts a bounded `presentation_group_id` stored in existing routing metadata, while `render_voyager_panel` can read either one exact `task_id`, one exact group id, or an explicit bounded `task_ids` list. Group selection never guesses from recent/global tasks or fuzzy correlation identifiers; child tasks remain fully independent.
+- Consolidate Codex packaging into the single skills-only `tp-voyager` plugin with one bundled `captain` Skill (surfaced by Codex as `$tp-voyager:captain`) while retaining the existing seven-tool `tp_voyager` MCP server. The old standalone Skill and old `tp-voyager-observability` plugin are preserved during migration and are removed only by explicit post-validation cleanup. Installer-managed plugin drift uses remove/add cache refresh when Codex CLI is available, and update acceptance requires a new Codex conversation.
+- Keep all existing authority boundaries unchanged: SQLite Task/Session/Result remains the durable truth, Captain still chooses Crew/model/effort and accepts results, panel refresh remains read-only, and no prompt/system/secret/raw tool output/absolute host path/hidden reasoning is added to observability.
+
+### v1.0.9.1 — Development baseline (2026-08-19)
 
 - Harden read-only workspace snapshots for aggregate Windows workspaces: `.git`, `.codebuddy`, `.qoder` and the existing mandatory forbidden directory set are pruned when they appear at **any** relative path component, so nested repositories/tool metadata are never descended into. Snapshot copy failures now expose a bounded `workspace_snapshot` phase plus relative-path context instead of leaking raw host exceptions into the Agent panel.
 - Converge Codex first-use setup behind the existing `install_codex_desktop.py`: Captain Skill/MCP registration, the skills-only observability plugin, personal marketplace entry, and TP-Voyager's global `AGENTS.md` managed block are installed/checked together. The personal plugin entry is `INSTALLED_BY_DEFAULT`; when a stable Codex CLI is available the installer also runs `codex plugin add` and verifies `plugin list` state, otherwise it reports installation as pending instead of claiming success. The plugin still contains no second MCP server declaration.
