@@ -12,7 +12,7 @@
 
 ## 当前基线
 
-**TP-Voyager v1.0.9.2 — 开发中**
+**TP-Voyager v1.0.9.3 — 开发中**
 
 v1.0.8 已完成 workspace read-only convergence 与 Windows 实机验收。v1.0.9.2 在 v1.0.9.1 host hardening 基线上一次性收敛 Observability 与 Codex 安装形态：完成态面板以 durable task result / canonical final answer 为结果真源，流式 Conversation 与 Timeline 独立限长；面板打开/恢复先进入“正在同步”并只读拉取最新状态；显式 `presentation_group_id` / `task_ids` 支持同一 Host 卡片展示并发子任务；Codex 入口收敛为唯一 `tp-voyager` 插件和 `$tp-voyager:captain` Skill。默认 Captain Surface 仍严格为七个工具，Runtime/Captain/Durable Core/Patch/Receipt/Verification/RunControl 边界不变。
 

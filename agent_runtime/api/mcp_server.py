@@ -118,6 +118,7 @@ from agent_runtime.application.voyage import (
     VoyageOverviewService,
 )
 from agent_runtime.domain.dispatch import (
+    WORKSPACE_STRATEGIES,
     ApplyReceipt,
     CaptainDispatchRequest,
     CommandSpec,
@@ -3338,20 +3339,6 @@ def task_dispatch(
     normalized_crew = str(crew or "").strip().lower()
     normalized_kind = str(task_kind or "").strip().lower()
     normalized_mode = str(access_mode or "read_only").strip().lower()
-    normalized_workspace_strategy = str(workspace_strategy or "isolated_patch").strip().lower()
-    if normalized_workspace_strategy not in {"model_only", "live_readonly", "frozen_context", "isolated_patch"}:
-        return reject("INVALID_WORKSPACE_STRATEGY", "workspace_strategy must be one of model_only/live_readonly/frozen_context/isolated_patch")
-
-    # Workspace policy is an explicit dispatch contract.  Do not prepare an
-    # isolation workspace for model checks or read-only inspection.  The
-    # strategy only controls workspace preparation; it never changes the
-    # durable task_result source of truth.
-    if normalized_workspace_strategy == "model_only":
-        cwd = ""
-        repository_snapshot_ref = None
-        repository_research = None
-    elif normalized_workspace_strategy == "live_readonly":
-        patch_policy = None
 
     def reject(reason_code: str, detail: str) -> dict[str, Any]:
         return {
@@ -3364,6 +3351,21 @@ def task_dispatch(
             "selection_performed": False,
             "dispatch_performed": False,
         }
+
+    normalized_workspace_strategy = str(workspace_strategy or "isolated_patch").strip().lower()
+    if normalized_workspace_strategy not in set(WORKSPACE_STRATEGIES):
+        return reject("INVALID_WORKSPACE_STRATEGY", "workspace_strategy must be one of model_only/live_readonly/frozen_context/isolated_patch")
+
+    # Workspace policy is an explicit dispatch contract.  Do not prepare an
+    # isolation workspace for model checks or read-only inspection.  The
+    # strategy only controls workspace preparation; it never changes the
+    # durable task_result source of truth.
+    if normalized_workspace_strategy == "model_only":
+        cwd = ""
+        repository_snapshot_ref = None
+        repository_research = None
+    elif normalized_workspace_strategy == "live_readonly":
+        patch_policy = None
 
     parsed_policy: PatchPolicy | None = None
     if patch_policy is not None:
@@ -3606,6 +3608,7 @@ def task_dispatch(
         scope_segment=parsed_scope_segment.to_dict(),
         correlation_id=external_correlation_id,
         presentation_group_id=external_presentation_group_id,
+        workspace_strategy=normalized_workspace_strategy,
     )
     canonical_key = str(idempotency_key or "").strip()
     if canonical_key and parsed_research is None:

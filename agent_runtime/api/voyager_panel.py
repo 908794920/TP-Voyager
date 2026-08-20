@@ -99,6 +99,17 @@ def render_voyager_panel_html() -> str:
   .row { border-left: 2px solid var(--line); padding: 3px 0 3px 8px; font-size: 11.5px; line-height: 1.45; overflow-wrap: anywhere; }
   .row .label { color: var(--muted); font-size: 10.5px; margin-bottom: 2px; }
   .answer.markdown { white-space: pre-wrap; overflow-wrap: anywhere; font-family: inherit; }
+  .answer.markdown pre, .answer.markdown code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .answer.markdown code { background: color-mix(in srgb, CanvasText 6%, var(--surface)); border-radius: 6px; padding: 1px 5px; }
+  .answer.markdown pre { background: color-mix(in srgb, CanvasText 6%, var(--surface)); border-radius: 8px; padding: 8px 10px; overflow-x: auto; margin: 6px 0; }
+  .answer.markdown pre code { padding: 0; background: transparent; }
+  .answer.markdown blockquote { margin: 6px 0; padding: 2px 0 2px 10px; border-left: 3px solid var(--line); color: var(--muted); }
+  .answer.markdown table { border-collapse: collapse; width: 100%; margin: 6px 0; }
+  .answer.markdown th, .answer.markdown td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; }
+  .answer.markdown th { background: color-mix(in srgb, CanvasText 5%, var(--surface)); }
+  .answer.markdown a { color: var(--starting); }
+  .answer.markdown ul { margin: 3px 0; padding-left: 20px; }
+  .answer.markdown em { font-style: italic; }
   .file { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
   .kv { display: grid; grid-template-columns: minmax(90px,auto) 1fr; gap: 4px 10px; font-size: 11.5px; }
   .kv > :nth-child(odd) { color: var(--muted); }
@@ -116,6 +127,31 @@ def render_voyager_panel_html() -> str:
   .child-details > summary { font-weight: 600; }
   .child-sections { padding-left: 4px; }
   .foot { display: flex; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 10px; padding: 0 12px 9px; }
+  .workbench { display: flex; gap: 10px; padding: 10px 12px 12px; align-items: stretch; }
+  .wb-nav { width: 250px; min-width: 210px; display: grid; gap: 6px; align-content: start; max-height: 340px; overflow-y: auto; padding-right: 2px; }
+  .wb-task { appearance: none; text-align: left; border: 1px solid var(--line); border-left-width: 3px; border-radius: 9px; padding: 8px 9px; display: grid; gap: 3px; cursor: pointer; background: var(--surface); color: CanvasText; }
+  .wb-task:hover { background: color-mix(in srgb, CanvasText 5%, var(--surface)); }
+  .wb-task.active { background: color-mix(in srgb, CanvasText 7%, var(--surface)); box-shadow: inset 0 0 0 1px color-mix(in srgb, CanvasText 18%, transparent); }
+  .wb-task[data-state="running"], .wb-task[data-state="observing"], .wb-task[data-state="connecting"], .wb-task[data-state="queued"] { border-left-color: var(--active); }
+  .wb-task[data-state="completed"] { border-left-color: var(--ok); }
+  .wb-task[data-state="failed"], .wb-task[data-state="lost"], .wb-task[data-state="orphaned"] { border-left-color: var(--bad); }
+  .wb-task-head { display: flex; gap: 6px; align-items: center; }
+  .wb-task-state { font-weight: 650; }
+  .wb-task-meta { display: flex; gap: 4px 8px; color: var(--muted); font-size: 10.5px; flex-wrap: wrap; }
+  .wb-task-id { color: var(--muted); font-size: 10px; overflow-wrap: anywhere; }
+  .wb-task-duration { color: var(--muted); font-size: 10px; }
+  .wb-task-failure { color: var(--bad); font-size: 10.5px; overflow-wrap: anywhere; }
+  .wb-main { flex: 1; min-width: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 8px; }
+  .wb-tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+  .wb-tab { appearance: none; border-radius: 999px; padding: 4px 10px; font-size: 11px; }
+  .wb-tab.active { background: color-mix(in srgb, CanvasText 10%, var(--surface)); border-color: color-mix(in srgb, CanvasText 30%, transparent); }
+  .wb-body { border: 1px solid var(--line); border-radius: 9px; padding: 10px; min-height: 140px; max-height: 340px; overflow-y: auto; display: grid; gap: 8px; align-content: start; }
+  .wb-summary-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; }
+  @media (max-width: 520px) {
+    .workbench { flex-direction: column; }
+    .wb-nav { width: auto; min-width: 0; max-height: 150px; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }
+    .wb-main { grid-template-rows: auto minmax(0, 1fr); }
+  }
 </style>
 </head>
 <body>
@@ -145,6 +181,7 @@ def render_voyager_panel_html() -> str:
   let nextRequestId = 1;
   let latestToolInput = null;
   let latestData = null;
+  let latestGroupItems = [];
   let refreshTimer = null;
   // v1.0.9.3: iframe-memory presentation state only. Never persisted.
   const PanelUIStateStore = new Map();
@@ -315,17 +352,59 @@ def render_voyager_panel_html() -> str:
       .replaceAll("'", "&#39;");
   }
 
-  // Safe minimal markdown renderer. It only emits known tags and escapes input.
+  // Only http:, https: and mailto: survive as link destinations.  Everything
+  // else is rendered as plain label text, so active URLs are dropped.
+  function safeLinkHref(href) {
+    const raw = String(href || "").trim();
+    if (/^(https?:|mailto:)/i.test(raw)) return raw;
+    return "";
+  }
+
+  // Safe minimal markdown renderer. It only emits known tags and escapes all
+  // input first, so injected active markup can never survive as executable.
   function renderSafeMarkdown(value) {
     let text = escapeHtml(value);
+    // Fenced code blocks are rendered verbatim before other inline rules.
     text = text.replace(/```([\s\S]*?)```/g, (_, code) => `<pre><code>${code.trim()}</code></pre>`);
+    // Headings.
     text = text.replace(/^### (.*)$/gm, "<h3>$1</h3>");
     text = text.replace(/^## (.*)$/gm, "<h2>$1</h2>");
     text = text.replace(/^# (.*)$/gm, "<h1>$1</h1>");
+    // Blockquote: ">" was already escaped by escapeHtml to "&gt;".
+    text = text.replace(/^&gt; (.*)$/gm, "<blockquote>$1</blockquote>");
+    // Tables: consecutive "| a | b |" lines become one <table>.
+    text = text.replace(/((?:^\|.*\|[ \t]*$[\r\n]*)+)/gm, (block) => {
+      const lines = block.trim().split(/\r?\n/).filter((line) => line.trim() !== "");
+      const isSeparator = (line) => /^\|[\s:|-]+\|$/.test(line.trim());
+      const cellize = (line) => line.trim().replace(/^\||\|$/g, "").split("|").map((cell) => cell.trim());
+      const buildRow = (cells) => `<tr>${cells.map((cell) => `<td>${cell}</td>`).join("")}</tr>`;
+      const header = lines[0];
+      const body = lines.slice(1).filter((line) => !isSeparator(line));
+      let out = `<table><thead>${buildRow(cellize(header))}</thead>`;
+      if (body.length) out += `<tbody>${body.map((line) => buildRow(cellize(line))).join("")}</tbody>`;
+      return out + "</table>";
+    });
+    // Inline: bold before italic so "*" is not consumed twice; then safe links
+    // and inline code.
     text = text.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
-    text = text.replace(/^- (.*)$/gm, "<li>$1</li>");
+    text = text.replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
+    text = text.replace(/(^|[^_])_([^_\n]+)_/g, "$1<em>$2</em>");
+    text = text.replace(/\[([^\]]+)\]\(([^)]*)\)/g, (_, label, href) => {
+      const safe = safeLinkHref(href);
+      return safe ? `<a href="${safe}" rel="noopener noreferrer">${label}</a>` : label;
+    });
+    text = text.replace(/`([^`\n]+)`/g, "<code>$1</code>");
+    // Unordered lists.
+    text = text.replace(/^[-*] (.*)$/gm, "<li>$1</li>");
     text = text.replace(/(<li>[\s\S]*?<\/li>)/g, "<ul>$1</ul>");
     return text.replace(/\n/g, "<br>");
+  }
+
+  // Render markdown to nodes without ever assigning innerHTML: DOMParser does
+  // not execute scripts, and renderSafeMarkdown already dropped dangerous tags.
+  function markdownNodes(markdown) {
+    const parsed = new DOMParser().parseFromString(renderSafeMarkdown(markdown), "text/html");
+    return Array.from(parsed.body.childNodes);
   }
 
   function answerRows(data) {
@@ -335,7 +414,7 @@ def render_voyager_panel_html() -> str:
     if (full) {
       const row = node("div", null, "row");
       const content = document.createElement("div");
-      content.replaceChildren(document.createTextNode(full));
+      content.append(...markdownNodes(full));
       content.className = "answer markdown";
       row.appendChild(content);
       rows.push(row);
@@ -345,7 +424,7 @@ def render_voyager_panel_html() -> str:
       if (!item?.content) continue;
       const row = node("div", null, "row");
       const content = document.createElement("div");
-      content.replaceChildren(document.createTextNode(String(item.content || "")));
+      content.append(...markdownNodes(String(item.content || "")));
       content.className = "answer markdown";
       row.appendChild(content);
       rows.push(row);
@@ -431,16 +510,46 @@ def render_voyager_panel_html() -> str:
     return `${group || "single"}/${task || "none"}/panel`;
   }
 
+  function collectExpandedDetails() {
+    const expanded = [];
+    for (const detail of detailsEl.querySelectorAll("details")) {
+      if (detail.open) expanded.push(String(detail.querySelector("summary")?.textContent || "").trim());
+    }
+    return expanded;
+  }
+
   function savePanelUIState() {
     const key = panelStateKey();
     PanelUIStateStore.set(key, {
+      activeTab: panel.dataset.activeTab || "",
+      selectedTaskId: panel.dataset.selectedTaskId || "",
+      section: panel.dataset.section || "",
       scrollTop: document.documentElement.scrollTop || document.body.scrollTop || 0,
+      expandedDetails: collectExpandedDetails(),
+      timestamp: Date.now(),
     });
+  }
+
+  // v1.0.9.3: persist the current presentation state (tab/details/scroll)
+  // right before a refresh or teardown. State lives only in iframe memory.
+  function beforeRefresh() {
+    savePanelUIState();
   }
 
   function restorePanelUIState() {
     const state = PanelUIStateStore.get(panelStateKey());
-    if (state?.scrollTop !== undefined) window.scrollTo(0, state.scrollTop);
+    if (!state) return;
+    if (state.scrollTop !== undefined) window.scrollTo(0, state.scrollTop);
+    if (state.activeTab) panel.dataset.activeTab = state.activeTab;
+    if (state.selectedTaskId) panel.dataset.selectedTaskId = state.selectedTaskId;
+    if (state.section) panel.dataset.section = state.section;
+    if (Array.isArray(state.expandedDetails) && state.expandedDetails.length) {
+      const wanted = new Set(state.expandedDetails);
+      for (const detail of detailsEl.querySelectorAll("details")) {
+        const label = String(detail.querySelector("summary")?.textContent || "").trim();
+        if (wanted.has(label)) detail.open = true;
+      }
+    }
   }
 
   function currentSelector() {
@@ -474,17 +583,6 @@ def render_voyager_panel_html() -> str:
     scheduleRefresh(state);
   }
 
-  function appendChildSection(parent, title, rows) {
-    if (!rows.length) return;
-    const wrapper = document.createElement("details");
-    wrapper.open = false;
-    wrapper.appendChild(node("summary", `${title} (${rows.length})`));
-    const list = node("div", null, "list");
-    for (const row of rows) list.appendChild(row);
-    wrapper.appendChild(list);
-    parent.appendChild(wrapper);
-  }
-
   function groupState(items) {
     const states = items.map((item) => item?.task?.state).filter(Boolean);
     if (states.some((value) => value === "running" || value === "observing" || value === "connecting" || value === "queued")) return "running";
@@ -511,58 +609,148 @@ def render_voyager_panel_html() -> str:
     }
   }
 
-  function childConclusion(item) {
-    const card = item?.result_card && typeof item.result_card === "object" ? item.result_card : null;
-    if (card?.conclusion) return card.conclusion;
-    const activity = latestActivity(item);
-    if (activity) return activity;
-    const state = item?.task?.state || "";
-    if (state === "completed") return "任务已完成。";
-    if (item?.task?.active) return "任务正在执行。";
-    return "暂无可展示的安全摘要。";
+  // v1.0.9.3: concurrent workbench — left task navigation + right detail workspace.
+  const GROUP_TABS = ["摘要", "完整回答", "执行活动", "文件变更", "用量"];
+
+  function defaultTabForState(state) {
+    const value = String(state || "");
+    if (value === "running" || value === "observing" || value === "connecting" || value === "queued") return "执行活动";
+    return "摘要";
   }
 
-  function childCard(item) {
+  function appendSummaryText(body, title, value) {
+    if (value === null || value === undefined || value === "") return;
+    const part = node("div", null, "result-part");
+    part.appendChild(node("div", title, "result-title"));
+    part.appendChild(node("div", value, "result-text"));
+    body.appendChild(part);
+  }
+
+  function appendSummaryList(body, title, value) {
+    if (!Array.isArray(value) || !value.length) return;
+    const part = node("div", null, "result-part");
+    part.appendChild(node("div", title, "result-title"));
+    const list = node("ul", null, "result-list");
+    for (const item of value) list.appendChild(node("li", item));
+    part.appendChild(list);
+    body.appendChild(part);
+  }
+
+  function renderTabBody(item, tab) {
+    const body = node("div", null, "wb-body");
     const task = item?.task || {};
     const state = task.state || (item?.ok === false ? "failed" : "queued");
-    const card = node("article", null, "child-card");
-    card.dataset.state = state;
-    const title = node("div", null, "child-title");
-    title.appendChild(node("span", stateLabel(state)));
-    if (task.crew) title.appendChild(node("span", task.crew));
-    if (task.model) title.appendChild(node("span", task.model));
-    card.appendChild(title);
-
-    const meta = node("div", null, "child-meta");
-    if (task.task_id) meta.appendChild(node("span", `任务 ${task.task_id}`));
-    const duration = formatDuration(task.duration_seconds);
-    if (duration) meta.appendChild(node("span", `耗时 ${duration}`));
-    card.appendChild(meta);
-    card.appendChild(node("div", childConclusion(item), "child-summary"));
-
-    const answer = answerRows(item);
-    const activity = timelineRows(item?.timeline);
-    const files = fileRows(item?.files);
-    const usage = usageRows(item?.usage);
-    if (answer.length || activity.length || files.length || usage.length) {
-      const detail = document.createElement("details");
-      detail.className = "child-details";
-      detail.open = false;
-      detail.appendChild(node("summary", "查看子任务详情"));
-      const sections = node("div", null, "child-sections");
-      appendChildSection(sections, "完整回答", answer);
-      appendChildSection(sections, "执行活动", activity);
-      appendChildSection(sections, "文件变更", files);
-      appendChildSection(sections, "用量", usage);
-      detail.appendChild(sections);
-      card.appendChild(detail);
+    if (tab === "摘要") {
+      if (item?.error?.message) {
+        appendSummaryText(body, "结论", "任务执行失败。");
+        const details = [];
+        if (item?.error?.stage) details.push(`阶段：${phaseLabel(item.error.stage)}`);
+        details.push(`原因：${item.error.message}`);
+        appendSummaryList(body, "风险", details);
+      } else {
+        const card = item?.result_card && typeof item.result_card === "object" ? item.result_card : null;
+        const conclusion = card?.conclusion
+          || (task.active ? "任务正在执行。"
+            : (state === "completed" ? "任务已完成。" : "暂无可展示的结构化结果。"));
+        appendSummaryText(body, "结论", conclusion);
+        appendSummaryList(body, "关键依据", card?.key_evidence);
+        appendSummaryList(body, "风险", card?.risks);
+        appendSummaryList(body, "下一步", card?.next_steps);
+        if (!card && task.active) {
+          const activity = latestActivity(item);
+          if (activity) appendSummaryText(body, "当前安全活动", activity);
+        }
+      }
+      return body;
     }
-    return card;
+    let rows = [];
+    if (tab === "完整回答") rows = answerRows(item);
+    else if (tab === "执行活动") rows = timelineRows(item?.timeline);
+    else if (tab === "文件变更") rows = fileRows(item?.files);
+    else if (tab === "用量") rows = usageRows(item?.usage);
+    for (const row of rows) body.appendChild(row);
+    if (!rows.length) body.appendChild(node("div", "暂无内容。", "empty"));
+    return body;
+  }
+
+  function renderTaskNav(items, activeId) {
+    const nav = node("nav", null, "wb-nav");
+    for (const item of items) {
+      const task = item?.task || {};
+      const state = task.state || (item?.ok === false ? "failed" : "queued");
+      const taskId = String(task.task_id || "");
+      const entry = node("button", null, "wb-task");
+      entry.type = "button";
+      entry.dataset.state = state;
+      if (taskId === activeId) entry.classList.add("active");
+      const head = node("div", null, "wb-task-head");
+      const dot = node("span", null, "status-dot");
+      dot.setAttribute("aria-hidden", "true");
+      head.appendChild(dot);
+      head.appendChild(node("span", stateLabel(state), "wb-task-state"));
+      entry.appendChild(head);
+      const meta = node("div", null, "wb-task-meta");
+      if (task.crew) meta.appendChild(node("span", task.crew));
+      if (task.model) meta.appendChild(node("span", task.model));
+      entry.appendChild(meta);
+      if (taskId) entry.appendChild(node("div", `任务 ${taskId}`, "wb-task-id"));
+      const duration = formatDuration(task.duration_seconds);
+      if (duration) entry.appendChild(node("div", `耗时 ${duration}`, "wb-task-duration"));
+      const failure = String(item?.error?.message || task.error_message || "").trim();
+      if (failure) entry.appendChild(node("div", failure, "wb-task-failure"));
+      entry.addEventListener("click", () => {
+        panel.dataset.selectedTaskId = taskId;
+        if (!GROUP_TABS.includes(panel.dataset.activeTab)) {
+          panel.dataset.activeTab = defaultTabForState(state);
+        }
+        renderGroupBody();
+      });
+      nav.appendChild(entry);
+    }
+    return nav;
+  }
+
+  function renderTaskDetail(item, activeTab) {
+    const main = node("div", null, "wb-main");
+    const tabbar = node("div", null, "wb-tabs");
+    for (const label of GROUP_TABS) {
+      const tab = node("button", null, "wb-tab");
+      tab.type = "button";
+      tab.dataset.tab = label;
+      if (label === activeTab) tab.classList.add("active");
+      tab.appendChild(node("span", label));
+      tab.addEventListener("click", () => {
+        panel.dataset.activeTab = label;
+        renderGroupBody();
+      });
+      tabbar.appendChild(tab);
+    }
+    main.appendChild(tabbar);
+    main.appendChild(renderTabBody(item, activeTab));
+    return main;
+  }
+
+  function renderGroupBody() {
+    const items = latestGroupItems;
+    const selectedTaskId = String(panel.dataset.selectedTaskId || "");
+    let active = items.find((item) => String(item?.task?.task_id || "") === selectedTaskId);
+    if (!active) active = items[0];
+    const activeId = String(active?.task?.task_id || "");
+    panel.dataset.selectedTaskId = activeId;
+    let activeTab = panel.dataset.activeTab;
+    if (!GROUP_TABS.includes(activeTab)) activeTab = defaultTabForState(active?.task?.state);
+    panel.dataset.activeTab = activeTab;
+    detailsEl.replaceChildren();
+    const workbench = node("div", null, "workbench");
+    workbench.appendChild(renderTaskNav(items, activeId));
+    workbench.appendChild(renderTaskDetail(active, activeTab));
+    detailsEl.appendChild(workbench);
   }
 
   function renderGroup(data) {
     latestData = data && typeof data === "object" ? data : {};
-    const items = Array.isArray(latestData.tasks) ? latestData.tasks : [];
+    latestGroupItems = Array.isArray(latestData.tasks) ? latestData.tasks : [];
+    const items = latestGroupItems;
     const state = latestData.ok === false ? "failed" : groupState(items);
     panel.dataset.state = state;
     stateEl.textContent = stateLabel(state);
@@ -571,23 +759,20 @@ def render_voyager_panel_html() -> str:
 
     summaryEl.replaceChildren();
     summaryEl.className = "summary";
-    resultPart("结论", items.length ? `并发任务组包含 ${items.length} 个明确子任务；可分别查看结果与过程。` : "未找到该并发组中的任务。");
+    resultPart("结论", items.length ? `并发任务组包含 ${items.length} 个明确子任务；从左侧选择任务查看详情。` : "未找到该并发组中的任务。");
     const completed = items.filter((item) => item?.task?.state === "completed").length;
     const active = items.filter((item) => item?.task?.active).length;
     const failed = items.filter((item) => ["failed", "lost", "orphaned"].includes(item?.task?.state)).length;
     resultPart("关键依据", [`已完成 ${completed} 个`, `执行中 ${active} 个`, `异常 ${failed} 个`]);
 
-    detailsEl.replaceChildren();
-    const group = node("div", null, "child-group");
-    for (const item of items) group.appendChild(childCard(item));
-    if (items.length) detailsEl.appendChild(group);
+    renderGroupBody();
     const updated = items.map((item) => Number(item?.task?.updated_at || 0)).filter(Boolean);
     stampEl.textContent = updated.length ? `更新于 ${formatTime(Math.max(...updated))}` : "";
     scheduleRefresh(state);
   }
 
   function renderData(data) {
-    savePanelUIState();
+    beforeRefresh();
     if (data?.mode === "group") renderGroup(data);
     else renderSingle(data);
     restorePanelUIState();
@@ -689,9 +874,11 @@ def render_voyager_panel_html() -> str:
 
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") syncOnResume();
+    else savePanelUIState();
   }, { passive: true });
   window.addEventListener("pageshow", syncOnResume, { passive: true });
   window.addEventListener("focus", syncOnResume, { passive: true });
+  window.addEventListener("pagehide", savePanelUIState, { passive: true });
 
   window.addEventListener("message", (event) => {
     if (event.source !== window.parent) return;
@@ -714,7 +901,7 @@ def render_voyager_panel_html() -> str:
   }, { passive: true });
 
   const bridgeReady = request("ui/initialize", {
-    appInfo: { name: "tp-voyager-agent-panel", version: "1.0.9.2" },
+    appInfo: { name: "tp-voyager-agent-panel", version: "1.0.9.3" },
     appCapabilities: {},
     protocolVersion: "2026-01-26",
   }).then(() => {

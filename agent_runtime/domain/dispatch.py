@@ -13,6 +13,7 @@ import fnmatch
 import re
 from typing import Any
 
+from agent_runtime.domain.enums import WorkspaceStrategy
 from agent_runtime.domain.run_control import RunControlSpec
 
 
@@ -34,12 +35,10 @@ _MANDATORY_FORBIDDEN = (
 # Credential / secret file names matched against the leaf component (glob).
 # These cannot be expressed as component prefixes because they may appear at
 # any depth (e.g. ``config/.env``, ``certs/server.pem``).
-WORKSPACE_STRATEGIES = (
-    "model_only",
-    "live_readonly",
-    "frozen_context",
-    "isolated_patch",
-)
+# Canonical workspace-strategy values.  ``WorkspaceStrategy`` in ``enums.py``
+# is the single source of truth; this tuple keeps the legacy string-compatible
+# surface for callers that compare or persist plain strings.
+WORKSPACE_STRATEGIES = tuple(item.value for item in WorkspaceStrategy)
 
 
 _MANDATORY_SENSITIVE_FILES = (

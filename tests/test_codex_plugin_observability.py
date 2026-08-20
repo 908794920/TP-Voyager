@@ -23,7 +23,7 @@ RUNTIME_MANIFEST = CAPTAIN / "tp-voyager.manifest.json"
 class CodexPluginConsolidationTests(unittest.TestCase):
     def test_captain_manifest_keeps_exactly_seven_existing_tools(self) -> None:
         manifest = json.loads(RUNTIME_MANIFEST.read_text(encoding="utf-8"))
-        self.assertEqual(manifest["skill"]["version"], "1.0.9.2")
+        self.assertEqual(manifest["skill"]["version"], "1.0.9.3")
         tools = manifest["mcp"]["required_captain_tools"]
         self.assertEqual(len(tools), 7)
         self.assertIn("task_dispatch", tools)
@@ -33,7 +33,7 @@ class CodexPluginConsolidationTests(unittest.TestCase):
     def test_new_plugin_is_skills_only_and_exports_exactly_one_namespaced_captain_skill(self) -> None:
         manifest = json.loads(PLUGIN_MANIFEST.read_text(encoding="utf-8"))
         self.assertEqual(manifest["name"], "tp-voyager")
-        self.assertEqual(manifest["version"], "1.0.9.2")
+        self.assertEqual(manifest["version"], "1.0.9.3")
         self.assertEqual(manifest["skills"], "./skills/")
         self.assertEqual(manifest["interface"]["displayName"], "TP-Voyager")
         self.assertNotIn("mcpServers", manifest)

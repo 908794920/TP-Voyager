@@ -27,7 +27,7 @@ class VoyagerPanelHtmlTests(unittest.TestCase):
         self.assertIn('ui/notifications/initialized', html)
         self.assertIn('2026-01-26', html)
         self.assertIn('ui/notifications/tool-input', html)
-        self.assertIn('version: "1.0.9.2"', html)
+        self.assertIn('version: "1.0.9.3"', html)
         self.assertIn('setTimeout(refresh', html)
         self.assertNotIn('setTimeout(refresh, 80)', html)
         self.assertNotIn("task_dispatch", html)
@@ -114,6 +114,16 @@ class VoyagerPanelHtmlTests(unittest.TestCase):
         html = render_voyager_panel_html()
         self.assertIn("textContent", html)
         self.assertNotIn("innerHTML =", html)
+
+    def test_group_view_uses_concurrent_workbench_layout(self) -> None:
+        html = render_voyager_panel_html()
+        self.assertIn("function renderGroupBody(", html)
+        self.assertIn('node("div", null, "workbench")', html)
+        self.assertIn('node("nav", null, "wb-nav")', html)
+        self.assertIn('node("div", null, "wb-main")', html)
+        self.assertIn('node("div", null, "wb-tabs")', html)
+        self.assertIn('node("div", null, "wb-body")', html)
+        self.assertIn("renderGroupBody();", html)
 
 
 class VoyagerPanelMcpContractTests(unittest.TestCase):

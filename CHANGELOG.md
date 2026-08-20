@@ -1,10 +1,12 @@
 # Changelog
 
-### v1.0.9.3 — Unreleased
+### v1.0.9.3 — 2026-08-20
 
-- Add an explicit `workspace_strategy` dispatch contract (`model_only` / `live_readonly` / `frozen_context` / `isolated_patch`, default `isolated_patch`). The strategy only controls workspace preparation and never changes the durable `task_result` source of truth: `model_only` skips workspace/snapshot/context preparation for model checks, `live_readonly` omits the patch policy. Invalid values fail closed (`INVALID_WORKSPACE_STRATEGY` at the MCP boundary, `ValueError` in `CaptainDispatchRequest`).
-- Harden the MCP Apps Agent panel against injected HTML: assistant/conversation text is rendered through `createTextNode` and a safe minimal Markdown renderer that escapes all input and emits only known tags; the previous direct inner-HTML sink is removed.
-- Keep panel UI state (scroll position) per presentation group/task in iframe memory only; the state is never persisted and disappears with the Runtime process.
+- Add an explicit `workspace_strategy` dispatch contract (`model_only` / `live_readonly` / `frozen_context` / `isolated_patch`, default `isolated_patch`). The strategy only controls workspace preparation and never changes the durable `task_result` source of truth: `model_only` skips workspace/snapshot/context preparation for model checks, `live_readonly` omits the patch policy. Invalid values fail closed (`INVALID_WORKSPACE_STRATEGY` at the MCP boundary, `ValueError` in `CaptainDispatchRequest`). The four strategies are now a `str`-backed `WorkspaceStrategy` enum (`agent_runtime/domain/enums.py`) that remains the single source of truth for the dispatch domain and the MCP boundary, and the idempotency contract now includes `workspace_strategy` so a repeated `idempotency_key` with a different strategy fails closed instead of silently replaying.
+- Harden the MCP Apps Agent panel against injected HTML: assistant/conversation text is rendered through `createTextNode` plus a safe minimal Markdown renderer that escapes all input first and emits only known tags (headings, bold, italic, lists, fenced code, blockquote, tables, and `http:`/`https:`/`mailto:`-only links). The previous direct inner-HTML sink is removed; answer rows are built from `DOMParser` nodes so injected markup never executes.
+- Keep panel UI state per presentation group/task in iframe memory only; the state is never persisted and disappears with the Runtime process. The state store now also preserves the active tab, selected group task, section and expanded details, and is saved on refresh and on `pagehide`/`visibilitychange` and restored after render and on `pageshow`/`focus`, so Task A and Task B (and Group A and Group B) stay independent.
+- Rebuild the concurrent group view as a left task-navigation + right detail workspace: each task shows status, Crew, Model, task_id, duration and failure reason; the right side offers five tabs (摘要/完整回答/执行活动/文件变更/用量) with a status-driven default tab (running → 执行活动, completed/failed → 摘要). On narrow containers the navigation collapses to a horizontal strip.
+- Fix the fail-closed return path for invalid `workspace_strategy` at the MCP boundary (the `reject` helper was previously referenced before definition, which surfaced an `UnboundLocalError` instead of the `INVALID_WORKSPACE_STRATEGY` error code).
 
 ### v1.0.9.2 — Unreleased
 

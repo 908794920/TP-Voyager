@@ -106,6 +106,20 @@ class BackendKind(str, Enum):
     CODEBUDDY = "codebuddy"
 
 
+class WorkspaceStrategy(str, Enum):
+    """Explicit workspace-preparation contract for a dispatched task.
+
+    The strategy only controls how the Runtime prepares (or omits) a working
+    area for a task; it never changes the durable ``task_result`` source of
+    truth.  Values are persisted as-is so historical rows remain readable.
+    """
+
+    MODEL_ONLY = "model_only"
+    LIVE_READONLY = "live_readonly"
+    FROZEN_CONTEXT = "frozen_context"
+    ISOLATED_PATCH = "isolated_patch"
+
+
 class EvidenceType(str, Enum):
     """PR4 evidence kinds (stored as-is; validated by the DB CHECK too).
 
