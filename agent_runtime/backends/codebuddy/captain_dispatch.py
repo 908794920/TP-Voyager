@@ -18,7 +18,12 @@ from agent_runtime.application.dispatch.workspace import (
 from agent_runtime.application.task_launch_service import TaskLaunchRequest, TaskLaunchService
 from agent_runtime.backends.codebuddy.process import resolve_codebuddy_cli
 from agent_runtime.backends.codebuddy.sdk_client import load_codebuddy_sdk
-from agent_runtime.domain.dispatch import CaptainDispatchRequest, PatchPolicy, VerificationPolicy
+from agent_runtime.domain.dispatch import (
+    _MANDATORY_FORBIDDEN,
+    CaptainDispatchRequest,
+    PatchPolicy,
+    VerificationPolicy,
+)
 
 
 _MAX_CONTEXT_BYTES = 256 * 1024
@@ -76,17 +81,30 @@ class CodeBuddyContextReadOnlyDispatcher:
 
         context_id = str(request.context_id or "").strip()
         rendered: dict[str, Any] | None = None
+        scoped_workspace_fallback = False
         try:
             self._preflight()
             if context_id:
                 verified = self._contexts.verify(context_id, request.cwd)
                 if not bool(verified.get("valid")):
                     return self._reject("CONTEXT_DRIFT", "Context Manifest no longer matches the workspace")
-                rendered = self._contexts.render(
-                    context_id,
-                    request.cwd,
-                    max_total_bytes=self._max_context_bytes,
-                )
+                try:
+                    rendered = self._contexts.render(
+                        context_id,
+                        request.cwd,
+                        max_total_bytes=self._max_context_bytes,
+                    )
+                except ContextError as exc:
+                    # A read_scope is already expanded and hash-verified by
+                    # the Runtime.  Keep that exact file set, but avoid
+                    # forcing large scopes into CodeBuddy's single-prompt
+                    # frozen-context transport.
+                    if (
+                        str(exc) != "context exceeds explicit render byte limit"
+                        or not request.resolved_read_files
+                    ):
+                        raise
+                    scoped_workspace_fallback = True
         except ContextDriftError:
             return self._reject("CONTEXT_DRIFT", "Context Manifest no longer matches the workspace")
         except ContextError as exc:
@@ -96,7 +114,11 @@ class CodeBuddyContextReadOnlyDispatcher:
 
         if rendered is None:
             prompt = self._build_workspace_read_only_prompt(request.objective)
-            context_delivery = "vendor_workspace"
+            context_delivery = (
+                "vendor_workspace_scoped"
+                if scoped_workspace_fallback
+                else "vendor_workspace"
+            )
         else:
             prompt = self._build_read_only_prompt(request.objective, rendered)
             context_delivery = "runtime_snapshot"
@@ -117,6 +139,14 @@ class CodeBuddyContextReadOnlyDispatcher:
                 idle_timeout_seconds=idle,
                 max_task_duration_seconds=timeout,
                 context_id=context_id,
+                allowed_paths=(
+                    list(request.resolved_read_files)
+                    if scoped_workspace_fallback else None
+                ),
+                forbidden_paths=(
+                    list(_MANDATORY_FORBIDDEN)
+                    if scoped_workspace_fallback else None
+                ),
                 execution_mode="background",
                 agent_profile=(request.worker_profile_ref.profile_id if request.worker_profile_ref else ""),
                 routing_metadata=routing_metadata,

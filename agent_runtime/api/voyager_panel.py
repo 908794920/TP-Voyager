@@ -501,13 +501,31 @@ def render_voyager_panel_html() -> str:
     const groupId = String(input?.presentation_group_id || "").trim();
     if (groupId) return { presentation_group_id: groupId };
     const taskId = String(input?.task_id || "").trim();
-    return taskId ? { task_id: taskId } : null;
+    return taskId ? { task_ids: [taskId] } : null;
   }
 
   function panelStateKey(data = latestData) {
     const group = String(data?.presentation_group_id || "").trim();
-    const task = String(pickTask(data)?.task_id || "").trim();
+    const task = String(
+      pickTask(data)?.task_id
+        || (data?.mode === "group" && Array.isArray(data?.task_ids) ? data.task_ids[0] : "")
+        || ""
+    ).trim();
     return `${group || "single"}/${task || "none"}/panel`;
+  }
+
+  function normalizePanelGroup(data) {
+    if (!data || typeof data !== "object" || data.mode === "group") return data || {};
+    const task = data.task && typeof data.task === "object" ? data.task : null;
+    const taskId = String(task?.task_id || "").trim();
+    if (!taskId) return data;
+    return {
+      ...data,
+      mode: "group",
+      presentation_group_id: String(data.presentation_group_id || "").trim(),
+      task_ids: [String(task.task_id)],
+      tasks: [data],
+    };
   }
 
   function collectExpandedDetails() {
@@ -560,7 +578,7 @@ def render_voyager_panel_html() -> str:
       if (taskIds.length) return { task_ids: taskIds };
     }
     const currentTask = pickTask(latestData);
-    if (currentTask?.task_id) return { task_id: String(currentTask.task_id) };
+    if (currentTask?.task_id) return { task_ids: [String(currentTask.task_id)] };
     return selectorFromInput(latestToolInput);
   }
 
@@ -773,8 +791,9 @@ def render_voyager_panel_html() -> str:
 
   function renderData(data) {
     beforeRefresh();
-    if (data?.mode === "group") renderGroup(data);
-    else renderSingle(data);
+    const normalized = normalizePanelGroup(data);
+    if (normalized?.mode === "group") renderGroup(normalized);
+    else renderSingle(normalized);
     restorePanelUIState();
   }
 
@@ -784,20 +803,14 @@ def render_voyager_panel_html() -> str:
     panel.dataset.state = "syncing";
     stateEl.textContent = stateLabel("syncing");
     const groupId = String(selector.presentation_group_id || "").trim();
-    const taskIds = Array.isArray(selector.task_ids) ? selector.task_ids : [];
-    if (groupId || taskIds.length) {
-      document.querySelector(".title").textContent = "TP-Voyager 并发任务组";
-      renderGroupIdentity({ presentation_group_id: groupId, task_ids: taskIds }, "syncing");
-    } else {
-      document.querySelector(".title").textContent = "TP-Voyager 任务";
-      const taskId = selector.task_id || hintTask?.task_id || "";
-      renderIdentity({ ...(hintTask || {}), task_id: taskId }, "syncing");
-    }
-    summaryEl.replaceChildren();
-    summaryEl.className = "summary empty";
-    summaryEl.appendChild(node("div", "正在同步最新任务状态…"));
-    detailsEl.replaceChildren();
-    stampEl.textContent = "";
+    const taskId = selector.task_id || hintTask?.task_id || "";
+    const taskIds = Array.isArray(selector.task_ids) && selector.task_ids.length
+      ? selector.task_ids
+      : (taskId ? [String(taskId)] : []);
+    document.querySelector(".title").textContent = "TP-Voyager 并发任务组";
+    renderGroupIdentity({ presentation_group_id: groupId, task_ids: taskIds }, "syncing");
+    // Keep the last verified group content visible while the read-only
+    // projection refreshes. Clearing details here causes the visible flash.
   }
 
   function scheduleRefresh(state) {
@@ -839,10 +852,12 @@ def render_voyager_panel_html() -> str:
   function handleToolResult(snapshot) {
     if (snapshot?.task_id && !snapshot?.task) {
       const groupId = String(snapshot.presentation_group_id || "").trim();
-      const selector = groupId ? { presentation_group_id: groupId } : { task_id: String(snapshot.task_id) };
+      const selector = groupId
+        ? { presentation_group_id: groupId }
+        : { task_ids: [String(snapshot.task_id)] };
       latestToolInput = selector;
       if (snapshot.ok === false) {
-        renderSingle({
+        renderData({
           ok: false,
           schema: "tp-voyager.agent_panel/v1",
           mode: "dispatch",

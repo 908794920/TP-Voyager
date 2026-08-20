@@ -622,9 +622,9 @@ def _captain_request_contract(**values: Any) -> dict[str, Any]:
 def _note_task_activity(task: TaskState, kind: str) -> None:
     """Record an allow-listed, content-free public task activity event.
 
-    Durable tasks additionally append an ``activity_observed`` audit event.
-    Streaming activity stays in-process only (PR1): the durable audit trail
-    covers lifecycle activities, not every stream event.
+    Durable tasks additionally append an ``activity_observed`` audit event for
+    lifecycle markers.  Detailed stream observations are persisted separately
+    after the observation layer applies its public allow-list.
     """
     if kind not in {
         "task_accepted", "session_created", "prompt_accepted", "running",
@@ -649,6 +649,36 @@ def _note_task_activity(task: TaskState, kind: str) -> None:
         except RuntimePersistenceError as exc:
             # Explicit, non-silent durability failure for diagnostics.
             task.persist_error = f"activity event failed: {exc}"
+
+
+def _persist_observation_activity(task: TaskState, observed: dict[str, Any] | None) -> None:
+    """Persist safe stream activity so panels can recover it after restart."""
+    if not task.persisted or not isinstance(observed, dict):
+        return
+    kind = str(observed.get("kind") or "").strip()
+    if kind not in {"tool_activity", "file_change", "status"}:
+        return
+    details = {
+        key: observed[key]
+        for key in (
+            "tool", "action", "path", "phase", "status", "reason", "summary",
+            "provider", "source", "currency", "input_tokens", "output_tokens",
+            "duration_ms", "turns", "files_changed",
+        )
+        if key in observed
+    }
+    try:
+        _runtime_service().append_activity(
+            task.task_id,
+            kind,
+            now=float(observed.get("timestamp") or time.time()),
+            details=details,
+            lease=task.lease,
+        )
+    except RuntimePersistenceError as exc:
+        # Activity is auxiliary telemetry; preserve task truth if its optional
+        # durable projection cannot be written.
+        task.persist_error = f"activity event failed: {exc}"
 
 
 from agent_runtime.api.public_projection import (
@@ -1636,7 +1666,8 @@ def _make_backend_callbacks(
                 event_type=EventType.TASK_STATUS_CHANGED.value,
             )
         _note_task_activity(task, activity.kind)
-        _AGENT_OBSERVATIONS.activity(task, activity)
+        observed = _AGENT_OBSERVATIONS.activity(task, activity)
+        _persist_observation_activity(task, observed)
 
     def on_usage(usage: BackendUsage) -> None:
         _AGENT_OBSERVATIONS.usage(task, usage)

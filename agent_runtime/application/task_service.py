@@ -54,6 +54,25 @@ from agent_runtime.persistence.errors import (
 from agent_runtime.persistence.event_repository import EventRepository
 from agent_runtime.persistence.evidence_repository import EvidenceRepository
 from agent_runtime.persistence.lineage_repository import LineageRepository
+
+
+_ACTIVITY_DETAIL_KEYS = (
+    "tool",
+    "action",
+    "path",
+    "phase",
+    "status",
+    "reason",
+    "summary",
+    "provider",
+    "source",
+    "currency",
+    "input_tokens",
+    "output_tokens",
+    "duration_ms",
+    "turns",
+    "files_changed",
+)
 from agent_runtime.persistence.idempotency_repository import (
     ClaimOutcome,
     IdempotencyRepository,
@@ -1044,14 +1063,28 @@ class TaskService:
         return replace(artifact, task_id=task_id, attempt_id=attempt_id)
 
     def append_activity(
-        self, task_id: str, kind: str, now: float | None = None, *, lease: LeaseInfo | None = None
+        self,
+        task_id: str,
+        kind: str,
+        now: float | None = None,
+        *,
+        lease: LeaseInfo | None = None,
+        details: dict[str, Any] | None = None,
     ) -> None:
-        """Append a content-free ``activity_observed`` audit event.
+        """Append an allow-listed ``activity_observed`` audit event.
 
         Worker-owned activity is lease fenced; pre-acquire activity may pass
         ``lease=None``.  This keeps stale workers from polluting the durable
-        audit trail after ownership has moved.
+        audit trail after ownership has moved.  ``details`` contains only the
+        already-sanitized public observation fields; prompt text and raw tool
+        output are never accepted here.
         """
+        payload: dict[str, Any] = {"kind": kind}
+        if isinstance(details, dict):
+            for key in _ACTIVITY_DETAIL_KEYS:
+                value = details.get(key)
+                if isinstance(value, (str, int, float, bool)) and not isinstance(value, bool):
+                    payload[key] = value
         with self.db.immediate_fenced_transaction() as (connection, db_now):
             if lease is not None and not self._lease_still_valid(connection, task_id, lease, db_now):
                 raise LeaseLostError(
@@ -1064,7 +1097,7 @@ class TaskService:
                     task_id=task_id,
                     event_type=EventType.ACTIVITY_OBSERVED.value,
                     event_time=now if now is not None else db_now,
-                    payload_json=json.dumps({"kind": kind}, ensure_ascii=False),
+                    payload_json=json.dumps(payload, ensure_ascii=False),
                 ),
             )
 
@@ -1334,8 +1367,9 @@ class TaskService:
     def activity_from_events(self, task_id: str) -> list[dict[str, Any]]:
         """Rebuild the public activity list from audit events.
 
-        Streaming activity is not persisted in PR1 (bounded in-process list),
-        so a restart yields the durable lifecycle activities only.
+        Streaming activity details are persisted only after the observation
+        layer has reduced them to the public allow-list, so a restart can
+        rebuild the safe execution/file timeline without exposing raw output.
         """
         activities: list[dict[str, Any]] = []
         for event in self.get_events(task_id):
@@ -1343,7 +1377,11 @@ class TaskService:
                 payload = parse_session_metadata(event.payload_json)
                 kind = payload.get("kind")
                 if isinstance(kind, str) and kind:
-                    activities.append({"kind": kind, "at": event.event_time})
+                    activity = {"kind": kind, "at": event.event_time}
+                    for key in _ACTIVITY_DETAIL_KEYS:
+                        if key in payload:
+                            activity[key] = payload[key]
+                    activities.append(activity)
         return activities
 
 

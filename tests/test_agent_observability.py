@@ -21,11 +21,12 @@ from agent_runtime.domain.crew_outcome import (
 
 
 class FakeTaskService:
-    def __init__(self, tasks, sessions=None, usage=None, artifacts=None):
+    def __init__(self, tasks, sessions=None, usage=None, artifacts=None, activity=None):
         self._tasks = {task.task_id: task for task in tasks}
         self._sessions = sessions or {}
         self._usage = usage or {}
         self._artifacts = artifacts or {}
+        self._activity = activity or {}
 
     def get_task(self, task_id):
         return self._tasks.get(task_id)
@@ -41,6 +42,9 @@ class FakeTaskService:
 
     def list_artifacts(self, task_id, attempt_id=None):
         return self._artifacts.get(task_id, [])
+
+    def activity_from_events(self, task_id):
+        return list(self._activity.get(task_id, []))
 
 
 def task(task_id: str, status: str, *, crew: str = "qoder", updated_at: float = 10.0):
@@ -260,6 +264,24 @@ class AgentObservationRecorderTests(unittest.TestCase):
             self.assertEqual(event["reason"], "WorkspaceSnapshotError")
             self.assertEqual(event["phase"], "workspace_snapshot")
 
+    def test_activity_returns_normalized_event_for_durable_persistence(self) -> None:
+        from agent_runtime.backends.base import BackendActivity
+
+        with tempfile.TemporaryDirectory() as tmp:
+            recorder = AgentObservationRecorder(AgentObservationStore(Path(tmp)))
+            observed = recorder.activity(
+                task("task-1", "running"),
+                BackendActivity(
+                    kind="stream_activity",
+                    timestamp=4.0,
+                    detail={"observation_kind": "tool_activity", "tool": "Read"},
+                ),
+            )
+
+        self.assertIsNotNone(observed)
+        self.assertEqual(observed["kind"], "tool_activity")
+        self.assertEqual(observed["tool"], "Read")
+
 
 class BackendActivityProjectionTests(unittest.TestCase):
     def test_backend_activity_projection_accepts_only_explicit_observation_fields(self) -> None:
@@ -382,6 +404,30 @@ class VoyageAgentProjectionTests(unittest.TestCase):
             self.assertEqual(detail["timeline"][1]["tool"], "Read")
             self.assertEqual(detail["files"][0]["path"], "src/login.py")
             self.assertEqual(detail["usage"]["usage"]["input_tokens"], 100)
+
+    def test_detail_rebuilds_activity_from_durable_events_when_memory_is_empty(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = AgentObservationStore(Path(tmp))
+            service = FakeTaskService(
+                [task("task-1", "completed")],
+                activity={
+                    "task-1": [
+                        {"kind": "agent_started", "at": 2.0},
+                        {
+                            "kind": "tool_activity",
+                            "at": 4.0,
+                            "tool": "Read",
+                            "path": "agent_runtime/api/mcp_server.py",
+                        },
+                        {"kind": "agent_completed", "at": 9.0},
+                    ]
+                },
+            )
+            detail = VoyageAgentProjection(service, store).detail("task-1")
+
+        self.assertEqual(detail["timeline"][1]["tool"], "Read")
+        self.assertEqual(detail["timeline"][1]["path"], "agent_runtime/api/mcp_server.py")
+        self.assertEqual(detail["latest_activity"]["kind"], "agent_completed")
 
     def test_running_conversation_never_exposes_machine_outcome_protocol(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

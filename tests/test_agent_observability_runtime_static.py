@@ -9,13 +9,15 @@ SERVER = ROOT / "agent_runtime" / "api" / "mcp_server.py"
 
 
 class RuntimeObservationIntegrationTests(unittest.TestCase):
-    def test_runtime_wires_observation_recorder_without_changing_durable_event_store(self) -> None:
+    def test_runtime_wires_observation_recorder_with_durable_activity_fallback(self) -> None:
         source = SERVER.read_text(encoding="utf-8")
         self.assertIn("AgentObservationRecorder", source)
         self.assertIn("AgentObservationStore", source)
         self.assertIn("_AGENT_OBSERVATION_STORE = AgentObservationStore()", source)
         self.assertNotIn('runtime" / "observations', source)
         self.assertIn("_AGENT_OBSERVATIONS.activity(task, activity)", source)
+        self.assertIn("observed = _AGENT_OBSERVATIONS.activity(task, activity)", source)
+        self.assertIn("_persist_observation_activity(task, observed)", source)
         self.assertIn("_AGENT_OBSERVATIONS.usage(task, usage)", source)
         self.assertIn("_AGENT_OBSERVATIONS.started(task", source)
         self.assertIn("_AGENT_OBSERVATIONS.completed(task, answer=task.answer", source)

@@ -125,6 +125,18 @@ class VoyagerPanelHtmlTests(unittest.TestCase):
         self.assertIn('node("div", null, "wb-body")', html)
         self.assertIn("renderGroupBody();", html)
 
+    def test_single_task_is_normalized_to_fixed_group_without_sync_blank(self) -> None:
+        html = render_voyager_panel_html()
+        self.assertIn("function normalizePanelGroup(data)", html)
+        self.assertIn("tasks: [data]", html)
+        self.assertIn("task_ids: [String(task.task_id)]", html)
+        self.assertIn("const normalized = normalizePanelGroup(data);", html)
+
+        start = html.index("function renderSyncing(")
+        end = html.index("\n  function scheduleRefresh", start)
+        syncing_source = html[start:end]
+        self.assertNotIn("detailsEl.replaceChildren();", syncing_source)
+
 
 class VoyagerPanelMcpContractTests(unittest.TestCase):
     def test_captain_surface_includes_read_only_render_tool(self) -> None:

@@ -2,9 +2,9 @@
 
 This module deliberately does not participate in durable Task truth.  SQLite
 Task / Session / Event / Evidence rows remain authoritative for control state.
-The bounded in-memory stream managed here is best-effort UI/debug telemetry
-used only to make Crew execution visible to a human Captain host.  It is
-process-local and intentionally disappears when the Runtime restarts.
+The bounded in-memory stream managed here is best-effort live UI/debug
+telemetry; the Runtime separately persists its allow-listed tool/file summary
+so a human Captain host can recover the public timeline after a restart.
 
 Observation payloads are allow-listed.  Prompts, system messages, private
 reasoning / chain-of-thought, secrets, and raw tool output are never accepted
@@ -139,12 +139,13 @@ def _safe_usage(value: Any) -> dict[str, Any] | None:
 
 
 class AgentObservationStore:
-    """Bounded in-memory per-task stream for non-authoritative observations.
+    """Bounded in-memory per-task stream for live non-authoritative observations.
 
     Assistant output is intentionally transient.  The optional ``root`` value
     is retained only as a diagnostic namespace for callers/tests; it is never
     created or written.  Durable Task/Event/Evidence rows remain the only
-    restart-surviving Runtime truth.
+    restart-surviving Runtime truth, including the separately persisted safe
+    activity summary.
     """
 
     def __init__(
@@ -260,11 +261,11 @@ class AgentObservationRecorder:
             "model": str(getattr(task, "model", "") or "") or None,
         }
 
-    def _append(self, task: Any, event: dict[str, Any]) -> None:
+    def _append(self, task: Any, event: dict[str, Any]) -> dict[str, Any] | None:
         try:
-            self.store.append(str(task.task_id), event)
+            return self.store.append(str(task.task_id), event)
         except (OSError, ValueError, TypeError):
-            return
+            return None
 
     def started(self, task: Any, *, timestamp: float | None = None) -> None:
         self._append(
@@ -277,11 +278,11 @@ class AgentObservationRecorder:
             },
         )
 
-    def activity(self, task: Any, activity: Any) -> None:
+    def activity(self, task: Any, activity: Any) -> dict[str, Any] | None:
         event = observation_event_from_backend_activity(activity)
         if event is None:
-            return
-        self._append(task, {**event, **{k: v for k, v in self._identity(task).items() if v}})
+            return None
+        return self._append(task, {**event, **{k: v for k, v in self._identity(task).items() if v}})
 
     def usage(self, task: Any, usage: Any, *, timestamp: float | None = None) -> None:
         payload = usage.to_dict() if hasattr(usage, "to_dict") else {}
@@ -359,6 +360,40 @@ class VoyageAgentProjection:
         self._task_service = task_service
         self._observations = observation_store
 
+    def _activity_events(self, task_id: str, *, limit: int = 200) -> list[dict[str, Any]]:
+        """Merge durable safe activity with the live in-process stream.
+
+        Durable events are the restart fallback.  The live stream is retained
+        for low-latency updates while a task is running; identical rows are
+        removed so persisting an observed event does not duplicate it in the
+        panel.
+        """
+        bounded_limit = max(1, min(int(limit), 1000))
+        durable = self._task_service.activity_from_events(task_id)
+        live = self._observations.read(task_id, limit=bounded_limit)
+        merged: list[dict[str, Any]] = []
+        seen: set[tuple[Any, ...]] = set()
+        for raw in [*durable, *live]:
+            if not isinstance(raw, dict):
+                continue
+            event = dict(raw)
+            if "timestamp" not in event and event.get("at") is not None:
+                event["timestamp"] = event["at"]
+            event.pop("at", None)
+            key = tuple(
+                event.get(name)
+                for name in (
+                    "kind", "timestamp", "tool", "action", "path", "phase",
+                    "status", "reason", "summary",
+                )
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(event)
+        merged.sort(key=lambda item: float(item.get("timestamp") or 0.0))
+        return merged[-bounded_limit:]
+
     def presence(self, task_id: str = "", *, limit: int = 5) -> dict[str, Any]:
         requested = str(task_id or "").strip()
         if requested:
@@ -386,7 +421,7 @@ class VoyageAgentProjection:
         task = self._task_service.get_task(str(task_id or "").strip())
         if task is None:
             return self._not_found(str(task_id or "").strip(), TRACE_SCHEMA)
-        events = self._observations.read(task.task_id, limit=limit)
+        events = self._activity_events(task.task_id, limit=limit)
         conversation_events = self._observations.read_conversation(task.task_id, limit=1000)
         return {
             "ok": True,
@@ -401,7 +436,7 @@ class VoyageAgentProjection:
         task = self._task_service.get_task(canonical)
         if task is None:
             return self._not_found(canonical, DETAIL_SCHEMA)
-        events = self._observations.read(task.task_id, limit=limit)
+        events = self._activity_events(task.task_id, limit=limit)
         conversation_events = self._observations.read_conversation(task.task_id, limit=1000)
         try:
             usage = self._task_service.latest_usage_evidence(task.task_id)
@@ -508,7 +543,7 @@ class VoyageAgentProjection:
         if session is not None:
             metadata = parse_session_metadata(str(getattr(session, "metadata_json", "{}") or "{}"))
 
-        latest = self._observations.read(task.task_id, limit=50)
+        latest = self._activity_events(task.task_id, limit=50)
         observed_model = next(
             (str(item.get("model") or "") for item in reversed(latest) if item.get("model")),
             "",

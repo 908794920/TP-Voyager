@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
+from pathlib import PurePosixPath
 from pathlib import Path
 
 from agent_runtime.domain.dispatch import (
@@ -46,8 +47,14 @@ class WorkspaceSnapshotError(RuntimeError):
 
 def materialize_workspace_snapshot(
     source_cwd: str,
+    *,
+    allowed_paths: tuple[str, ...] | list[str] | None = None,
 ) -> tuple[tempfile.TemporaryDirectory[str], Path]:
-    """Copy the source workspace into a temp dir excluding sensitive paths.
+    """Copy a workspace into a temp dir excluding sensitive paths.
+
+    When ``allowed_paths`` is supplied, only that already-resolved bounded
+    file set is copied.  This keeps native read tools compatible with a
+    vendor-neutral read scope without widening the exposed workspace.
 
     Returns ``(temporary_directory, snapshot_root)``.  The caller owns cleanup
     of the returned ``TemporaryDirectory``.
@@ -61,7 +68,12 @@ def materialize_workspace_snapshot(
     temp = tempfile.TemporaryDirectory(prefix="tp-voyager-readonly-workspace-")
     snapshot_root = Path(temp.name)
     try:
-        _copy_tree_excluding_sensitive(source_root, snapshot_root)
+        if allowed_paths is None:
+            _copy_tree_excluding_sensitive(source_root, snapshot_root)
+        else:
+            _copy_selected_files_excluding_sensitive(
+                source_root, snapshot_root, allowed_paths
+            )
         return temp, snapshot_root
     except Exception:
         temp.cleanup()
@@ -113,3 +125,67 @@ def _copy_tree_excluding_sensitive(source_root: Path, snapshot_root: Path) -> No
                 raise WorkspaceSnapshotError(
                     operation="copy", relpath=rel, cause=exc
                 ) from exc
+
+
+def _copy_selected_files_excluding_sensitive(
+    source_root: Path,
+    snapshot_root: Path,
+    allowed_paths: tuple[str, ...] | list[str],
+) -> None:
+    """Copy exactly the selected relative files into a safe snapshot."""
+    seen: set[str] = set()
+    for raw in allowed_paths:
+        rel = _normalize_selected_path(raw)
+        if rel in seen:
+            continue
+        seen.add(rel)
+        candidate = source_root.joinpath(*rel.split("/"))
+        if candidate.is_symlink():
+            raise WorkspaceSnapshotError(
+                operation="validate", relpath=rel,
+                cause=ValueError("selected path is a symlink"),
+            )
+        try:
+            src = candidate.resolve(strict=True)
+            src.relative_to(source_root)
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise WorkspaceSnapshotError(
+                operation="resolve", relpath=rel, cause=exc
+            ) from exc
+        if not src.is_file():
+            raise WorkspaceSnapshotError(
+                operation="validate", relpath=rel,
+                cause=ValueError("selected path is not a file"),
+            )
+        dest = snapshot_root.joinpath(*rel.split("/"))
+        try:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(src, dest, follow_symlinks=False)
+        except OSError as exc:
+            raise WorkspaceSnapshotError(
+                operation="copy", relpath=rel, cause=exc
+            ) from exc
+
+
+def _normalize_selected_path(raw: object) -> str:
+    value = str(raw or "").strip().replace("\\", "/")
+    pure = PurePosixPath(value)
+    if (
+        not value
+        or pure.is_absolute()
+        or (len(value) >= 2 and value[1] == ":")
+        or any(part in {"", ".", ".."} for part in pure.parts)
+    ):
+        raise WorkspaceSnapshotError(
+            operation="validate", relpath=value,
+            cause=ValueError("selected path must be relative"),
+        )
+    normalized = pure.as_posix()
+    if _contains_forbidden_component(normalized) or sensitive_path_matches(
+        normalized, _MANDATORY_FORBIDDEN, _MANDATORY_SENSITIVE_FILES
+    ):
+        raise WorkspaceSnapshotError(
+            operation="validate", relpath=normalized,
+            cause=ValueError("selected path is forbidden"),
+        )
+    return normalized
