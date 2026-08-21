@@ -141,36 +141,91 @@ class CodeBuddyBackend:
         request: BackendStartRequest | BackendResumeRequest,
         raw: dict[str, Any],
         total_cost_usd: float | None,
+        *,
+        source: str = "codebuddy_sdk_result",
+        accounting: str = "snapshot",
+        sample_id: str = "",
     ) -> BackendUsage | None:
-        if not raw and total_cost_usd is None:
+        # CodeBuddy SDK result usage is a per-query/turn fact.  Some ACP
+        # versions wrap the same fields in ``usage``; accept both without
+        # retaining the nested/raw payload.
+        nested = raw.get("usage") if isinstance(raw.get("usage"), dict) else {}
+        values = {**raw, **nested}
+        if not values and total_cost_usd is None:
             return None
 
         def number(*names: str) -> float | int | None:
             for name in names:
-                value = raw.get(name)
+                value = values.get(name)
                 if isinstance(value, bool):
                     continue
                 if isinstance(value, (int, float)) and value >= 0:
                     return value
             return None
 
-        input_tokens = number("input_tokens", "inputTokens", "prompt_tokens")
+        raw_input = number("input_tokens", "inputTokens", "prompt_tokens")
+        cache_read = number(
+            "cache_read_tokens", "cacheReadTokens", "cache_read_input_tokens",
+            "cached_input_tokens", "cachedInputTokens",
+        )
+        cache_write = number(
+            "cache_write_tokens", "cacheWriteTokens", "cache_write_input_tokens",
+            "cache_creation_input_tokens", "cacheCreationInputTokens",
+        )
+        explicit_cache_miss = number("cache_miss_tokens", "cacheMissTokens")
         output_tokens = number("output_tokens", "outputTokens", "completion_tokens")
-        credits = number("credits_used", "creditsUsed", "credit_used")
+        reasoning_tokens = number("reasoning_tokens", "reasoningTokens", "thinking_tokens", "thinkingTokens")
+        answer_tokens = number("answer_tokens", "answerTokens", "response_tokens", "responseTokens")
+        credits = number("credit", "credits", "credits_used", "creditsUsed", "credit_used")
+        explicit_total = number("total_tokens", "totalTokens")
+
+        derived: list[str] = []
+        # CodeBuddy cost semantics expose ``input/cacheRead/cacheWrite`` as
+        # mutually exclusive input categories.  Only derive a total input when
+        # both cache categories were actually reported; missing never means 0.
+        input_tokens = raw_input
+        cache_miss = explicit_cache_miss
+        if cache_miss is None and raw_input is not None and (cache_read is not None or cache_write is not None):
+            # Provider ``input_tokens`` is the non-cache input category in the
+            # CodeBuddy cost breakdown. Mapping it to TP-Voyager's explicit
+            # cache-miss slot is a semantic derivation, not a provider-named
+            # field, so surface that provenance to the panel.
+            cache_miss = raw_input
+            derived.append("cache_miss_tokens")
+        if raw_input is not None and cache_read is not None and cache_write is not None:
+            input_tokens = raw_input + cache_read + cache_write
+            derived.append("input_tokens")
+        total_tokens = explicit_total
+        if total_tokens is None and input_tokens is not None and output_tokens is not None:
+            total_tokens = input_tokens + output_tokens
+            derived.append("total_tokens")
+
         return BackendUsage(
             provider="codebuddy",
+            scope="turn",
             model=request.model,
-            source="codebuddy_sdk_result",
+            source=source,
+            accounting=accounting,
+            sample_id=sample_id,
+            total_tokens=int(total_tokens) if total_tokens is not None else None,
             input_tokens=int(input_tokens) if input_tokens is not None else None,
+            cache_read_tokens=int(cache_read) if cache_read is not None else None,
+            cache_miss_tokens=int(cache_miss) if cache_miss is not None else None,
+            cache_write_tokens=int(cache_write) if cache_write is not None else None,
             output_tokens=int(output_tokens) if output_tokens is not None else None,
-            credits_used=float(credits) if credits is not None else None,
+            reasoning_tokens=int(reasoning_tokens) if reasoning_tokens is not None else None,
+            answer_tokens=int(answer_tokens) if answer_tokens is not None else None,
+            credits=float(credits) if credits is not None else None,
+            derived_fields=tuple(derived),
+            # Kept only for legacy non-panel callers.  The panel projection
+            # intentionally ignores monetary billing values.
             reported_cost=(
                 float(total_cost_usd)
                 if isinstance(total_cost_usd, (int, float)) and not isinstance(total_cost_usd, bool) and total_cost_usd >= 0
                 else None
             ),
             currency="USD" if total_cost_usd is not None else None,
-            provider_usage=raw,
+            provider_usage=values,
         )
 
     def _register(self, task_id: str, live: _LiveExecution) -> None:
@@ -277,11 +332,40 @@ class CodeBuddyBackend:
                 max_task_duration_seconds=request.max_task_duration_seconds,
                 on_dispatch_accepted=accepted,
             )
-            usage_fact = self._usage_fact(request, dict(result.usage or {}), result.total_cost_usd)
-            if usage_fact is not None:
-                usage_sink = getattr(callbacks, "on_usage", None)
-                if callable(usage_sink):
-                    usage_sink(usage_fact)
+            usage_sink = getattr(callbacks, "on_usage", None)
+            if callable(usage_sink):
+                for sample in tuple(getattr(result, "usage_samples", ()) or ()):
+                    if not isinstance(sample, dict):
+                        continue
+                    sample_usage = sample.get("usage") if isinstance(sample.get("usage"), dict) else {}
+                    sample_fact = self._usage_fact(
+                        request,
+                        sample_usage,
+                        None,
+                        source="codebuddy_acp_usage_update",
+                        accounting=str(sample.get("accounting") or "snapshot"),
+                        sample_id=str(sample.get("sample_id") or ""),
+                    )
+                    if sample_fact is not None:
+                        usage_sink(sample_fact)
+                terminal_raw = getattr(result, "terminal_usage", None)
+                terminal_raw = terminal_raw if isinstance(terminal_raw, dict) else {}
+                terminal_fact = self._usage_fact(
+                    request,
+                    terminal_raw,
+                    result.total_cost_usd,
+                    source="codebuddy_sdk_result",
+                    accounting="snapshot",
+                )
+                if terminal_fact is not None:
+                    usage_sink(terminal_fact)
+            usage_fact = self._usage_fact(
+                request,
+                dict(result.usage or {}),
+                result.total_cost_usd,
+                source="codebuddy_sdk_result",
+                accounting="snapshot",
+            )
             backend_result = BackendResult(
                 backend="codebuddy",
                 stop_reason=result.stop_reason,

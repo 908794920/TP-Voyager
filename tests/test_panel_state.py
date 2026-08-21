@@ -29,11 +29,20 @@ class PanelStateTests(unittest.TestCase):
             "selectedTaskId",
             "section",
             "scrollTop",
+            "workbenchScrollTop",
+            "workbenchPinnedToBottom",
             "expandedDetails",
             "timestamp",
         ):
             self.assertIn(field, html)
         self.assertIn("function collectExpandedDetails()", html)
+
+    def test_running_activity_tab_can_restore_or_follow_workbench_scroll(self) -> None:
+        html = render_voyager_panel_html()
+        self.assertIn("function captureWorkbenchScrollState()", html)
+        self.assertIn("function restoreWorkbenchScrollState(", html)
+        self.assertIn("WORKBENCH_BOTTOM_THRESHOLD_PX", html)
+        self.assertIn("body.scrollTop = body.scrollHeight", html)
 
     def test_state_key_is_per_task_and_per_group(self) -> None:
         html = render_voyager_panel_html()

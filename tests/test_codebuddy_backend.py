@@ -55,6 +55,14 @@ class AssistantMessage:
         self.content = [TextBlock(text)]
 
 
+class StreamEvent:
+    def __init__(self, event: dict, uuid: str = "usage-event-1"):
+        self.event = event
+        self.uuid = uuid
+        self.session_id = "cb-session"
+        self.parent_tool_use_id = None
+
+
 class ResultMessage:
     def __init__(self, session_id: str = "cb-session"):
         self.subtype = "success"
@@ -248,6 +256,315 @@ class CodeBuddySdkClientTests(unittest.TestCase):
             self.assertEqual(grep.updated_input["path"], ".")
             for denied in (edit, bash, web, task, unknown):
                 self.assertEqual(denied.behavior, "deny")
+
+    def test_sdk_stream_acp_usage_update_supplies_credit_without_duplicate_counting(self) -> None:
+        class UsageClient(FakeSdkClient):
+            def receive_response(self):
+                async def gen():
+                    update = StreamEvent({
+                        "method": "session/update",
+                        "params": {
+                            "update": {
+                                "sessionUpdate": "usage_update",
+                                "usage": {"credit": 0.75, "input_tokens": 8, "output_tokens": 2},
+                            }
+                        },
+                    }, uuid="same-usage-event")
+                    yield update
+                    yield update
+                    yield ResultMessage(self.session_id)
+                return gen()
+
+        class UsageSdk(FakeSdkModule):
+            CodeBuddySDKClient = UsageClient
+
+        with tempfile.TemporaryDirectory() as tmp:
+            client = CodeBuddySdkClient(
+                cwd=tmp, on_activity=lambda activity: None, sdk_module=UsageSdk, region="cn"
+            )
+            result = client.run(
+                prompt="usage", model="hy3", reasoning_effort="",
+                idle_timeout_seconds=5, max_task_duration_seconds=30,
+                on_dispatch_accepted=lambda value: None,
+            )
+
+        # Final ResultMessage remains authoritative for Token totals; the ACP
+        # StreamEvent contributes the documented per-turn Credit only once.
+        self.assertEqual(result.usage["input_tokens"], 10)
+        self.assertEqual(result.usage["output_tokens"], 2)
+        self.assertEqual(result.usage["credit"], 0.75)
+
+    def test_sdk_transport_uuid_is_not_used_as_provider_usage_identity(self) -> None:
+        class UsageClient(FakeSdkClient):
+            def receive_response(self):
+                async def gen():
+                    for transport_uuid in ("transport-a", "transport-b"):
+                        yield StreamEvent({
+                            "method": "session/update",
+                            "params": {"update": {
+                                "sessionUpdate": "usage_update",
+                                "usage": {"credit": 0.75, "input_tokens": 8, "output_tokens": 2},
+                            }},
+                        }, uuid=transport_uuid)
+                    terminal = ResultMessage(self.session_id)
+                    terminal.usage = {}
+                    yield terminal
+                return gen()
+
+        class UsageSdk(FakeSdkModule):
+            CodeBuddySDKClient = UsageClient
+
+        with tempfile.TemporaryDirectory() as tmp:
+            client = CodeBuddySdkClient(
+                cwd=tmp, on_activity=lambda activity: None, sdk_module=UsageSdk, region="cn"
+            )
+            result = client.run(
+                prompt="usage", model="hy3", reasoning_effort="",
+                idle_timeout_seconds=5, max_task_duration_seconds=30,
+                on_dispatch_accepted=lambda value: None,
+            )
+
+        self.assertEqual(result.usage["credit"], 0.75)
+        self.assertEqual(len(result.usage_samples), 1)
+        self.assertEqual(result.usage_samples[0]["sample_id"], "")
+        self.assertEqual(result.usage_samples[0]["accounting"], "snapshot")
+
+    def test_sdk_stream_usage_without_uuid_treats_identical_update_as_snapshot(self) -> None:
+        class UsageClient(FakeSdkClient):
+            def receive_response(self):
+                async def gen():
+                    update = StreamEvent({
+                        "method": "session/update",
+                        "params": {"update": {
+                            "sessionUpdate": "usage_update",
+                            "usage": {"credit": 0.75, "input_tokens": 8, "output_tokens": 2},
+                        }},
+                    }, uuid="")
+                    yield update
+                    yield update
+                    terminal = ResultMessage(self.session_id)
+                    terminal.usage = {}
+                    yield terminal
+                return gen()
+
+        class UsageSdk(FakeSdkModule):
+            CodeBuddySDKClient = UsageClient
+
+        with tempfile.TemporaryDirectory() as tmp:
+            client = CodeBuddySdkClient(
+                cwd=tmp, on_activity=lambda activity: None, sdk_module=UsageSdk, region="cn"
+            )
+            result = client.run(
+                prompt="usage", model="hy3", reasoning_effort="",
+                idle_timeout_seconds=5, max_task_duration_seconds=30,
+                on_dispatch_accepted=lambda value: None,
+            )
+
+        self.assertEqual(result.usage["credit"], 0.75)
+        self.assertEqual(len(result.usage_samples), 1)
+        self.assertEqual(result.usage_samples[0]["accounting"], "snapshot")
+
+    def test_sdk_stream_without_ids_uses_latest_distinct_snapshot_not_sum(self) -> None:
+        class UsageClient(FakeSdkClient):
+            def receive_response(self):
+                async def gen():
+                    for credit, input_tokens, output_tokens in ((0.4, 8, 2), (0.5, 9, 3)):
+                        yield StreamEvent({
+                            "method": "session/update",
+                            "params": {"update": {
+                                "sessionUpdate": "usage_update",
+                                "usage": {"credit": credit, "input_tokens": input_tokens, "output_tokens": output_tokens},
+                            }},
+                        }, uuid="")
+                    terminal = ResultMessage(self.session_id)
+                    terminal.usage = {}
+                    yield terminal
+                return gen()
+
+        class UsageSdk(FakeSdkModule):
+            CodeBuddySDKClient = UsageClient
+
+        with tempfile.TemporaryDirectory() as tmp:
+            client = CodeBuddySdkClient(
+                cwd=tmp, on_activity=lambda activity: None, sdk_module=UsageSdk, region="cn"
+            )
+            result = client.run(
+                prompt="usage", model="hy3", reasoning_effort="",
+                idle_timeout_seconds=5, max_task_duration_seconds=30,
+                on_dispatch_accepted=lambda value: None,
+            )
+
+        self.assertEqual(len(result.usage_samples), 2)
+        self.assertTrue(all(sample["accounting"] == "snapshot" for sample in result.usage_samples))
+        self.assertEqual(result.usage["credit"], 0.5)
+        self.assertEqual(result.usage["input_tokens"], 9)
+        self.assertEqual(result.usage["output_tokens"], 3)
+
+    def test_sdk_stream_distinct_turn_ids_preserve_multiple_usage_samples(self) -> None:
+        class UsageClient(FakeSdkClient):
+            def receive_response(self):
+                async def gen():
+                    for event_uuid, turn_id, credit, input_tokens, output_tokens in (
+                        ("transport-a", "turn-1", 0.4, 8, 2),
+                        ("transport-b", "turn-2", 0.5, 7, 3),
+                    ):
+                        yield StreamEvent({
+                            "method": "session/update",
+                            "params": {"update": {
+                                "sessionUpdate": "usage_update",
+                                "turnId": turn_id,
+                                "usage": {"credit": credit, "input_tokens": input_tokens, "output_tokens": output_tokens},
+                            }},
+                        }, uuid=event_uuid)
+                    terminal = ResultMessage(self.session_id)
+                    terminal.usage = {}
+                    yield terminal
+                return gen()
+
+        class UsageSdk(FakeSdkModule):
+            CodeBuddySDKClient = UsageClient
+
+        with tempfile.TemporaryDirectory() as tmp:
+            client = CodeBuddySdkClient(
+                cwd=tmp, on_activity=lambda activity: None, sdk_module=UsageSdk, region="cn"
+            )
+            result = client.run(
+                prompt="usage", model="hy3", reasoning_effort="",
+                idle_timeout_seconds=5, max_task_duration_seconds=30,
+                on_dispatch_accepted=lambda value: None,
+            )
+
+        self.assertEqual([sample["sample_id"] for sample in result.usage_samples], ["turn-1", "turn-2"])
+        self.assertTrue(all(sample["accounting"] == "delta" for sample in result.usage_samples))
+        self.assertEqual(sum(sample["usage"]["credit"] for sample in result.usage_samples), 0.9)
+
+    def test_sdk_stream_provider_turn_id_wins_over_different_event_uuids(self) -> None:
+        class UsageClient(FakeSdkClient):
+            def receive_response(self):
+                async def gen():
+                    for event_uuid in ("event-a", "event-b"):
+                        yield StreamEvent({
+                            "method": "session/update",
+                            "params": {"update": {
+                                "sessionUpdate": "usage_update",
+                                "turnId": "provider-turn-7",
+                                "usage": {"credit": 0.6, "input_tokens": 9, "output_tokens": 1},
+                            }},
+                        }, uuid=event_uuid)
+                    terminal = ResultMessage(self.session_id)
+                    terminal.usage = {}
+                    yield terminal
+                return gen()
+
+        class UsageSdk(FakeSdkModule):
+            CodeBuddySDKClient = UsageClient
+
+        with tempfile.TemporaryDirectory() as tmp:
+            client = CodeBuddySdkClient(
+                cwd=tmp, on_activity=lambda activity: None, sdk_module=UsageSdk, region="cn"
+            )
+            result = client.run(
+                prompt="usage", model="hy3", reasoning_effort="",
+                idle_timeout_seconds=5, max_task_duration_seconds=30,
+                on_dispatch_accepted=lambda value: None,
+            )
+
+        self.assertEqual(len(result.usage_samples), 1)
+        self.assertEqual(result.usage_samples[0]["sample_id"], "provider-turn-7")
+        self.assertEqual(result.usage_samples[0]["accounting"], "delta")
+        self.assertEqual(result.usage["credit"], 0.6)
+        self.assertEqual(result.usage["input_tokens"], 9)
+        self.assertEqual(result.usage["output_tokens"], 1)
+
+    def test_sdk_same_provider_request_id_merges_enriched_usage_without_recounting(self) -> None:
+        class UsageClient(FakeSdkClient):
+            def receive_response(self):
+                async def gen():
+                    yield StreamEvent({
+                        "method": "session/update",
+                        "params": {"update": {
+                            "sessionUpdate": "usage_update",
+                            "requestId": "req-merge-1",
+                            "usage": {"credit": 0.4, "input_tokens": 8},
+                        }},
+                    }, uuid="transport-first")
+                    yield StreamEvent({
+                        "method": "session/update",
+                        "params": {"update": {
+                            "sessionUpdate": "usage_update",
+                            "requestId": "req-merge-1",
+                            "usage": {"output_tokens": 2},
+                        }},
+                    }, uuid="transport-second")
+                    terminal = ResultMessage(self.session_id)
+                    terminal.usage = {}
+                    yield terminal
+                return gen()
+
+        class UsageSdk(FakeSdkModule):
+            CodeBuddySDKClient = UsageClient
+
+        with tempfile.TemporaryDirectory() as tmp:
+            result = CodeBuddySdkClient(
+                cwd=tmp, on_activity=lambda activity: None, sdk_module=UsageSdk, region="cn"
+            ).run(
+                prompt="usage", model="hy3", reasoning_effort="",
+                idle_timeout_seconds=5, max_task_duration_seconds=30,
+                on_dispatch_accepted=lambda value: None,
+            )
+
+        self.assertEqual(len(result.usage_samples), 1)
+        sample = result.usage_samples[0]
+        self.assertEqual(sample["sample_id"], "req-merge-1")
+        self.assertEqual(sample["accounting"], "delta")
+        self.assertEqual(sample["usage"]["credit"], 0.4)
+        self.assertEqual(sample["usage"]["input_tokens"], 8)
+        self.assertEqual(sample["usage"]["output_tokens"], 2)
+        self.assertEqual(result.usage["credit"], 0.4)
+
+    def test_sdk_stream_usage_accepts_camel_case_and_preserves_stream_credit(self) -> None:
+        class UsageClient(FakeSdkClient):
+            def receive_response(self):
+                async def gen():
+                    yield StreamEvent({
+                        "method": "session/update",
+                        "params": {
+                            "update": {
+                                "sessionUpdate": "usage_update",
+                                "usage": {
+                                    "credit": 0.75,
+                                    "inputTokens": 8,
+                                    "outputTokens": 2,
+                                    "cacheReadTokens": 4,
+                                },
+                            }
+                        },
+                    }, uuid="camel-usage-event")
+                    terminal = ResultMessage(self.session_id)
+                    terminal.usage = {"inputTokens": 10, "outputTokens": 2, "credit": 9.0}
+                    yield terminal
+                return gen()
+
+        class UsageSdk(FakeSdkModule):
+            CodeBuddySDKClient = UsageClient
+
+        with tempfile.TemporaryDirectory() as tmp:
+            client = CodeBuddySdkClient(
+                cwd=tmp, on_activity=lambda activity: None, sdk_module=UsageSdk, region="cn"
+            )
+            result = client.run(
+                prompt="usage", model="hy3", reasoning_effort="",
+                idle_timeout_seconds=5, max_task_duration_seconds=30,
+                on_dispatch_accepted=lambda value: None,
+            )
+
+        self.assertEqual(result.usage["inputTokens"], 10)
+        self.assertEqual(result.usage["outputTokens"], 2)
+        self.assertEqual(result.usage["cacheReadTokens"], 4)
+        # ACP usage_update is the documented per-turn Credit source; a terminal
+        # SDK usage mapping must not overwrite it with a different quantity.
+        self.assertEqual(result.usage["credit"], 0.75)
+
 
     def test_frozen_context_read_only_keeps_all_native_tools_denied(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

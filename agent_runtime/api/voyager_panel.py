@@ -46,17 +46,17 @@ def render_voyager_panel_html() -> str:
     overflow: hidden;
     transition: border-color .2s ease, box-shadow .2s ease;
   }
-  #panel[data-state="syncing"] { --state-color: var(--starting); }
-  #panel[data-state="queued"] { --state-color: var(--idle); }
-  #panel[data-state="connecting"] { --state-color: var(--starting); }
-  #panel[data-state="running"] { --state-color: var(--active); }
-  #panel[data-state="observing"] { --state-color: var(--active); }
-  #panel[data-state="completed"] { --state-color: var(--ok); }
-  #panel[data-state="failed"] { --state-color: var(--bad); }
-  #panel[data-state="cancelled"] { --state-color: var(--idle); }
-  #panel[data-state="lost"] { --state-color: var(--bad); }
-  #panel[data-state="orphaned"] { --state-color: var(--bad); }
-  #panel[data-state="running"], #panel[data-state="observing"], #panel[data-state="syncing"] {
+  #panel[data-sync-state="syncing"] { --state-color: var(--starting); }
+  #panel[data-task-state="queued"] { --state-color: var(--idle); }
+  #panel[data-task-state="connecting"] { --state-color: var(--starting); }
+  #panel[data-task-state="running"] { --state-color: var(--active); }
+  #panel[data-task-state="observing"] { --state-color: var(--active); }
+  #panel[data-task-state="completed"] { --state-color: var(--ok); }
+  #panel[data-task-state="failed"] { --state-color: var(--bad); }
+  #panel[data-task-state="cancelled"] { --state-color: var(--idle); }
+  #panel[data-task-state="lost"] { --state-color: var(--bad); }
+  #panel[data-task-state="orphaned"] { --state-color: var(--bad); }
+  #panel[data-task-state="running"], #panel[data-task-state="observing"], #panel[data-sync-state="syncing"] {
     box-shadow: 0 0 0 1px color-mix(in srgb, var(--state-color) 15%, transparent),
                 0 0 18px color-mix(in srgb, var(--state-color) 10%, transparent);
   }
@@ -65,9 +65,9 @@ def render_voyager_panel_html() -> str:
     width: 10px; height: 10px; min-width: 10px; border-radius: 50%;
     background: var(--state-color); box-shadow: 0 0 0 3px color-mix(in srgb, var(--state-color) 18%, transparent);
   }
-  #panel[data-state="running"] .status-dot,
-  #panel[data-state="observing"] .status-dot,
-  #panel[data-state="syncing"] .status-dot { animation: pulse 1.45s ease-in-out infinite; }
+  #panel[data-task-state="running"] .status-dot,
+  #panel[data-task-state="observing"] .status-dot,
+  #panel[data-sync-state="syncing"] .status-dot { animation: pulse 1.45s ease-in-out infinite; }
   @keyframes pulse { 0%,100% { opacity: .55; transform: scale(.92); } 50% { opacity: 1; transform: scale(1.12); } }
   .identity { min-width: 0; flex: 1; }
   .title-row { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
@@ -117,9 +117,9 @@ def render_voyager_panel_html() -> str:
   .group-summary { border-top: 1px solid var(--line); padding: 10px 12px 4px; font-size: 12px; font-weight: 700; }
   .child-group { border-top: 1px solid var(--line); padding: 8px 12px 10px; display: grid; gap: 8px; }
   .child-card { border: 1px solid var(--line); border-radius: 9px; padding: 9px 10px; background: var(--surface); }
-  .child-card[data-state="running"], .child-card[data-state="observing"] { border-left: 3px solid var(--active); }
-  .child-card[data-state="completed"] { border-left: 3px solid var(--ok); }
-  .child-card[data-state="failed"], .child-card[data-state="lost"], .child-card[data-state="orphaned"] { border-left: 3px solid var(--bad); }
+  .child-card[data-task-state="running"], .child-card[data-task-state="observing"] { border-left: 3px solid var(--active); }
+  .child-card[data-task-state="completed"] { border-left: 3px solid var(--ok); }
+  .child-card[data-task-state="failed"], .child-card[data-task-state="lost"], .child-card[data-task-state="orphaned"] { border-left: 3px solid var(--bad); }
   .child-title { display: flex; gap: 6px 10px; align-items: baseline; flex-wrap: wrap; font-size: 11.5px; font-weight: 700; }
   .child-meta { margin-top: 4px; display: flex; gap: 4px 10px; flex-wrap: wrap; color: var(--muted); font-size: 10.5px; overflow-wrap: anywhere; }
   .child-summary { margin-top: 7px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11.5px; line-height: 1.5; }
@@ -132,9 +132,9 @@ def render_voyager_panel_html() -> str:
   .wb-task { appearance: none; text-align: left; border: 1px solid var(--line); border-left-width: 3px; border-radius: 9px; padding: 8px 9px; display: grid; gap: 3px; cursor: pointer; background: var(--surface); color: CanvasText; }
   .wb-task:hover { background: color-mix(in srgb, CanvasText 5%, var(--surface)); }
   .wb-task.active { background: color-mix(in srgb, CanvasText 7%, var(--surface)); box-shadow: inset 0 0 0 1px color-mix(in srgb, CanvasText 18%, transparent); }
-  .wb-task[data-state="running"], .wb-task[data-state="observing"], .wb-task[data-state="connecting"], .wb-task[data-state="queued"] { border-left-color: var(--active); }
-  .wb-task[data-state="completed"] { border-left-color: var(--ok); }
-  .wb-task[data-state="failed"], .wb-task[data-state="lost"], .wb-task[data-state="orphaned"] { border-left-color: var(--bad); }
+  .wb-task[data-task-state="running"], .wb-task[data-task-state="observing"], .wb-task[data-task-state="connecting"], .wb-task[data-task-state="queued"] { border-left-color: var(--active); }
+  .wb-task[data-task-state="completed"] { border-left-color: var(--ok); }
+  .wb-task[data-task-state="failed"], .wb-task[data-task-state="lost"], .wb-task[data-task-state="orphaned"] { border-left-color: var(--bad); }
   .wb-task-head { display: flex; gap: 6px; align-items: center; }
   .wb-task-state { font-weight: 650; }
   .wb-task-meta { display: flex; gap: 4px 8px; color: var(--muted); font-size: 10.5px; flex-wrap: wrap; }
@@ -146,6 +146,9 @@ def render_voyager_panel_html() -> str:
   .wb-tab { appearance: none; border-radius: 999px; padding: 4px 10px; font-size: 11px; }
   .wb-tab.active { background: color-mix(in srgb, CanvasText 10%, var(--surface)); border-color: color-mix(in srgb, CanvasText 30%, transparent); }
   .wb-body { border: 1px solid var(--line); border-radius: 9px; padding: 10px; min-height: 140px; max-height: 340px; overflow-y: auto; display: grid; gap: 8px; align-content: start; }
+  .usage-strip { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+  .usage-pill { border: 1px solid var(--line); border-radius: 999px; padding: 5px 9px; font-size: 12px; }
+  .usage-derived { font-size: 11px; opacity: .72; margin-left: 4px; }
   .wb-summary-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; }
   @media (max-width: 520px) {
     .workbench { flex-direction: column; }
@@ -155,7 +158,7 @@ def render_voyager_panel_html() -> str:
 </style>
 </head>
 <body>
-  <section id="panel" data-state="syncing" aria-live="polite">
+  <section id="panel" data-task-state="unknown" data-sync-state="syncing" aria-live="polite">
     <div class="top">
       <span class="status-dot" aria-hidden="true"></span>
       <div class="identity">
@@ -186,13 +189,31 @@ def render_voyager_panel_html() -> str:
   // v1.0.9.3: iframe-memory presentation state only. Never persisted.
   const PanelUIStateStore = new Map();
   let refreshing = false;
+  let taskState = "unknown";
+  let syncState = "syncing";
+  let lastSyncAt = 0;
+  let hasVerifiedSnapshot = false;
+  let lastRenderedRevision = "";
+  let lastRenderedUsageRevision = "";
+  const REQUEST_TIMEOUT_MS = 5000;
+  const BRIDGE_INIT_TIMEOUT_MS = 2500;
+  const RESUME_SYNC_TTL_MS = 5000;
+  const WORKBENCH_BOTTOM_THRESHOLD_PX = 48;
 
   const terminalStates = new Set(["completed", "failed", "cancelled", "lost", "orphaned"]);
 
-  function request(method, params) {
+  function request(method, params, timeoutMs = REQUEST_TIMEOUT_MS) {
     const id = nextRequestId++;
-    window.parent.postMessage({ jsonrpc: "2.0", id, method, params }, "*");
-    return new Promise((resolve, reject) => pendingRequests.set(id, { resolve, reject }));
+    return new Promise((resolve, reject) => {
+      const boundedTimeout = Math.max(250, Number(timeoutMs) || REQUEST_TIMEOUT_MS);
+      const timeoutId = setTimeout(() => {
+        if (!pendingRequests.has(id)) return;
+        pendingRequests.delete(id);
+        reject(new Error(`MCP bridge request timed out: ${method}`));
+      }, boundedTimeout);
+      pendingRequests.set(id, { resolve, reject, timeoutId });
+      window.parent.postMessage({ jsonrpc: "2.0", id, method, params }, "*");
+    });
   }
 
   function notify(method, params) {
@@ -214,6 +235,25 @@ def render_voyager_panel_html() -> str:
       lost: "连接丢失", orphaned: "连接孤立", unknown: "未知", unavailable: "不可用",
       tool_activity: "工具活动", file_change: "文件变更", assistant_message: "回答", reasoning_summary: "摘要"
     })[value] || value || "未知";
+  }
+
+  function setTaskState(value) {
+    taskState = String(value || "unknown");
+    panel.dataset.taskState = taskState;
+    stateEl.textContent = stateLabel(taskState);
+    return taskState;
+  }
+
+  function setSyncState(value) {
+    syncState = String(value || "idle");
+    panel.dataset.syncState = syncState;
+    return syncState;
+  }
+
+  function isRenderableSnapshot(data) {
+    if (!data || typeof data !== "object") return false;
+    if (data.mode === "group" && Array.isArray(data.tasks)) return true;
+    return !!(data.task && typeof data.task === "object" && String(data.task.task_id || "").trim());
   }
 
   function actionLabel(value) {
@@ -455,33 +495,105 @@ def render_voyager_panel_html() -> str:
 
   function usageLabel(key) {
     return ({
+      total_tokens: "总 Token",
       input_tokens: "输入 Token",
+      cache_read_tokens: "缓存命中",
+      cache_miss_tokens: "缓存未命中",
+      cache_write_tokens: "缓存写入",
       output_tokens: "输出 Token",
-      credits_used: "积分用量",
-      reported_cost: "报告成本",
-      duration_ms: "执行毫秒",
-      turns: "轮次",
+      cache_hit_rate: "缓存命中率",
+      credits: "本轮 Credit",
+      session_credits: "会话累计 Credit",
+      original_credits: "原始 Credit",
+      billable: "Billable",
     })[key] || key.replaceAll("_", " ");
   }
 
-  function usageRows(usage) {
-    if (!usage || typeof usage !== "object") return [];
-    const values = usage.usage && typeof usage.usage === "object" ? usage.usage : usage;
-    const entries = Object.entries(values).filter(([, value]) => value !== null && value !== undefined && value !== "");
-    if (!entries.length) return [];
+  function usageValue(value) {
+    if (value === null || value === undefined || value === "") return "暂无数据";
+    if (typeof value === "number") return Number.isInteger(value) ? value.toLocaleString() : String(Math.round(value * 10000) / 10000);
+    if (typeof value === "boolean") return value ? "是" : "否";
+    return String(value);
+  }
+
+  function usagePayload(evidence) {
+    const source = evidence && typeof evidence === "object" ? evidence : {};
+    const values = source.usage && typeof source.usage === "object" ? source.usage : source;
+    return { evidence: source, values };
+  }
+
+  function usageRows(evidence) {
+    const { evidence: source, values } = usagePayload(evidence);
+    const derived = new Set(Array.isArray(values.derived_fields) ? values.derived_fields.map(String) : []);
+    const entries = [
+      ["total_tokens", values.total_tokens],
+      ["input_tokens", values.input_tokens],
+      ["cache_read_tokens", values.cache_read_tokens],
+      ["cache_miss_tokens", values.cache_miss_tokens],
+      ["cache_write_tokens", values.cache_write_tokens],
+      ["output_tokens", values.output_tokens],
+    ];
+    const cacheRead = values.cache_read_tokens;
+    const cacheMiss = values.cache_miss_tokens;
+    const cacheWrite = values.cache_write_tokens;
+    const completeCacheBreakdown = [cacheRead, cacheMiss, cacheWrite]
+      .every((value) => typeof value === "number" && Number.isFinite(value) && value >= 0);
+    const cacheInput = completeCacheBreakdown ? cacheRead + cacheMiss + cacheWrite : null;
+    const hitRate = typeof cacheInput === "number" && cacheInput > 0
+      ? `${Math.round((cacheRead / cacheInput) * 10000) / 100}%`
+      : null;
+    entries.push(["cache_hit_rate", hitRate]);
+    entries.push(["credits", values.credits ?? values.credits_used]);
+    entries.push(["session_credits", values.session_credits]);
+
     const row = node("div", null, "row");
     const grid = node("div", null, "kv");
     for (const [key, value] of entries) {
-      grid.appendChild(node("div", usageLabel(key)));
-      grid.appendChild(node("div", value));
+      const label = node("div", usageLabel(key));
+      if (derived.has(key) || (key === "cache_hit_rate" && value !== null)) {
+        label.appendChild(node("span", "推导", "usage-derived"));
+      }
+      grid.appendChild(label);
+      grid.appendChild(node("div", usageValue(value)));
     }
     row.appendChild(grid);
     return [row];
   }
 
+  function usageSummaryValues(evidence) {
+    const { values } = usagePayload(evidence);
+    return {
+      credits: values.credits ?? values.credits_used ?? null,
+      totalTokens: values.total_tokens ?? null,
+    };
+  }
+
+  function renderUsageStrip(container, data) {
+    const old = container.querySelector(".usage-strip");
+    if (old) old.remove();
+    const strip = node("div", null, "usage-strip");
+    strip.dataset.role = "usage-summary";
+    if (data?.mode === "group") {
+      const groupUsage = data?.usage && typeof data.usage === "object" ? data.usage : {};
+      const selectedId = String(panel.dataset.selectedTaskId || "");
+      const selected = (Array.isArray(data?.tasks) ? data.tasks : []).find((item) => String(item?.task?.task_id || "") === selectedId) || data?.tasks?.[0];
+      const selectedUsage = usageSummaryValues(selected?.usage);
+      strip.appendChild(node("span", `子任务 Tokens：${usageValue(groupUsage.total_tokens)}`, "usage-pill"));
+      strip.appendChild(node("span", `子任务 Credits：${usageValue(groupUsage.credits)}`, "usage-pill"));
+      strip.appendChild(node("span", `当前 Tokens：${usageValue(selectedUsage.totalTokens)}`, "usage-pill"));
+      strip.appendChild(node("span", `当前 Credits：${usageValue(selectedUsage.credits)}`, "usage-pill"));
+    } else {
+      const selectedUsage = usageSummaryValues(data?.usage);
+      strip.appendChild(node("span", `Tokens：${usageValue(selectedUsage.totalTokens)}`, "usage-pill"));
+      strip.appendChild(node("span", `Credits：${usageValue(selectedUsage.credits)}`, "usage-pill"));
+    }
+    container.appendChild(strip);
+  }
+
   function appendSection(title, rows, open) {
     if (!rows.length) return;
     const wrapper = document.createElement("details");
+    wrapper.dataset.section = title;
     wrapper.open = !!open;
     wrapper.appendChild(node("summary", `${title} (${rows.length})`));
     const list = node("div", null, "list");
@@ -536,6 +648,41 @@ def render_voyager_panel_html() -> str:
     return expanded;
   }
 
+  function captureWorkbenchScrollState() {
+    const body = detailsEl.querySelector(".wb-body");
+    if (!body) return {};
+    const scrollTop = Math.max(0, Number(body.scrollTop) || 0);
+    const scrollHeight = Math.max(0, Number(body.scrollHeight) || 0);
+    const clientHeight = Math.max(0, Number(body.clientHeight) || 0);
+    const distanceFromBottom = Math.max(0, scrollHeight - clientHeight - scrollTop);
+    return {
+      workbenchScrollTop: scrollTop,
+      workbenchScrollHeight: scrollHeight,
+      workbenchClientHeight: clientHeight,
+      workbenchPinnedToBottom: distanceFromBottom <= WORKBENCH_BOTTOM_THRESHOLD_PX,
+    };
+  }
+
+  function shouldFollowWorkbenchBottom() {
+    if (panel.dataset.activeTab !== "执行活动") return false;
+    const selectedTaskId = String(panel.dataset.selectedTaskId || "");
+    const active = latestGroupItems.find((item) => String(item?.task?.task_id || "") === selectedTaskId);
+    return !!active?.task?.active;
+  }
+
+  function restoreWorkbenchScrollState(state) {
+    const body = detailsEl.querySelector(".wb-body");
+    if (!body) return;
+    const pinned = state?.workbenchPinnedToBottom === true;
+    if (pinned || (!state && shouldFollowWorkbenchBottom())) {
+      body.scrollTop = body.scrollHeight;
+      return;
+    }
+    if (Number.isFinite(Number(state?.workbenchScrollTop))) {
+      body.scrollTop = Math.max(0, Number(state.workbenchScrollTop));
+    }
+  }
+
   function savePanelUIState() {
     const key = panelStateKey();
     PanelUIStateStore.set(key, {
@@ -543,6 +690,7 @@ def render_voyager_panel_html() -> str:
       selectedTaskId: panel.dataset.selectedTaskId || "",
       section: panel.dataset.section || "",
       scrollTop: document.documentElement.scrollTop || document.body.scrollTop || 0,
+      ...captureWorkbenchScrollState(),
       expandedDetails: collectExpandedDetails(),
       timestamp: Date.now(),
     });
@@ -556,7 +704,10 @@ def render_voyager_panel_html() -> str:
 
   function restorePanelUIState() {
     const state = PanelUIStateStore.get(panelStateKey());
-    if (!state) return;
+    if (!state) {
+      restoreWorkbenchScrollState(null);
+      return;
+    }
     if (state.scrollTop !== undefined) window.scrollTo(0, state.scrollTop);
     if (state.activeTab) panel.dataset.activeTab = state.activeTab;
     if (state.selectedTaskId) panel.dataset.selectedTaskId = state.selectedTaskId;
@@ -567,6 +718,67 @@ def render_voyager_panel_html() -> str:
         const label = String(detail.querySelector("summary")?.textContent || "").trim();
         if (wanted.has(label)) detail.open = true;
       }
+    }
+    restoreWorkbenchScrollState(state);
+  }
+
+  function snapshotRevision(data) {
+    const items = data?.mode === "group" && Array.isArray(data?.tasks) ? data.tasks : [data];
+    const signatures = items.map((item) => {
+      const task = item?.task || {};
+      const timeline = Array.isArray(item?.timeline) ? item.timeline : [];
+      const conversation = Array.isArray(item?.conversation) ? item.conversation : [];
+      const files = Array.isArray(item?.files) ? item.files : [];
+      const lastTimeline = timeline[timeline.length - 1] || null;
+      const tailEntry = conversation[conversation.length - 1] || null;
+      const answer = String(item?.full_answer || "");
+      const tailText = String(tailEntry?.content || "");
+      return [
+        String(task.task_id || ""), String(task.state || ""), !!task.active,
+        Number(task.updated_at || 0), !!task.result_available,
+        `${answer.length}:${answer.slice(-64)}`,
+        conversation.length, Number(tailEntry?.timestamp || 0),
+        `${tailText.length}:${tailText.slice(-64)}`,
+        timeline.length, JSON.stringify(lastTimeline),
+        files.length, JSON.stringify(files[files.length - 1] || null),
+        JSON.stringify(item?.result_card || null),
+        String(item?.error?.message || ""),
+      ];
+    });
+    return JSON.stringify([
+      String(data?.presentation_group_id || ""),
+      Array.isArray(data?.task_ids) ? data.task_ids : [],
+      signatures,
+    ]);
+  }
+
+  function usageRevision(data) {
+    if (data?.mode === "group") {
+      return JSON.stringify([
+        data?.usage || {},
+        ...(Array.isArray(data?.tasks) ? data.tasks.map((item) => [String(item?.task?.task_id || ""), item?.usage || {}]) : []),
+      ]);
+    }
+    return JSON.stringify(data?.usage || {});
+  }
+
+  function updateUsageOnly(data) {
+    renderUsageStrip(summaryEl, data);
+    if (data?.mode === "group") {
+      latestGroupItems = Array.isArray(data?.tasks) ? data.tasks : [];
+      if (panel.dataset.activeTab === "用量") {
+        const selectedId = String(panel.dataset.selectedTaskId || "");
+        const active = latestGroupItems.find((item) => String(item?.task?.task_id || "") === selectedId) || latestGroupItems[0];
+        const body = detailsEl.querySelector(".wb-body");
+        if (body) {
+          const top = body.scrollTop;
+          body.replaceChildren(...usageRows(active?.usage));
+          body.scrollTop = top;
+        }
+      }
+    } else {
+      const section = detailsEl.querySelector('details[data-section="用量"] .list');
+      if (section) section.replaceChildren(...usageRows(data?.usage));
     }
   }
 
@@ -582,22 +794,37 @@ def render_voyager_panel_html() -> str:
     return selectorFromInput(latestToolInput);
   }
 
+  function renderSuccessfulSyncStamp(data) {
+    let updatedAt = 0;
+    if (data?.mode === "group") {
+      const items = Array.isArray(data?.tasks) ? data.tasks : [];
+      const updated = items
+        .map((item) => Number(item?.task?.updated_at || 0))
+        .filter((value) => Number.isFinite(value) && value > 0);
+      updatedAt = updated.length ? Math.max(...updated) : 0;
+    } else {
+      updatedAt = Number(pickTask(data)?.updated_at || 0);
+      if (!Number.isFinite(updatedAt) || updatedAt <= 0) updatedAt = 0;
+    }
+    stampEl.textContent = updatedAt ? `更新于 ${formatTime(updatedAt)}` : "";
+  }
+
   function renderSingle(data) {
     latestData = data && typeof data === "object" ? data : {};
     const task = pickTask(latestData);
     const state = task?.state || (latestData.ok === false ? "failed" : "queued");
-    panel.dataset.state = state;
-    stateEl.textContent = stateLabel(state);
+    setTaskState(state);
     document.querySelector(".title").textContent = "TP-Voyager 任务";
     renderIdentity(task);
     renderResultSummary(task, state, latestData);
+    renderUsageStrip(summaryEl, latestData);
 
     detailsEl.replaceChildren();
     appendSection("完整回答", answerRows(latestData), false);
     appendSection("执行活动", timelineRows(latestData.timeline), false);
     appendSection("文件变更", fileRows(latestData.files), false);
     appendSection("用量", usageRows(latestData.usage), false);
-    stampEl.textContent = task?.updated_at ? `更新于 ${formatTime(task.updated_at)}` : "";
+    renderSuccessfulSyncStamp(latestData);
     scheduleRefresh(state);
   }
 
@@ -699,7 +926,7 @@ def render_voyager_panel_html() -> str:
       const taskId = String(task.task_id || "");
       const entry = node("button", null, "wb-task");
       entry.type = "button";
-      entry.dataset.state = state;
+      entry.dataset.taskState = state;
       if (taskId === activeId) entry.classList.add("active");
       const head = node("div", null, "wb-task-head");
       const dot = node("span", null, "status-dot");
@@ -721,7 +948,7 @@ def render_voyager_panel_html() -> str:
         if (!GROUP_TABS.includes(panel.dataset.activeTab)) {
           panel.dataset.activeTab = defaultTabForState(state);
         }
-        renderGroupBody();
+        renderGroupBody(true);
       });
       nav.appendChild(entry);
     }
@@ -739,7 +966,7 @@ def render_voyager_panel_html() -> str:
       tab.appendChild(node("span", label));
       tab.addEventListener("click", () => {
         panel.dataset.activeTab = label;
-        renderGroupBody();
+        renderGroupBody(true);
       });
       tabbar.appendChild(tab);
     }
@@ -748,7 +975,7 @@ def render_voyager_panel_html() -> str:
     return main;
   }
 
-  function renderGroupBody() {
+  function renderGroupBody(followLatest = false) {
     const items = latestGroupItems;
     const selectedTaskId = String(panel.dataset.selectedTaskId || "");
     let active = items.find((item) => String(item?.task?.task_id || "") === selectedTaskId);
@@ -763,6 +990,7 @@ def render_voyager_panel_html() -> str:
     workbench.appendChild(renderTaskNav(items, activeId));
     workbench.appendChild(renderTaskDetail(active, activeTab));
     detailsEl.appendChild(workbench);
+    if (followLatest) restoreWorkbenchScrollState(null);
   }
 
   function renderGroup(data) {
@@ -770,8 +998,7 @@ def render_voyager_panel_html() -> str:
     latestGroupItems = Array.isArray(latestData.tasks) ? latestData.tasks : [];
     const items = latestGroupItems;
     const state = latestData.ok === false ? "failed" : groupState(items);
-    panel.dataset.state = state;
-    stateEl.textContent = stateLabel(state);
+    setTaskState(state);
     document.querySelector(".title").textContent = "TP-Voyager 并发任务组";
     renderGroupIdentity(latestData, state);
 
@@ -782,33 +1009,51 @@ def render_voyager_panel_html() -> str:
     const active = items.filter((item) => item?.task?.active).length;
     const failed = items.filter((item) => ["failed", "lost", "orphaned"].includes(item?.task?.state)).length;
     resultPart("关键依据", [`已完成 ${completed} 个`, `执行中 ${active} 个`, `异常 ${failed} 个`]);
+    renderUsageStrip(summaryEl, latestData);
 
     renderGroupBody();
-    const updated = items.map((item) => Number(item?.task?.updated_at || 0)).filter(Boolean);
-    stampEl.textContent = updated.length ? `更新于 ${formatTime(Math.max(...updated))}` : "";
+    renderSuccessfulSyncStamp(latestData);
     scheduleRefresh(state);
   }
 
   function renderData(data) {
+    if (!isRenderableSnapshot(data)) return false;
     beforeRefresh();
     const normalized = normalizePanelGroup(data);
+    const revision = snapshotRevision(normalized);
+    const nextUsageRevision = usageRevision(normalized);
+    if (revision === lastRenderedRevision) {
+      latestData = normalized;
+      latestGroupItems = Array.isArray(normalized?.tasks) ? normalized.tasks : [];
+      if (nextUsageRevision !== lastRenderedUsageRevision) updateUsageOnly(normalized);
+      lastRenderedUsageRevision = nextUsageRevision;
+      const state = normalized?.mode === "group"
+        ? (normalized.ok === false ? "failed" : groupState(latestGroupItems))
+        : (pickTask(normalized)?.state || (normalized?.ok === false ? "failed" : "queued"));
+      setTaskState(state);
+      setSyncState("idle");
+      renderSuccessfulSyncStamp(normalized);
+      hasVerifiedSnapshot = true;
+      lastSyncAt = Date.now();
+      scheduleRefresh(state);
+      return true;
+    }
     if (normalized?.mode === "group") renderGroup(normalized);
     else renderSingle(normalized);
+    lastRenderedRevision = revision;
+    lastRenderedUsageRevision = nextUsageRevision;
+    setSyncState("idle");
     restorePanelUIState();
+    hasVerifiedSnapshot = true;
+    lastSyncAt = Date.now();
+    return true;
   }
 
   function renderSyncing(selector, hintTask = null) {
     if (!selector) return;
     if (refreshTimer) { clearTimeout(refreshTimer); refreshTimer = null; }
-    panel.dataset.state = "syncing";
-    stateEl.textContent = stateLabel("syncing");
-    const groupId = String(selector.presentation_group_id || "").trim();
-    const taskId = selector.task_id || hintTask?.task_id || "";
-    const taskIds = Array.isArray(selector.task_ids) && selector.task_ids.length
-      ? selector.task_ids
-      : (taskId ? [String(taskId)] : []);
-    document.querySelector(".title").textContent = "TP-Voyager 并发任务组";
-    renderGroupIdentity({ presentation_group_id: groupId, task_ids: taskIds }, "syncing");
+    setSyncState("syncing");
+    stampEl.textContent = "正在同步最新状态…";
     // Keep the last verified group content visible while the read-only
     // projection refreshes. Clearing details here causes the visible flash.
   }
@@ -825,6 +1070,7 @@ def render_voyager_panel_html() -> str:
     const selector = currentSelector();
     if (!selector) return;
     refreshing = true;
+    lastSyncAt = Date.now();
     refreshButton.disabled = true;
     try {
       await bridgeReady;
@@ -832,10 +1078,17 @@ def render_voyager_panel_html() -> str:
         name: "render_voyager_panel",
         arguments: { ...selector, limit: 200 },
       });
-      if (next?.structuredContent) renderData(next.structuredContent);
+      if (isRenderableSnapshot(next?.structuredContent)) {
+        renderData(next.structuredContent);
+      } else {
+        setSyncState("idle");
+        stampEl.textContent = "未收到有效状态，保留最近状态";
+        scheduleRefresh(taskState);
+      }
     } catch (_) {
-      // Host policy may reject UI-originated calls. Keep the last verified
-      // server snapshot; no lifecycle mutation is attempted as fallback.
+      setSyncState("error");
+      stampEl.textContent = "同步失败，保留最近状态";
+      scheduleRefresh(taskState);
     } finally {
       refreshing = false;
       refreshButton.disabled = false;
@@ -881,6 +1134,8 @@ def render_voyager_panel_html() -> str:
 
   function syncOnResume() {
     if (document.visibilityState && document.visibilityState !== "visible") return;
+    if (!hasVerifiedSnapshot) return;
+    if (refreshing || Date.now() - lastSyncAt < RESUME_SYNC_TTL_MS) return;
     const selector = currentSelector();
     if (!selector) return;
     renderSyncing(selector, pickTask(latestData));
@@ -902,6 +1157,7 @@ def render_voyager_panel_html() -> str:
     if (message.id !== undefined && pendingRequests.has(message.id)) {
       const pending = pendingRequests.get(message.id);
       pendingRequests.delete(message.id);
+      clearTimeout(pending.timeoutId);
       if (message.error) pending.reject(message.error);
       else pending.resolve(message.result);
       return;
@@ -919,7 +1175,7 @@ def render_voyager_panel_html() -> str:
     appInfo: { name: "tp-voyager-agent-panel", version: "1.0.9.3" },
     appCapabilities: {},
     protocolVersion: "2026-01-26",
-  }).then(() => {
+  }, BRIDGE_INIT_TIMEOUT_MS).then(() => {
     notify("ui/notifications/initialized", {});
   }).catch(() => {
     // A host may render the resource before the bridge is ready. A later

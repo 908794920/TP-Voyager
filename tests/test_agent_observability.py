@@ -27,14 +27,19 @@ class FakeTaskService:
         self._usage = usage or {}
         self._artifacts = artifacts or {}
         self._activity = activity or {}
+        self.get_task_calls: dict[str, int] = {}
+        self.get_session_calls: dict[str, int] = {}
+        self.activity_calls: dict[str, int] = {}
 
     def get_task(self, task_id):
+        self.get_task_calls[task_id] = self.get_task_calls.get(task_id, 0) + 1
         return self._tasks.get(task_id)
 
     def list_tasks(self):
         return list(self._tasks.values())
 
     def get_session(self, task_id):
+        self.get_session_calls[task_id] = self.get_session_calls.get(task_id, 0) + 1
         return self._sessions.get(task_id)
 
     def latest_usage_evidence(self, task_id, attempt_id=None):
@@ -44,6 +49,7 @@ class FakeTaskService:
         return self._artifacts.get(task_id, [])
 
     def activity_from_events(self, task_id):
+        self.activity_calls[task_id] = self.activity_calls.get(task_id, 0) + 1
         return list(self._activity.get(task_id, []))
 
 
@@ -559,6 +565,25 @@ class VoyageAgentProjectionTests(unittest.TestCase):
             self.assertEqual(grouped["presentation_group_id"], "grp-1")
             self.assertEqual({item["task"]["task_id"] for item in grouped["tasks"]}, {"qoder-1", "codebuddy-1"})
             self.assertNotIn("other-1", json.dumps(grouped))
+
+    def test_group_projection_reuses_selected_tasks_metadata_and_activity(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = AgentObservationStore(Path(tmp))
+            tasks = [task("qoder-1", "running", crew="qoder"), task("codebuddy-1", "running", crew="codebuddy")]
+            sessions = {
+                "qoder-1": SimpleNamespace(metadata_json=json.dumps({"runtime": "qoder", "model": "lite", "routing_metadata": {"presentation_group_id": "grp-fast"}})),
+                "codebuddy-1": SimpleNamespace(metadata_json=json.dumps({"runtime": "codebuddy", "model": "hy3", "routing_metadata": {"presentation_group_id": "grp-fast"}})),
+            }
+            service = FakeTaskService(tasks, sessions=sessions)
+            projection = VoyageAgentProjection(service, store)
+
+            grouped = projection.group(presentation_group_id="grp-fast", limit=50)
+
+            self.assertTrue(grouped["ok"])
+            for task_id in ("qoder-1", "codebuddy-1"):
+                self.assertEqual(service.get_task_calls.get(task_id, 0), 0)
+                self.assertEqual(service.get_session_calls.get(task_id, 0), 1)
+                self.assertEqual(service.activity_calls.get(task_id, 0), 1)
 
     def test_explicit_task_ids_group_projection_never_auto_selects_other_tasks(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

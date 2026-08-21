@@ -122,20 +122,68 @@ def _safe_usage(value: Any) -> dict[str, Any] | None:
         return None
     allowed: dict[str, Any] = {}
     for key in (
+        "total_tokens",
         "input_tokens",
+        "cache_read_tokens",
+        "cache_miss_tokens",
+        "cache_write_tokens",
         "output_tokens",
+        "reasoning_tokens",
+        "answer_tokens",
+        "credits",
+        "session_credits",
+        "original_credits",
         "credits_used",
-        "reported_cost",
         "duration_ms",
         "turns",
     ):
         item = value.get(key)
         if isinstance(item, (int, float)) and item >= 0:
             allowed[key] = item
-    currency = _bounded_string(value.get("currency"), 16)
-    if currency:
-        allowed["currency"] = currency
+    if isinstance(value.get("billable"), bool):
+        allowed["billable"] = value["billable"]
+    derived = value.get("derived_fields")
+    if isinstance(derived, list):
+        safe_derived = [str(item)[:80] for item in derived[:16] if str(item).strip()]
+        if safe_derived:
+            allowed["derived_fields"] = safe_derived
     return allowed or None
+
+
+def _safe_usage_evidence(value: Any) -> dict[str, Any]:
+    """Project durable Usage Evidence to Token/Credit-only public data.
+
+    Monetary billing fields and arbitrary provider payloads remain internal
+    evidence.  The panel receives only bounded provider identity, normalized
+    Token/Credit facts, optional Qoder model usage, and idempotency metadata.
+    """
+    if not isinstance(value, dict):
+        return {}
+    result: dict[str, Any] = {}
+    for key in ("schema", "provider", "scope", "model", "source"):
+        raw = value.get(key)
+        if isinstance(raw, str) and raw.strip():
+            result[key] = raw.strip()[:160]
+    usage = _safe_usage(value.get("usage"))
+    if usage is not None:
+        result["usage"] = usage
+    model_usage = value.get("model_usage")
+    if isinstance(model_usage, dict):
+        safe_models: dict[str, dict[str, Any]] = {}
+        for model_name, raw_usage in list(model_usage.items())[:16]:
+            if not isinstance(raw_usage, dict):
+                continue
+            safe = _safe_usage(raw_usage) or {}
+            if isinstance(raw_usage.get("billable"), bool):
+                safe["billable"] = raw_usage["billable"]
+            if safe:
+                safe_models[str(model_name)[:160]] = safe
+        if safe_models:
+            result["model_usage"] = safe_models
+    sample_count = value.get("sample_count")
+    if isinstance(sample_count, int) and not isinstance(sample_count, bool) and sample_count > 0:
+        result["sample_count"] = sample_count
+    return result
 
 
 class AgentObservationStore:
@@ -360,7 +408,9 @@ class VoyageAgentProjection:
         self._task_service = task_service
         self._observations = observation_store
 
-    def _activity_events(self, task_id: str, *, limit: int = 200) -> list[dict[str, Any]]:
+    def _activity_events(
+        self, task_id: str, *, limit: int = 200, task_status: str = "",
+    ) -> list[dict[str, Any]]:
         """Merge durable safe activity with the live in-process stream.
 
         Durable events are the restart fallback.  The live stream is retained
@@ -370,7 +420,11 @@ class VoyageAgentProjection:
         """
         bounded_limit = max(1, min(int(limit), 1000))
         durable = self._task_service.activity_from_events(task_id)
-        live = self._observations.read(task_id, limit=bounded_limit)
+        # In-memory observations are a latency aid only while execution is
+        # active.  Terminal render is rebuilt exclusively from canonical
+        # SQLite activity so a different/restarted MCP process sees the same
+        # timeline as the dispatching process.
+        live = [] if str(task_status) in TERMINAL_STATUS_VALUES else self._observations.read(task_id, limit=bounded_limit)
         merged: list[dict[str, Any]] = []
         seen: set[tuple[Any, ...]] = set()
         for raw in [*durable, *live]:
@@ -421,7 +475,7 @@ class VoyageAgentProjection:
         task = self._task_service.get_task(str(task_id or "").strip())
         if task is None:
             return self._not_found(str(task_id or "").strip(), TRACE_SCHEMA)
-        events = self._activity_events(task.task_id, limit=limit)
+        events = self._activity_events(task.task_id, limit=limit, task_status=str(task.status))
         conversation_events = self._observations.read_conversation(task.task_id, limit=1000)
         return {
             "ok": True,
@@ -436,10 +490,21 @@ class VoyageAgentProjection:
         task = self._task_service.get_task(canonical)
         if task is None:
             return self._not_found(canonical, DETAIL_SCHEMA)
-        events = self._activity_events(task.task_id, limit=limit)
+        return self._detail_for_task(task, limit=limit)
+
+    def _detail_for_task(
+        self,
+        task: Any,
+        *,
+        limit: int,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        events = self._activity_events(task.task_id, limit=limit, task_status=str(task.status))
         conversation_events = self._observations.read_conversation(task.task_id, limit=1000)
         try:
-            usage = self._task_service.latest_usage_evidence(task.task_id)
+            usage = _safe_usage_evidence(
+                self._task_service.latest_usage_evidence(task.task_id)
+            )
         except (ValueError, RuntimeError):
             usage = {}
         try:
@@ -447,6 +512,7 @@ class VoyageAgentProjection:
         except (ValueError, RuntimeError):
             artifacts = []
         timeline = self._timeline(events)
+        timeline = self._append_terminal_lifecycle(timeline, task)
         conversation = self._conversation(conversation_events)
         full_answer, result_card = self._canonical_result(task)
         if full_answer:
@@ -456,11 +522,19 @@ class VoyageAgentProjection:
                 "timestamp": getattr(task, "finished_at", None),
                 "source": "canonical_result",
             }]
+        error_events = events
+        if str(getattr(task, "status", "")) in {"failed", "lost", "orphaned"}:
+            live_failure = [
+                item for item in self._observations.read(task.task_id, limit=50)
+                if item.get("kind") == "agent_failed"
+            ]
+            if live_failure:
+                error_events = [*events, *live_failure]
         return {
             "ok": True,
             "schema": DETAIL_SCHEMA,
             "scope": "current_runtime",
-            "task": self._task_ref(task),
+            "task": self._task_ref(task, latest_events=events, metadata=metadata),
             "conversation": conversation,
             "full_answer": full_answer,
             "result_card": result_card,
@@ -468,7 +542,7 @@ class VoyageAgentProjection:
             "latest_activity": timeline[-1] if timeline else None,
             "files": self._files(events, artifacts),
             "usage": usage if isinstance(usage, dict) else {},
-            "error": self._error(task, events),
+            "error": self._error(task, error_events),
         }
 
     def group(
@@ -483,14 +557,15 @@ class VoyageAgentProjection:
         explicit_ids = list(task_ids or [])
         if bool(group_id) == bool(explicit_ids):
             raise ValueError("exactly one group selector is required")
-        selected: list[Any] = []
+        selected: list[tuple[Any, dict[str, Any] | None]] = []
         if group_id:
             if not _TASK_ID_RE.fullmatch(group_id):
                 raise ValueError("invalid presentation_group_id")
             for task in self._task_service.list_tasks():
-                if self._presentation_group_id(task) == group_id:
-                    selected.append(task)
-            selected.sort(key=lambda item: float(getattr(item, "created_at", 0.0) or 0.0))
+                metadata = self._session_metadata(task.task_id)
+                if self._presentation_group_id(task, metadata=metadata) == group_id:
+                    selected.append((task, metadata))
+            selected.sort(key=lambda item: float(getattr(item[0], "created_at", 0.0) or 0.0))
             if not selected:
                 return {
                     "ok": False,
@@ -510,40 +585,94 @@ class VoyageAgentProjection:
                 task = self._task_service.get_task(task_id)
                 if task is None:
                     return self._not_found(task_id, DETAIL_SCHEMA)
-                selected.append(task)
+                selected.append((task, None))
+        details = [
+            self._detail_for_task(item, limit=limit, metadata=metadata)
+            for item, metadata in selected
+        ]
         return {
             "ok": True,
             "schema": DETAIL_SCHEMA,
             "scope": "explicit_presentation_group",
             "presentation_group_id": group_id or None,
-            "task_ids": [item.task_id for item in selected],
-            "tasks": [self.detail(item.task_id, limit=limit) for item in selected],
+            "task_ids": [item.task_id for item, _metadata in selected],
+            "tasks": details,
+            "usage": self._group_usage(details),
         }
 
-    def _presentation_group_id(self, task: Any) -> str:
+    @staticmethod
+    def _group_usage(details: list[dict[str, Any]]) -> dict[str, Any]:
+        """Aggregate child turn usage without re-adding session cumulatives."""
+        total_tokens: int | float | None = None
+        credits: float | None = None
+        token_known = 0
+        credit_known = 0
+        for detail in details:
+            evidence = detail.get("usage") if isinstance(detail, dict) else None
+            usage = evidence.get("usage") if isinstance(evidence, dict) and isinstance(evidence.get("usage"), dict) else {}
+            token_value = usage.get("total_tokens")
+            if isinstance(token_value, (int, float)) and not isinstance(token_value, bool) and token_value >= 0:
+                total_tokens = token_value if total_tokens is None else total_tokens + token_value
+                token_known += 1
+            credit_value = usage.get("credits")
+            if credit_value is None:
+                credit_value = usage.get("credits_used")
+            if isinstance(credit_value, (int, float)) and not isinstance(credit_value, bool) and credit_value >= 0:
+                credits = float(credit_value) if credits is None else credits + float(credit_value)
+                credit_known += 1
+        result: dict[str, Any] = {
+            "total_tokens": total_tokens,
+            "credits": credits,
+            "task_count": len(details),
+            "token_task_count": token_known,
+            "credit_task_count": credit_known,
+        }
+        partial: list[str] = []
+        if token_known and token_known < len(details):
+            partial.append("total_tokens")
+        if credit_known and credit_known < len(details):
+            partial.append("credits")
+        if partial:
+            result["partial_fields"] = partial
+        return result
+
+
+    def _session_metadata(self, task_id: str) -> dict[str, Any]:
         try:
-            session = self._task_service.get_session(task.task_id)
+            session = self._task_service.get_session(task_id)
         except (AttributeError, RuntimeError):
             session = None
         if session is None:
-            return ""
-        metadata = parse_session_metadata(str(getattr(session, "metadata_json", "{}") or "{}"))
+            return {}
+        return parse_session_metadata(str(getattr(session, "metadata_json", "{}") or "{}"))
+
+    def _presentation_group_id(
+        self,
+        task: Any,
+        *,
+        metadata: dict[str, Any] | None = None,
+    ) -> str:
+        if metadata is None:
+            metadata = self._session_metadata(task.task_id)
         routing = metadata.get("routing_metadata")
         if not isinstance(routing, dict):
             return ""
         value = str(routing.get("presentation_group_id") or "").strip()
         return value if _TASK_ID_RE.fullmatch(value) else ""
 
-    def _task_ref(self, task: Any) -> dict[str, Any]:
-        metadata: dict[str, Any] = {}
-        try:
-            session = self._task_service.get_session(task.task_id)
-        except (AttributeError, RuntimeError):
-            session = None
-        if session is not None:
-            metadata = parse_session_metadata(str(getattr(session, "metadata_json", "{}") or "{}"))
+    def _task_ref(
+        self,
+        task: Any,
+        *,
+        latest_events: list[dict[str, Any]] | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        if metadata is None:
+            metadata = self._session_metadata(task.task_id)
 
-        latest = self._activity_events(task.task_id, limit=50)
+        latest = latest_events if latest_events is not None else self._activity_events(
+            task.task_id, limit=50, task_status=str(task.status)
+        )
         observed_model = next(
             (str(item.get("model") or "") for item in reversed(latest) if item.get("model")),
             "",
@@ -683,6 +812,51 @@ class VoyageAgentProjection:
             else:
                 output.append(row)
         return output
+
+    @staticmethod
+    def _append_terminal_lifecycle(
+        timeline: list[dict[str, Any]], task: Any,
+    ) -> list[dict[str, Any]]:
+        """Append durable terminal markers after every prior activity row."""
+        state = str(getattr(task, "status", "") or "")
+        if state not in TERMINAL_STATUS_VALUES:
+            return timeline
+        output = [dict(item) for item in timeline]
+        timestamp = getattr(task, "finished_at", None)
+        if state == "completed":
+            # A safe durable observation may arrive just after finalization.
+            # Keep that activity, but normalize lifecycle rows to the end so
+            # they remain terminal markers rather than ordinary timestamped
+            # activity.  Reuse persisted markers when present; never synthesize
+            # assistant answer content.
+            final_rows = [item for item in output if item.get("kind") == "final_response"]
+            completed_rows = [item for item in output if item.get("kind") == "agent_completed"]
+            output = [
+                item for item in output
+                if item.get("kind") not in {"final_response", "agent_completed"}
+            ]
+            result_json = getattr(task, "result_json", None)
+            if final_rows or (
+                bool(getattr(task, "result_available", False))
+                and isinstance(result_json, str) and bool(result_json)
+            ):
+                final_marker = dict(final_rows[-1]) if final_rows else {"kind": "final_response"}
+                final_marker.setdefault("timestamp", timestamp)
+                output.append(final_marker)
+            completed_marker = (
+                dict(completed_rows[-1])
+                if completed_rows
+                else {"kind": "agent_completed", "status": "completed"}
+            )
+            completed_marker.setdefault("timestamp", timestamp)
+            completed_marker.setdefault("status", "completed")
+            output.append(completed_marker)
+        elif state == "failed" and not any(item.get("kind") == "agent_failed" for item in output):
+            output.append({"kind": "agent_failed", "timestamp": timestamp, "status": "failed"})
+        elif state == "cancelled" and not any(item.get("kind") == "agent_cancelled" for item in output):
+            output.append({"kind": "agent_cancelled", "timestamp": timestamp, "status": "cancelled"})
+        return output
+
 
     @staticmethod
     def _files(events: list[dict[str, Any]], artifacts: list[Any]) -> list[dict[str, Any]]:

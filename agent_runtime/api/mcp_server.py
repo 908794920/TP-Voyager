@@ -2568,19 +2568,27 @@ def _usage_evidence_for_task(task_id: str) -> dict[str, Any]:
 def _usage_projection(
     evidence: dict[str, Any], *, observability: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Return only provider-observed usage quantities, never an estimate."""
+    """Project only provider-observed/explicitly-derived Token and Credit facts."""
     provenance = (observability or {}).get("usage_provenance") if isinstance(observability, dict) else None
     provenance_status = str(provenance.get("status") or "") if isinstance(provenance, dict) else ""
     usage = evidence.get("usage") if isinstance(evidence, dict) else None
     usage = usage if isinstance(usage, dict) else {}
     output: dict[str, Any] = {}
-    for field in ("input_tokens", "output_tokens", "credits_used", "reported_cost"):
+    for field in (
+        "total_tokens", "input_tokens", "cache_read_tokens", "cache_miss_tokens",
+        "cache_write_tokens", "output_tokens", "reasoning_tokens", "answer_tokens",
+        "credits", "session_credits", "original_credits",
+    ):
         value = usage.get(field)
+        if value is None and field == "credits":
+            value = usage.get("credits_used")
         if isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0:
             output[field] = value
-    currency = usage.get("currency")
-    if isinstance(currency, str) and currency.strip():
-        output["currency"] = currency.strip()[:16]
+    if isinstance(usage.get("billable"), bool):
+        output["billable"] = usage["billable"]
+    derived = usage.get("derived_fields")
+    if isinstance(derived, list):
+        output["derived_fields"] = [str(item)[:80] for item in derived[:16] if str(item).strip()]
     if output:
         status = "observed"
     elif provenance_status in {"provider_omitted", "protocol_unrecognized"}:
@@ -2591,7 +2599,7 @@ def _usage_projection(
         status = "provider_omitted"
     result: dict[str, Any] = {"status": status}
     if isinstance(evidence, dict):
-        for field in ("provider", "model", "source"):
+        for field in ("provider", "scope", "model", "source"):
             value = evidence.get(field)
             if isinstance(value, str) and value.strip():
                 result[field] = value.strip()[:160]

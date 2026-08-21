@@ -36,6 +36,78 @@ from agent_runtime.backends.qoder.process import (
 _MAX_LINE_BYTES = 8 * 1024 * 1024
 _MAX_TERMINAL_OUTPUT_BYTES = 1024 * 1024
 
+_ACP_KIND_ACTIONS = {
+    "read": "read",
+    "edit": "modify",
+    "delete": "delete",
+    "move": "modify",
+    "search": "search",
+    "execute": "execute",
+    "fetch": "fetch",
+}
+_ACP_KIND_TOOLS = {
+    "read": "Read",
+    "edit": "Edit",
+    "delete": "Delete",
+    "move": "Move",
+    "search": "Search",
+    "execute": "Shell",
+    "fetch": "Fetch",
+}
+_READ_TOOL_NAMES = {"read", "openfile", "open_file", "view"}
+_SEARCH_TOOL_NAMES = {"grep", "search", "glob", "find", "codesearch"}
+_WRITE_TOOL_NAMES = {"write", "edit", "applypatch", "apply_patch", "createfile"}
+_SHELL_TOOL_NAMES = {"bash", "shell", "terminal", "exec", "runcommand"}
+_QODER_USAGE_ID_KEYS = (
+    # Qoder SDK exposes request-level usage on Assistant messages and documents
+    # ``request_id`` (including the existing ``message.usage.request_id``).
+    # Keep only provider/business IDs here; JSON-RPC/transport IDs are excluded.
+    "requestId", "request_id", "turnId", "turn_id",
+    "modelRequestId", "model_request_id", "messageId", "message_id",
+)
+_QODER_USAGE_SCALAR_KEYS = frozenset({
+    "inputTokens", "input_tokens", "prompt_tokens",
+    "outputTokens", "output_tokens", "completion_tokens",
+    "total_tokens", "totalTokens",
+    "cached_tokens", "cachedTokens", "cache_read_tokens", "cacheReadTokens",
+    "cached_input_tokens", "cachedInputTokens",
+    "cache_miss_tokens", "cacheMissTokens",
+    "cache_write_tokens", "cacheWriteTokens",
+    "reasoning_tokens", "reasoningTokens", "thinking_tokens", "thinkingTokens",
+    "answer_tokens", "answerTokens", "response_tokens", "responseTokens",
+    "credits", "credit", "creditsUsed", "credits_used", "credit_used",
+    "total_credits", "totalCredits", "original_credits", "originalCredits",
+    "billable",
+})
+
+
+def _qoder_usage_identity(update: dict[str, Any], nested_usage: dict[str, Any]) -> str:
+    """Return a bounded provider request/turn identity, never a transport ID."""
+    sources: list[dict[str, Any]] = [nested_usage, update]
+    for owner in (nested_usage, update):
+        meta = owner.get("_meta") if isinstance(owner, dict) else None
+        if isinstance(meta, dict):
+            sources.append(meta)
+    for source in sources:
+        for key in _QODER_USAGE_ID_KEYS:
+            value = source.get(key)
+            if isinstance(value, (str, int)) and not isinstance(value, bool):
+                text = str(value).strip()
+                if text:
+                    return text[:160]
+    return ""
+
+
+def _merge_qoder_usage_sample(existing: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
+    """Merge late fields for one request without creating a second delta."""
+    previous_usage = existing.get("usage") if isinstance(existing.get("usage"), dict) else {}
+    next_usage = incoming.get("usage") if isinstance(incoming.get("usage"), dict) else {}
+    return {
+        **existing,
+        **incoming,
+        "usage": {**previous_usage, **next_usage},
+    }
+
 
 @dataclass
 class AcpRunResult:
@@ -47,6 +119,7 @@ class AcpRunResult:
     context_window_tokens_applied: bool | None = None
     model_applied: bool | None = None
     usage: dict[str, Any] | None = None
+    usage_samples: tuple[dict[str, Any], ...] = ()
 
 
 class _Terminal:
@@ -129,6 +202,9 @@ class QoderAcpClient:
         self._stderr_bytes = 0
         self._usage: dict[str, Any] = {}
         self._usage_events: list[dict[str, Any]] = []
+        self._usage_samples: list[dict[str, Any]] = []
+        self._usage_sample_indexes: dict[str, int] = {}
+        self._anonymous_usage_signatures: set[str] = set()
         self._file_access_events: list[dict[str, Any]] = []
         self._agent_request_errors: list[dict[str, str]] = []
         self._read_scope_evidence_captured = False
@@ -253,19 +329,19 @@ class QoderAcpClient:
             context_window_tokens_applied=context_window_applied,
             model_applied=model_applied,
             usage=dict(self._usage),
+            usage_samples=tuple(self.usage_samples()),
         )
 
     def usage_snapshot(self) -> dict[str, Any]:
-        """Return only scalar usage fields actually observed from ACP."""
-        return dict(self._usage)
+        """Return only bounded usage fields actually observed from ACP."""
+        return json.loads(json.dumps(self._usage, ensure_ascii=False))
+
+    def usage_samples(self) -> list[dict[str, Any]]:
+        """Return distinct bounded request/snapshot usage observations."""
+        return json.loads(json.dumps(self._usage_samples, ensure_ascii=False))
 
     def usage_provenance(self) -> dict[str, Any]:
-        known_keys = {
-            "inputTokens", "input_tokens", "prompt_tokens",
-            "outputTokens", "output_tokens", "completion_tokens",
-            "creditsUsed", "credits_used", "credit_used",
-            "cost", "reported_cost", "total_cost",
-        }
+        known_keys = _QODER_USAGE_SCALAR_KEYS
         has_known_numeric = any(
             key in known_keys
             and isinstance(value, (int, float)) and not isinstance(value, bool)
@@ -273,8 +349,17 @@ class QoderAcpClient:
             for key, value in self._usage.items()
         )
         status = "observed" if has_known_numeric else ("protocol_unrecognized" if self._usage_events else "provider_omitted")
+        identified = [item for item in self._usage_samples if str(item.get("sample_id") or "").strip()]
+        anonymous = [item for item in self._usage_samples if not str(item.get("sample_id") or "").strip()]
+        request_identity = (
+            "mixed" if identified and anonymous
+            else "provider" if identified
+            else "unavailable" if anonymous
+            else "none"
+        )
         return {
             "status": status,
+            "request_identity": request_identity,
             "event_count": len(self._usage_events),
             "events": [dict(item) for item in self._usage_events[-16:]],
         }
@@ -607,7 +692,16 @@ class QoderAcpClient:
         update = params.get("update")
         if not isinstance(update, dict):
             return
-        kind = str(update.get("sessionUpdate") or update.get("type") or "activity")
+        kind = str(update.get("sessionUpdate") or update.get("type") or "activity").strip().lower()
+        nested_tool = update.get("toolCall")
+        tool_like_update = (
+            kind in {"tool_call", "tool_call_update"}
+            or isinstance(nested_tool, dict)
+            or (
+                bool(update.get("toolCallId"))
+                and any(key in update for key in ("title", "kind", "status", "rawInput"))
+            )
+        )
         content = update.get("content")
         observation: dict[str, Any] = {}
         if kind == "agent_message_chunk":
@@ -626,29 +720,162 @@ class QoderAcpClient:
             self._usage_events.append({"type": "usage_update", "keys": keys, "timestamp": round(time.time(), 6), "size_bytes": len(json.dumps(update, ensure_ascii=False).encode("utf-8"))})
             if len(self._usage_events) > 32:
                 del self._usage_events[:-32]
-            for key, value in update.items():
-                if key != "sessionUpdate" and isinstance(value, (int, float, str, bool)):
-                    self._usage[str(key)[:80]] = value
-        elif kind in {"tool_call", "tool_call_update"}:
-            raw_tool = update.get("toolCall")
+
+            # ACP providers use both top-level scalar usage fields and a
+            # nested ``usage`` object. Keep only bounded Token/Credit facts.
+            nested_usage = update.get("usage") if isinstance(update.get("usage"), dict) else {}
+            sample_values: dict[str, Any] = {}
+            for source in (update, nested_usage):
+                for key, value in source.items():
+                    safe_key = str(key)[:80]
+                    if safe_key not in _QODER_USAGE_SCALAR_KEYS:
+                        continue
+                    if isinstance(value, bool):
+                        if safe_key == "billable":
+                            sample_values[safe_key] = value
+                    elif isinstance(value, (int, float)) and value >= 0:
+                        sample_values[safe_key] = value
+            for source in (update, nested_usage):
+                for key in ("model_usage", "modelUsage"):
+                    raw_models = source.get(key)
+                    if not isinstance(raw_models, dict):
+                        continue
+                    safe_models: dict[str, dict[str, int | float | bool]] = {}
+                    for model, raw_values in list(raw_models.items())[:32]:
+                        if not isinstance(raw_values, dict):
+                            continue
+                        safe_values: dict[str, int | float | bool] = {}
+                        for field, value in list(raw_values.items())[:32]:
+                            if isinstance(value, bool) or (
+                                isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0
+                            ):
+                                safe_values[str(field)[:80]] = value
+                        if safe_values:
+                            safe_models[str(model)[:160]] = safe_values
+                    if safe_models:
+                        sample_values["model_usage"] = safe_models
+
+            if sample_values:
+                self._usage.update(sample_values)
+                sample_id = _qoder_usage_identity(update, nested_usage)
+                accounting = "delta" if sample_id else "snapshot"
+                sample = {
+                    "usage": json.loads(json.dumps(sample_values, ensure_ascii=False)),
+                    "sample_id": sample_id,
+                    "accounting": accounting,
+                }
+                if sample_id:
+                    index = self._usage_sample_indexes.get(sample_id)
+                    if index is None:
+                        self._usage_sample_indexes[sample_id] = len(self._usage_samples)
+                        self._usage_samples.append(sample)
+                    else:
+                        # Replayed/enriched update for the same request replaces
+                        # that logical sample instead of creating a new delta.
+                        self._usage_samples[index] = _merge_qoder_usage_sample(self._usage_samples[index], sample)
+                else:
+                    signature = json.dumps(sample_values, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+                    if signature not in self._anonymous_usage_signatures:
+                        self._anonymous_usage_signatures.add(signature)
+                        self._usage_samples.append(sample)
+        elif tool_like_update:
+            raw_tool = nested_tool
             if not isinstance(raw_tool, dict):
                 raw_tool = update
-            tool_name = str(
+            tool_kind = str(raw_tool.get("kind") or update.get("kind") or "").strip().lower()
+            explicit_tool_name = str(
                 raw_tool.get("name")
                 or raw_tool.get("toolName")
-                or raw_tool.get("title")
-                or "tool"
-            )[:160]
+                or ""
+            ).strip()
+            if any(marker in explicit_tool_name for marker in ("/", "\\", "\r", "\n")):
+                explicit_tool_name = ""
+            title = str(raw_tool.get("title") or update.get("title") or "").strip()
+            tool_name = explicit_tool_name or _ACP_KIND_TOOLS.get(tool_kind, "")
+            if not tool_name and title:
+                # ACP titles are human-readable and may contain paths or command
+                # arguments. Only retain a leading token when it is a known
+                # tool label; otherwise use the generic public label.
+                candidate = title.split(maxsplit=1)[0]
+                if self._tool_action("", candidate):
+                    tool_name = candidate
+            tool_name = (tool_name or "tool")[:160]
             status = str(raw_tool.get("status") or update.get("status") or "")[:80]
+            raw_input = raw_tool.get("rawInput")
+            if not isinstance(raw_input, dict):
+                raw_input = update.get("rawInput") if isinstance(update.get("rawInput"), dict) else {}
+            action = self._tool_action(tool_kind, tool_name)
             observation = {
                 "observation_kind": "tool_activity",
                 "tool": tool_name,
             }
+            if action:
+                observation["action"] = action
+            path = self._safe_observation_path(
+                raw_input.get("file_path") or raw_input.get("path") or raw_input.get("file")
+            )
+            if path:
+                observation["path"] = path
             if status:
                 observation["status"] = status
         detail = {"route": "acp", "acp_update": kind[:80], **observation}
         self._last_activity = time.monotonic()
         self._event_count += 1
+        self.on_activity(
+            BackendActivity(
+                kind="stream_activity",
+                timestamp=time.time(),
+                detail=detail,
+            )
+        )
+
+    @staticmethod
+    def _tool_action(tool_kind: str, tool_name: str) -> str:
+        kind = str(tool_kind or "").strip().lower()
+        if kind in _ACP_KIND_ACTIONS:
+            return _ACP_KIND_ACTIONS[kind]
+        normalized = str(tool_name or "").replace("-", "").replace("_", "").casefold()
+        if normalized in {item.replace("_", "") for item in _READ_TOOL_NAMES}:
+            return "read"
+        if normalized in {item.replace("_", "") for item in _SEARCH_TOOL_NAMES}:
+            return "search"
+        if normalized in {item.replace("_", "") for item in _WRITE_TOOL_NAMES}:
+            return "modify"
+        if normalized in {item.replace("_", "") for item in _SHELL_TOOL_NAMES}:
+            return "execute"
+        return ""
+
+    def _safe_observation_path(self, value: Any) -> str:
+        raw = str(value or "").strip()
+        if not raw:
+            return ""
+        try:
+            candidate = Path(raw)
+            resolved = candidate.resolve() if candidate.is_absolute() else (self.cwd / candidate).resolve()
+            return resolved.relative_to(self.cwd).as_posix()[:512]
+        except (OSError, RuntimeError, ValueError):
+            return ""
+
+    def _emit_client_tool_activity(
+        self,
+        *,
+        tool: str,
+        action: str,
+        status: str,
+        path: str = "",
+    ) -> None:
+        detail: dict[str, Any] = {
+            "route": "acp_client",
+            "observation_kind": "tool_activity",
+            "tool": str(tool or "tool")[:160],
+            "action": str(action or "")[:80],
+            "status": str(status or "")[:80],
+            "source": "acp_client_callback",
+        }
+        safe_path = self._safe_observation_path(path)
+        if safe_path:
+            detail["path"] = safe_path
+        self._last_activity = time.monotonic()
         self.on_activity(
             BackendActivity(
                 kind="stream_activity",
@@ -699,6 +926,9 @@ class QoderAcpClient:
                 raise
             line = max(1, int(params.get("line") or 1))
             limit = max(1, min(100_000, int(params.get("limit") or 100_000)))
+            self._emit_client_tool_activity(
+                tool="Read", action="read", status="completed", path=raw_path,
+            )
             return {"content": "\n".join(text.splitlines()[line - 1: line - 1 + limit])}
         if method == "fs/write_text_file":
             raw_path = str(params.get("path") or "")
@@ -712,6 +942,9 @@ class QoderAcpClient:
             except Exception as exc:
                 self._record_file_access(raw_path, operation="write", allowed=False, reason=type(exc).__name__)
                 raise
+            self._emit_client_tool_activity(
+                tool="Write", action="modify", status="completed", path=raw_path,
+            )
             return None
         if method == "session/request_permission":
             options = params.get("options") if isinstance(params.get("options"), list) else []
@@ -722,7 +955,9 @@ class QoderAcpClient:
         if method == "terminal/create":
             if not self.allow_terminal:
                 raise PermissionError("Qoder ACP policy denies terminal execution")
-            return self._terminal_create(params)
+            result = self._terminal_create(params)
+            self._emit_client_tool_activity(tool="Shell", action="execute", status="in_progress")
+            return result
         if method == "terminal/output":
             terminal = self._terminal(str(params.get("terminalId") or ""))
             output, truncated = terminal.snapshot()
@@ -730,10 +965,16 @@ class QoderAcpClient:
         if method == "terminal/wait_for_exit":
             terminal = self._terminal(str(params.get("terminalId") or ""))
             code = terminal.process.wait()
+            self._emit_client_tool_activity(
+                tool="Shell",
+                action="execute",
+                status="completed" if int(code or 0) == 0 else "failed",
+            )
             return {"exitCode": code}
         if method == "terminal/kill":
             terminal = self._terminal(str(params.get("terminalId") or ""))
             terminate_process_tree(terminal.process)
+            self._emit_client_tool_activity(tool="Shell", action="execute", status="cancelled")
             return None
         if method == "terminal/release":
             terminal_id = str(params.get("terminalId") or "")

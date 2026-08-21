@@ -86,6 +86,140 @@ class QoderObservationTests(unittest.TestCase):
         self.assertEqual(detail["status"], "running")
         self.assertNotIn("content", detail)
 
+    def test_standard_acp_tool_call_projects_safe_action_and_workspace_path(self) -> None:
+        events: list[BackendActivity] = []
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            target = root / "src" / "login.py"
+            target.parent.mkdir(parents=True)
+            target.write_text("print('ok')", encoding="utf-8")
+            client = object.__new__(QoderAcpClient)
+            client.cwd = root.resolve()
+            client._answer = []
+            client._usage = {}
+            client._usage_events = []
+            client._last_activity = time.monotonic()
+            client._event_count = 0
+            client.on_activity = events.append
+
+            client._handle_notification(
+                {
+                    "method": "session/update",
+                    "params": {
+                        "update": {
+                            "sessionUpdate": "tool_call",
+                            "toolCallId": "tool-1",
+                            "title": "Read login.py",
+                            "kind": "read",
+                            "status": "in_progress",
+                            "rawInput": {"path": str(target)},
+                            "content": "raw file contents must not be forwarded",
+                        }
+                    },
+                }
+            )
+
+        detail = events[-1].detail
+        self.assertEqual(detail["observation_kind"], "tool_activity")
+        self.assertEqual(detail["tool"], "Read")
+        self.assertEqual(detail["action"], "read")
+        self.assertEqual(detail["path"], "src/login.py")
+        self.assertEqual(detail["status"], "in_progress")
+        self.assertNotIn("rawInput", detail)
+        self.assertNotIn("content", detail)
+
+    def test_qoder_tool_like_vendor_update_is_forward_compatible(self) -> None:
+        events: list[BackendActivity] = []
+        client = object.__new__(QoderAcpClient)
+        client.cwd = Path.cwd().resolve()
+        client._answer = []
+        client._usage = {}
+        client._usage_events = []
+        client._last_activity = time.monotonic()
+        client._event_count = 0
+        client.on_activity = events.append
+
+        client._handle_notification(
+            {
+                "method": "session/update",
+                "params": {
+                    "update": {
+                        "sessionUpdate": "qoder_tool_progress",
+                        "toolCallId": "tool-vendor-1",
+                        "title": "Grep source",
+                        "kind": "search",
+                        "status": "in_progress",
+                    }
+                },
+            }
+        )
+
+        detail = events[-1].detail
+        self.assertEqual(detail["observation_kind"], "tool_activity")
+        self.assertEqual(detail["action"], "search")
+        self.assertEqual(detail["tool"], "Search")
+
+    def test_unknown_tool_title_does_not_expose_host_path(self) -> None:
+        events: list[BackendActivity] = []
+        client = object.__new__(QoderAcpClient)
+        client.cwd = Path.cwd().resolve()
+        client._answer = []
+        client._usage = {}
+        client._usage_events = []
+        client._last_activity = time.monotonic()
+        client._event_count = 0
+        client.on_activity = events.append
+
+        client._handle_notification(
+            {
+                "method": "session/update",
+                "params": {
+                    "update": {
+                        "sessionUpdate": "tool_call",
+                        "toolCallId": "tool-private-title",
+                        "title": "C:/Users/example/private.txt",
+                        "kind": "other",
+                        "status": "in_progress",
+                    }
+                },
+            }
+        )
+
+        encoded = str(events[-1].detail)
+        self.assertEqual(events[-1].detail["tool"], "tool")
+        self.assertNotIn("private.txt", encoded)
+
+    def test_client_fs_callback_is_observable_when_qoder_omits_tool_update(self) -> None:
+        events: list[BackendActivity] = []
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            target = root / "src" / "service.py"
+            target.parent.mkdir(parents=True)
+            target.write_text("service = True\n", encoding="utf-8")
+            client = object.__new__(QoderAcpClient)
+            client.cwd = root.resolve()
+            client.allowed_paths = ()
+            client.forbidden_paths = ()
+            client.allow_file_writes = False
+            client.allow_permissions = False
+            client.allow_terminal = False
+            client.command_specs = ()
+            client._file_access_events = []
+            client.on_activity = events.append
+
+            result = client._dispatch_client_method(
+                "fs/read_text_file",
+                {"path": str(target)},
+            )
+
+        self.assertEqual(result, {"content": "service = True"})
+        tool_events = [item for item in events if item.detail.get("observation_kind") == "tool_activity"]
+        self.assertEqual(len(tool_events), 1)
+        self.assertEqual(tool_events[0].detail["tool"], "Read")
+        self.assertEqual(tool_events[0].detail["action"], "read")
+        self.assertEqual(tool_events[0].detail["path"], "src/service.py")
+        self.assertEqual(tool_events[0].detail["status"], "completed")
+
 
 class FakeOptions:
     def __init__(self, **kwargs):

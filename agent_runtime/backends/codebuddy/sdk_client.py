@@ -34,10 +34,18 @@ from agent_runtime.backends.errors import (
 # separate, explicitly bounded tool gateway rather than widening this route.
 
 _CODEBUDDY_USAGE_FIELDS = (
-    "input_tokens", "output_tokens",
-    "cache_read_input_tokens", "cache_creation_input_tokens",
-    "cached_input_tokens", "cache_write_input_tokens",
-    "credits", "credits_used", "total_credits",
+    "input_tokens", "inputTokens", "prompt_tokens",
+    "output_tokens", "outputTokens", "completion_tokens",
+    "cache_read_input_tokens", "cacheReadTokens",
+    "cache_creation_input_tokens", "cacheCreationInputTokens",
+    "cached_input_tokens", "cachedInputTokens",
+    "cache_miss_tokens", "cacheMissTokens",
+    "cache_write_input_tokens", "cacheWriteTokens",
+    "cache_read_tokens", "cache_write_tokens",
+    "total_tokens", "totalTokens",
+    "reasoning_tokens", "reasoningTokens",
+    "answer_tokens", "answerTokens",
+    "credit", "credits", "credits_used", "creditsUsed", "total_credits", "totalCredits",
 )
 
 def _normalize_codebuddy_usage(value: object) -> dict[str, Any]:
@@ -53,6 +61,100 @@ def _normalize_codebuddy_usage(value: object) -> dict[str, Any]:
         if isinstance(raw, (int, float)) and raw >= 0:
             out[name] = raw
     return out
+
+def _codebuddy_stream_usage_update(event: object) -> dict[str, Any]:
+    """Extract a documented ACP ``usage_update`` from an SDK StreamEvent.
+
+    The CodeBuddy Python SDK exposes ``StreamEvent.event`` as an opaque dict.
+    When the underlying CLI surfaces the ACP update there, retain only the
+    bounded numeric Token/Credit fields understood by TP-Voyager.
+    """
+    if not isinstance(event, dict):
+        return {}
+    candidate = event
+    params = event.get("params")
+    if isinstance(params, dict) and isinstance(params.get("update"), dict):
+        candidate = params["update"]
+    elif isinstance(event.get("update"), dict):
+        candidate = event["update"]
+    kind = str(candidate.get("sessionUpdate") or candidate.get("type") or "").strip().lower()
+    if kind != "usage_update":
+        return {}
+    nested = candidate.get("usage") if isinstance(candidate.get("usage"), dict) else {}
+    # Nested ``usage`` is the v2.99 ACP Credit shape; top-level fields remain
+    # accepted for protocol-compatible Token extensions.
+    return {**_normalize_codebuddy_usage(candidate), **_normalize_codebuddy_usage(nested)}
+
+_CODEBUDDY_USAGE_ID_KEYS = (
+    # Provider/business correlation IDs only.  In particular, the SDK
+    # StreamEvent/transport UUID is intentionally excluded: CodeBuddy can
+    # replay one logical ``usage_update`` under a new transport UUID.
+    "requestId", "request_id", "turnId", "turn_id",
+    "modelRequestId", "model_request_id",
+    "messageRequestId", "message_request_id",
+    "promptRequestId", "prompt_request_id",
+    "messageId", "message_id",
+)
+
+
+def _codebuddy_stream_usage_identity(event: object) -> str:
+    """Return only a bounded provider business identity for one usage sample.
+
+    CodeBuddy documents request/message correlation IDs in ACP ``_meta``.
+    SDK/transport UUIDs are not request identities and must never turn an
+    otherwise anonymous usage snapshot into an additive delta.
+    """
+    if not isinstance(event, dict):
+        return ""
+    candidate = event
+    params = event.get("params")
+    if isinstance(params, dict) and isinstance(params.get("update"), dict):
+        candidate = params["update"]
+    elif isinstance(event.get("update"), dict):
+        candidate = event["update"]
+    nested = candidate.get("usage") if isinstance(candidate.get("usage"), dict) else {}
+    sources: list[dict[str, Any]] = [candidate, nested]
+    for owner in (candidate, nested, params if isinstance(params, dict) else {}, event):
+        meta = owner.get("_meta") if isinstance(owner, dict) else None
+        if isinstance(meta, dict):
+            sources.append(meta)
+    for source in sources:
+        for key in _CODEBUDDY_USAGE_ID_KEYS:
+            value = source.get(key)
+            if isinstance(value, (str, int)) and not isinstance(value, bool):
+                text = str(value).strip()
+                if text:
+                    return text[:160]
+    return ""
+
+
+def _merge_usage_sample(existing: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
+    """Merge a late/enriched observation for the same logical provider sample."""
+    previous_usage = existing.get("usage") if isinstance(existing.get("usage"), dict) else {}
+    next_usage = incoming.get("usage") if isinstance(incoming.get("usage"), dict) else {}
+    return {
+        **existing,
+        **incoming,
+        "usage": {**previous_usage, **next_usage},
+    }
+
+
+def _merge_codebuddy_usage_samples(samples: list[dict[str, Any]]) -> dict[str, Any]:
+    """Build a compatibility summary without re-adding anonymous snapshots."""
+    delta_totals: dict[str, int | float] = {}
+    latest_snapshot: dict[str, Any] = {}
+    for sample in samples:
+        usage = sample.get("usage") if isinstance(sample.get("usage"), dict) else {}
+        if sample.get("accounting") == "delta":
+            for key, value in usage.items():
+                if isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0:
+                    delta_totals[key] = delta_totals.get(key, 0) + value
+        else:
+            latest_snapshot = dict(usage)
+    merged = dict(latest_snapshot)
+    merged.update(delta_totals)
+    return merged
+
 
 _CODEBUDDY_BUILTIN_TOOLS = (
     "AskUserQuestion",
@@ -88,6 +190,8 @@ class CodeBuddySdkRunResult:
     observability: dict[str, Any]
     usage: dict[str, Any]
     total_cost_usd: float | None = None
+    usage_samples: tuple[dict[str, Any], ...] = ()
+    terminal_usage: dict[str, Any] | None = None
 
 
 def load_codebuddy_sdk() -> ModuleType:
@@ -230,6 +334,9 @@ class CodeBuddySdkClient:
         text_parts: list[str] = []
         event_count = 0
         result_message: Any | None = None
+        usage_samples: list[dict[str, Any]] = []
+        usage_sample_indexes: dict[str, int] = {}
+        anonymous_usage_signatures: set[tuple[tuple[str, int | float], ...]] = set()
         try:
             await client.connect()
             if self._cancel_requested.is_set():
@@ -312,6 +419,36 @@ class CodeBuddySdkClient:
                                 if tool_name in {"Edit", "MultiEdit", "Write"}:
                                     detail["action"] = "modify"
                             observation_events.append(detail)
+                if type_name == "StreamEvent":
+                    raw_event = getattr(message, "event", None)
+                    observed_usage = _codebuddy_stream_usage_update(raw_event)
+                    if observed_usage:
+                        sample_id = _codebuddy_stream_usage_identity(raw_event)
+                        accounting = "delta" if sample_id else "snapshot"
+                        sample = {
+                            "usage": dict(observed_usage),
+                            "sample_id": sample_id,
+                            "accounting": accounting,
+                        }
+                        if sample_id:
+                            index = usage_sample_indexes.get(sample_id)
+                            if index is None:
+                                usage_sample_indexes[sample_id] = len(usage_samples)
+                                usage_samples.append(sample)
+                            else:
+                                # The same request/turn can be replayed or
+                                # enriched. Keep one logical delta and let the
+                                # newest payload for that identity win.
+                                usage_samples[index] = _merge_usage_sample(usage_samples[index], sample)
+                        else:
+                            signature = tuple(sorted(
+                                (str(key), value)
+                                for key, value in observed_usage.items()
+                                if isinstance(value, (int, float)) and not isinstance(value, bool)
+                            ))
+                            if signature not in anonymous_usage_signatures:
+                                anonymous_usage_signatures.add(signature)
+                                usage_samples.append(sample)
                 if type_name == "ResultMessage":
                     result_message = message
                 route_name = "sdk_patch" if self.access_mode == "patch" else ("sdk_verify" if self.access_mode == "verification" else "sdk_context_read_only")
@@ -362,7 +499,19 @@ class CodeBuddySdkClient:
                 else "".join(text_parts).strip()
             )
             usage = getattr(result_message, "usage", None)
-            usage_dict = _normalize_codebuddy_usage(usage)
+            # SDK Result usage is the terminal Token source; a documented ACP
+            # usage_update surfaced through StreamEvent can additionally carry
+            # per-turn Credit.  Never estimate Credit from Token counts.
+            terminal_usage = _normalize_codebuddy_usage(usage)
+            stream_usage = _merge_codebuddy_usage_samples(usage_samples)
+            usage_dict = {**stream_usage, **terminal_usage}
+            # CodeBuddy ACP v2.99 documents usage_update.usage.credit as the
+            # per-turn Credit value.  Preserve the de-duplicated stream value
+            # when present; terminal SDK usage remains authoritative for Token
+            # snapshots but cannot silently replace that Credit quantity.
+            stream_credit = stream_usage.get("credit")
+            if isinstance(stream_credit, (int, float)) and not isinstance(stream_credit, bool):
+                usage_dict["credit"] = stream_credit
             total_cost = getattr(result_message, "total_cost_usd", None)
             duration_ms = getattr(result_message, "duration_ms", None)
             turns = getattr(result_message, "num_turns", None)
@@ -371,6 +520,12 @@ class CodeBuddySdkClient:
                 stop_reason=str(getattr(result_message, "subtype", "") or "end_turn"),
                 answer=answer,
                 usage=usage_dict,
+                usage_samples=tuple({
+                    "usage": dict(sample.get("usage") or {}),
+                    "sample_id": str(sample.get("sample_id") or ""),
+                    "accounting": str(sample.get("accounting") or "snapshot"),
+                } for sample in usage_samples),
+                terminal_usage=dict(terminal_usage),
                 total_cost_usd=(
                     float(total_cost)
                     if isinstance(total_cost, (int, float))

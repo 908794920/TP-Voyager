@@ -22,6 +22,26 @@ class VoyagerPanelHtmlTests(unittest.TestCase):
         self.assertIn('<html lang="zh-CN">', html)
         self.assertIn('request("tools/call"', html)
         self.assertIn('name: "render_voyager_panel"', html)
+
+    def test_bridge_requests_have_bounded_timeout_and_cleanup(self) -> None:
+        html = render_voyager_panel_html()
+        self.assertIn("const REQUEST_TIMEOUT_MS", html)
+        self.assertIn("function request(method, params, timeoutMs = REQUEST_TIMEOUT_MS)", html)
+        self.assertIn("pendingRequests.delete(id);", html)
+        self.assertIn('reject(new Error(`MCP bridge request timed out: ${method}`))', html)
+        self.assertIn("clearTimeout(pending.timeoutId)", html)
+
+    def test_resume_sync_waits_for_first_verified_snapshot(self) -> None:
+        html = render_voyager_panel_html()
+        self.assertIn("let hasVerifiedSnapshot = false;", html)
+        self.assertIn("hasVerifiedSnapshot = true;", html)
+        self.assertIn("if (!hasVerifiedSnapshot) return;", html)
+
+    def test_unchanged_projection_can_skip_full_workbench_rebuild(self) -> None:
+        html = render_voyager_panel_html()
+        self.assertIn("let lastRenderedRevision = \"\";", html)
+        self.assertIn("function snapshotRevision(data)", html)
+        self.assertIn("if (revision === lastRenderedRevision)", html)
         self.assertIn('ui/notifications/tool-result', html)
         self.assertIn('ui/initialize', html)
         self.assertIn('ui/notifications/initialized', html)
@@ -38,7 +58,11 @@ class VoyagerPanelHtmlTests(unittest.TestCase):
 
     def test_panel_syncs_immediately_on_dispatch_and_host_resume_without_showing_stale_running(self) -> None:
         html = render_voyager_panel_html()
-        self.assertIn('data-state="syncing"', html)
+        self.assertIn('data-task-state="unknown"', html)
+        self.assertIn('data-sync-state="syncing"', html)
+        self.assertNotIn('data-state="syncing"', html)
+        self.assertIn('setTaskState(', html)
+        self.assertIn('setSyncState(', html)
         self.assertIn('syncing: "正在同步"', html)
         self.assertIn('pending: "等待中"', html)
         self.assertIn('requested: "已请求"', html)
@@ -94,7 +118,6 @@ class VoyagerPanelHtmlTests(unittest.TestCase):
     def test_panel_has_obvious_status_dot_and_border_states(self) -> None:
         html = render_voyager_panel_html()
         for state in (
-            "syncing",
             "queued",
             "connecting",
             "running",
@@ -105,7 +128,10 @@ class VoyagerPanelHtmlTests(unittest.TestCase):
             "lost",
             "orphaned",
         ):
-            self.assertIn(f'data-state="{state}"', html)
+            self.assertIn(f'data-task-state="{state}"', html)
+        self.assertIn('#panel[data-sync-state="syncing"]', html)
+        self.assertIn('.wb-task[data-task-state="completed"]', html)
+        self.assertNotIn('data-state="', html)
         self.assertIn("status-dot", html)
         self.assertIn("@keyframes pulse", html)
         self.assertIn("border-color", html)

@@ -217,13 +217,19 @@ class QoderBackend:
     def _usage_fact(
         request: BackendStartRequest | BackendResumeRequest,
         raw: dict[str, Any],
+        *,
+        source: str = "qoder_acp_usage_update",
+        accounting: str = "delta",
+        sample_id: str = "",
     ) -> BackendUsage | None:
         if not raw:
             return None
+        nested = raw.get("usage") if isinstance(raw.get("usage"), dict) else {}
+        values = {**raw, **nested}
 
         def number(*names: str) -> float | int | None:
             for name in names:
-                value = raw.get(name)
+                value = values.get(name)
                 if isinstance(value, bool):
                     continue
                 if isinstance(value, (int, float)) and value >= 0:
@@ -232,17 +238,55 @@ class QoderBackend:
 
         input_tokens = number("inputTokens", "input_tokens", "prompt_tokens")
         output_tokens = number("outputTokens", "output_tokens", "completion_tokens")
-        credits = number("creditsUsed", "credits_used", "credit_used")
-        reported_cost = number("cost", "reported_cost", "total_cost")
+        cache_read = number(
+            "cached_tokens", "cachedTokens", "cache_read_tokens", "cacheReadTokens",
+            "cached_input_tokens", "cachedInputTokens",
+        )
+        cache_write = number("cache_write_tokens", "cacheWriteTokens")
+        cache_miss = number("cache_miss_tokens", "cacheMissTokens")
+        reasoning_tokens = number("reasoning_tokens", "reasoningTokens", "thinking_tokens", "thinkingTokens")
+        answer_tokens = number("answer_tokens", "answerTokens", "response_tokens", "responseTokens")
+        credits = number("credits", "credit", "creditsUsed", "credits_used", "credit_used")
+        session_credits = number("total_credits", "totalCredits")
+        original_credits = number("original_credits", "originalCredits")
+        explicit_total = number("total_tokens", "totalTokens")
+        billable = values.get("billable") if isinstance(values.get("billable"), bool) else None
+        model_usage = values.get("model_usage") if isinstance(values.get("model_usage"), dict) else values.get("modelUsage")
+        model_usage = model_usage if isinstance(model_usage, dict) else {}
+
+        derived: list[str] = []
+        total_tokens = explicit_total
+        if total_tokens is None and input_tokens is not None and output_tokens is not None:
+            total_tokens = input_tokens + output_tokens
+            derived.append("total_tokens")
+        if cache_miss is None and input_tokens is not None and cache_read is not None and input_tokens >= cache_read:
+            # Qoder may report total input plus cached input.  This is the only
+            # inferred Token field and is explicitly marked derived.
+            cache_miss = input_tokens - cache_read
+            derived.append("cache_miss_tokens")
+
         return BackendUsage(
             provider="qoder",
+            scope="turn",
             model=request.model,
-            source="qoder_acp_usage_update",
+            source=source,
+            accounting=accounting,
+            sample_id=sample_id,
+            total_tokens=int(total_tokens) if total_tokens is not None else None,
             input_tokens=int(input_tokens) if input_tokens is not None else None,
+            cache_read_tokens=int(cache_read) if cache_read is not None else None,
+            cache_miss_tokens=int(cache_miss) if cache_miss is not None else None,
+            cache_write_tokens=int(cache_write) if cache_write is not None else None,
             output_tokens=int(output_tokens) if output_tokens is not None else None,
-            credits_used=float(credits) if credits is not None else None,
-            reported_cost=float(reported_cost) if reported_cost is not None else None,
-            provider_usage=raw,
+            reasoning_tokens=int(reasoning_tokens) if reasoning_tokens is not None else None,
+            answer_tokens=int(answer_tokens) if answer_tokens is not None else None,
+            credits=float(credits) if credits is not None else None,
+            session_credits=float(session_credits) if session_credits is not None else None,
+            original_credits=float(original_credits) if original_credits is not None else None,
+            billable=billable,
+            derived_fields=tuple(derived),
+            model_usage=model_usage,
+            provider_usage=values,
         )
 
     def _register(self, task_id: str, live: _LiveExecution) -> None:
@@ -361,11 +405,38 @@ class QoderBackend:
                 max_task_duration_seconds=request.max_task_duration_seconds,
                 on_dispatch_accepted=accepted,
             )
-            usage_fact = self._usage_fact(request, dict(result.usage or {}))
-            if usage_fact is not None:
-                usage_sink = getattr(callbacks, "on_usage", None)
-                if callable(usage_sink):
-                    usage_sink(usage_fact)
+            usage_sink = getattr(callbacks, "on_usage", None)
+            samples = tuple(getattr(result, "usage_samples", ()) or ())
+            if callable(usage_sink):
+                if samples:
+                    for sample in samples:
+                        if not isinstance(sample, dict):
+                            continue
+                        raw_sample = sample.get("usage") if isinstance(sample.get("usage"), dict) else {}
+                        sample_fact = self._usage_fact(
+                            request,
+                            raw_sample,
+                            source="qoder_acp_usage_update",
+                            accounting=str(sample.get("accounting") or "snapshot"),
+                            sample_id=str(sample.get("sample_id") or ""),
+                        )
+                        if sample_fact is not None:
+                            usage_sink(sample_fact)
+                else:
+                    fallback_fact = self._usage_fact(
+                        request,
+                        dict(result.usage or {}),
+                        source="qoder_acp_terminal_snapshot",
+                        accounting="snapshot",
+                    )
+                    if fallback_fact is not None:
+                        usage_sink(fallback_fact)
+            usage_fact = self._usage_fact(
+                request,
+                dict(result.usage or {}),
+                source="qoder_acp_terminal_snapshot",
+                accounting="snapshot",
+            )
             backend_result = BackendResult(
                 backend="qoder",
                 stop_reason=result.stop_reason,
@@ -392,11 +463,34 @@ class QoderBackend:
             # ACP may report usage before a timeout/cancel/protocol failure.
             # Capture that observed fact even when no terminal result exists.
             try:
-                raw_usage = client.usage_snapshot()
-                usage_fact = self._usage_fact(request, raw_usage)
                 usage_sink = getattr(callbacks, "on_usage", None)
-                if usage_fact is not None and callable(usage_sink):
-                    usage_sink(usage_fact)
+                if callable(usage_sink):
+                    sample_getter = getattr(client, "usage_samples", None)
+                    samples = sample_getter() if callable(sample_getter) else []
+                    if samples:
+                        for sample in samples:
+                            if not isinstance(sample, dict):
+                                continue
+                            raw_sample = sample.get("usage") if isinstance(sample.get("usage"), dict) else {}
+                            usage_fact = self._usage_fact(
+                                request,
+                                raw_sample,
+                                source="qoder_acp_usage_update",
+                                accounting=str(sample.get("accounting") or "snapshot"),
+                                sample_id=str(sample.get("sample_id") or ""),
+                            )
+                            if usage_fact is not None:
+                                usage_sink(usage_fact)
+                    else:
+                        raw_usage = client.usage_snapshot()
+                        usage_fact = self._usage_fact(
+                            request,
+                            raw_usage,
+                            source="qoder_acp_terminal_snapshot",
+                            accounting="snapshot",
+                        )
+                        if usage_fact is not None:
+                            usage_sink(usage_fact)
             except Exception:
                 # Usage evidence is auxiliary and must never mask the backend
                 # execution outcome.  The Runtime records only facts it got.

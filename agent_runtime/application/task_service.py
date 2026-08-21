@@ -764,10 +764,11 @@ class TaskService:
         usage: dict[str, Any],
         lease: LeaseInfo | None = None,
     ) -> bool:
-        """Append one immutable provider-reported Usage Evidence per Attempt.
+        """Append immutable provider-reported Usage Evidence for an Attempt.
 
-        The Runtime never calculates price or fills missing usage values.  A
-        repeated callback for the same Attempt is an idempotent no-op.
+        Multiple distinct turn/session usage samples may be observed for one
+        Attempt. Exact duplicate payloads are idempotent; missing values stay
+        missing and provider cumulative values are not converted to deltas.
         """
         payload = dict(usage or {})
         if payload.get("schema") != "tp-voyager.usage/v1":
@@ -794,21 +795,26 @@ class TaskService:
                 raise RuntimePersistenceError(
                     f"task {task_id} has no durable current_attempt_id"
                 )
-            if self.evidence.has_type_for_attempt(
-                connection,
-                task_id=task_id,
-                attempt_id=attempt_id,
-                evidence_type=EvidenceType.USAGE.value,
-            ):
-                return False
+            # Usage can legitimately arrive more than once per Attempt (for
+            # example one provider turn update plus a terminal session total).
+            # Evidence stays append-only; exact duplicates are idempotent by a
+            # deterministic content fingerprint instead of "one usage row per
+            # attempt".
             digest = hashlib.sha256(
-                f"{task_id}\0{attempt_id}\0usage".encode("utf-8")
-            ).hexdigest()[:16]
+                f"{task_id}\0{attempt_id}\0usage\0{detail_json}".encode("utf-8")
+            ).hexdigest()[:24]
+            evidence_id = f"evd-{digest}"
+            duplicate = connection.execute(
+                "SELECT 1 FROM evidences WHERE evidence_id = ? LIMIT 1",
+                (evidence_id,),
+            ).fetchone()
+            if duplicate is not None:
+                return False
             self.evidence.insert_many(
                 connection,
                 [
                     Evidence(
-                        evidence_id=f"evd-{digest}",
+                        evidence_id=evidence_id,
                         task_id=task_id,
                         attempt_id=attempt_id,
                         evidence_type=EvidenceType.USAGE.value,
@@ -826,18 +832,184 @@ class TaskService:
     def latest_usage_evidence(
         self, task_id: str, attempt_id: str | None = None,
     ) -> dict[str, Any]:
-        """Return the bounded Usage Evidence payload for one Attempt, if any."""
+        """Return the durable Token/Credit summary for one Attempt.
+
+        ``delta`` samples are accumulated once per reliable provider
+        ``sample_id`` (the newest observation for the same ID wins).
+        ``snapshot`` samples are never added to each other; the latest value is
+        used only when no request/turn delta exists for that field. Session
+        cumulative Credits are always latest-value snapshots regardless of the
+        request accounting mode.
+        """
         attempt = self.resolve_attempt(task_id, attempt_id)
-        items = self.evidence.list_for_attempt(task_id, attempt.attempt_id)
-        for item in reversed(items):
+        payloads: list[dict[str, Any]] = []
+        for item in self.evidence.list_for_attempt(task_id, attempt.attempt_id):
             if item.evidence_type != EvidenceType.USAGE.value:
                 continue
             try:
                 payload = json.loads(item.detail_json or "{}")
             except json.JSONDecodeError:
-                return {}
-            return payload if isinstance(payload, dict) else {}
-        return {}
+                continue
+            if isinstance(payload, dict):
+                payloads.append(payload)
+        if not payloads:
+            return {}
+        # Preserve the historical single-evidence contract exactly. Accounting
+        # aggregation is only needed once multiple provider observations exist;
+        # callers that persisted one usage fact must keep seeing that same fact.
+        if len(payloads) == 1:
+            return payloads[0]
+
+        token_fields = (
+            "total_tokens", "input_tokens", "cache_read_tokens",
+            "cache_miss_tokens", "cache_write_tokens", "output_tokens",
+            "reasoning_tokens", "answer_tokens",
+        )
+
+        # Backward compatibility: v1 facts without ``accounting`` used the old
+        # append-and-sum contract, so they remain deltas. Reliable sample IDs
+        # collapse replays/late enrichments to one logical request or turn.
+        anonymous_deltas: list[dict[str, Any]] = []
+        identified_deltas: dict[tuple[str, str], dict[str, Any]] = {}
+        snapshots: list[dict[str, Any]] = []
+        for payload in payloads:
+            accounting = str(payload.get("accounting") or "delta").strip().lower()
+            if accounting == "snapshot":
+                snapshots.append(payload)
+                continue
+            scope = str(payload.get("scope") or "turn")
+            if scope != "turn":
+                snapshots.append(payload)
+                continue
+            sample_id = str(payload.get("sample_id") or "").strip()
+            if sample_id:
+                key = (str(payload.get("provider") or ""), sample_id)
+                previous = identified_deltas.get(key)
+                if previous is None:
+                    identified_deltas[key] = payload
+                else:
+                    # A provider may first report Credits and later enrich the
+                    # same request with Token/cache fields.  Merge non-null
+                    # usage facts for that logical sample; do not turn the
+                    # enrichment into another additive delta.
+                    previous_usage = previous.get("usage") if isinstance(previous.get("usage"), dict) else {}
+                    incoming_usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
+                    merged_usage = dict(previous_usage)
+                    for usage_key, usage_value in incoming_usage.items():
+                        if usage_key == "derived_fields":
+                            prior = merged_usage.get("derived_fields") if isinstance(merged_usage.get("derived_fields"), list) else []
+                            incoming = usage_value if isinstance(usage_value, list) else []
+                            merged_usage["derived_fields"] = sorted({
+                                str(item) for item in [*prior, *incoming] if str(item).strip()
+                            })
+                        elif usage_value is not None:
+                            merged_usage[usage_key] = usage_value
+                    merged = {**previous, **payload, "usage": merged_usage}
+                    identified_deltas[key] = merged
+            else:
+                anonymous_deltas.append(payload)
+        delta_payloads = [*anonymous_deltas, *identified_deltas.values()]
+        latest_snapshot = snapshots[-1] if snapshots else None
+
+        totals: dict[str, int | float | None] = {key: None for key in token_fields}
+        turn_credits: float | None = None
+        turn_original_credits: float | None = None
+        derived: set[str] = set()
+
+        for payload in delta_payloads:
+            usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
+            for key in token_fields:
+                value = usage.get(key)
+                if isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0:
+                    totals[key] = value if totals[key] is None else totals[key] + value
+            credit = usage.get("credits")
+            if credit is None:
+                credit = usage.get("credits_used")
+            if isinstance(credit, (int, float)) and not isinstance(credit, bool) and credit >= 0:
+                turn_credits = float(credit) if turn_credits is None else turn_credits + float(credit)
+            original_credit = usage.get("original_credits")
+            if isinstance(original_credit, (int, float)) and not isinstance(original_credit, bool) and original_credit >= 0:
+                turn_original_credits = (
+                    float(original_credit)
+                    if turn_original_credits is None
+                    else turn_original_credits + float(original_credit)
+                )
+            raw_derived = usage.get("derived_fields")
+            if isinstance(raw_derived, list):
+                derived.update(str(item) for item in raw_derived if str(item).strip())
+
+        # Anonymous/no-ID provider updates use safe snapshot semantics. A
+        # snapshot fills a field only when no identified request/turn delta is
+        # available, preventing terminal/finally replays from double counting.
+        if latest_snapshot is not None:
+            snapshot_usage = latest_snapshot.get("usage") if isinstance(latest_snapshot.get("usage"), dict) else {}
+            for key in token_fields:
+                value = snapshot_usage.get(key)
+                if totals[key] is None and isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0:
+                    totals[key] = value
+            if turn_credits is None:
+                credit = snapshot_usage.get("credits")
+                if credit is None:
+                    credit = snapshot_usage.get("credits_used")
+                if isinstance(credit, (int, float)) and not isinstance(credit, bool) and credit >= 0:
+                    turn_credits = float(credit)
+            if turn_original_credits is None:
+                original_credit = snapshot_usage.get("original_credits")
+                if isinstance(original_credit, (int, float)) and not isinstance(original_credit, bool) and original_credit >= 0:
+                    turn_original_credits = float(original_credit)
+            raw_derived = snapshot_usage.get("derived_fields")
+            if isinstance(raw_derived, list):
+                derived.update(str(item) for item in raw_derived if str(item).strip())
+
+        latest_session_credits: float | None = None
+        latest_session_original_credits: float | None = None
+        latest_billable: bool | None = None
+        for payload in payloads:
+            usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
+            session_credit = usage.get("session_credits")
+            if isinstance(session_credit, (int, float)) and not isinstance(session_credit, bool) and session_credit >= 0:
+                latest_session_credits = float(session_credit)
+            if str(payload.get("scope") or "turn") == "session":
+                original_credit = usage.get("original_credits")
+                if isinstance(original_credit, (int, float)) and not isinstance(original_credit, bool) and original_credit >= 0:
+                    latest_session_original_credits = float(original_credit)
+            if isinstance(usage.get("billable"), bool):
+                latest_billable = usage["billable"]
+            raw_derived = usage.get("derived_fields")
+            if isinstance(raw_derived, list):
+                derived.update(str(item) for item in raw_derived if str(item).strip())
+
+        latest = payloads[-1]
+        latest_usage = latest.get("usage") if isinstance(latest.get("usage"), dict) else {}
+        usage_summary: dict[str, Any] = {
+            **totals,
+            "credits": turn_credits,
+            "session_credits": latest_session_credits,
+            "original_credits": (
+                turn_original_credits
+                if turn_original_credits is not None
+                else latest_session_original_credits
+            ),
+            "billable": latest_billable,
+            "derived_fields": sorted(derived),
+            # Compatibility alias only; do not add it separately.
+            "credits_used": turn_credits,
+            "reported_cost": latest_usage.get("reported_cost"),
+            "currency": latest_usage.get("currency"),
+        }
+        return {
+            "schema": "tp-voyager.usage/v1",
+            "provider": latest.get("provider"),
+            "scope": "session",
+            "model": latest.get("model"),
+            "source": latest.get("source"),
+            "accounting": "snapshot" if snapshots else "delta",
+            "sample_id": latest.get("sample_id"),
+            "usage": usage_summary,
+            "model_usage": latest.get("model_usage") if isinstance(latest.get("model_usage"), dict) else {},
+            "provider_usage": latest.get("provider_usage") if isinstance(latest.get("provider_usage"), dict) else {},
+            "sample_count": len(payloads),
+        }
 
     def save_result(
         self,
