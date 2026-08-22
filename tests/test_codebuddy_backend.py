@@ -16,7 +16,7 @@ from agent_runtime.backends.codebuddy.backend import CodeBuddyBackend
 from agent_runtime.backends.codebuddy.captain_dispatch import CodeBuddyContextReadOnlyDispatcher
 from agent_runtime.backends.codebuddy.sdk_client import CodeBuddySdkClient
 from agent_runtime.backends.codebuddy.process import probe_codebuddy_cli
-from agent_runtime.backends.errors import BackendProtocolError
+from agent_runtime.backends.errors import BackendProtocolError, BackendUnavailableError
 from agent_runtime.application.context_service import ProjectContextService
 from agent_runtime.application.task_service import TaskService
 from agent_runtime.application.dispatch.repository_research import RepositoryResearchService
@@ -53,6 +53,14 @@ class TextBlock:
 class AssistantMessage:
     def __init__(self, text: str):
         self.content = [TextBlock(text)]
+
+
+class StreamEvent:
+    def __init__(self, event: dict, uuid: str = "usage-event-1"):
+        self.event = event
+        self.uuid = uuid
+        self.session_id = "cb-session"
+        self.parent_tool_use_id = None
 
 
 class ResultMessage:
@@ -249,6 +257,363 @@ class CodeBuddySdkClientTests(unittest.TestCase):
             for denied in (edit, bash, web, task, unknown):
                 self.assertEqual(denied.behavior, "deny")
 
+    def test_sdk_stream_acp_usage_update_supplies_credit_without_duplicate_counting(self) -> None:
+        class UsageClient(FakeSdkClient):
+            def receive_response(self):
+                async def gen():
+                    update = StreamEvent({
+                        "method": "session/update",
+                        "params": {
+                            "update": {
+                                "sessionUpdate": "usage_update",
+                                "usage": {"credit": 0.75, "input_tokens": 8, "output_tokens": 2},
+                            }
+                        },
+                    }, uuid="same-usage-event")
+                    yield update
+                    yield update
+                    yield ResultMessage(self.session_id)
+                return gen()
+
+        class UsageSdk(FakeSdkModule):
+            CodeBuddySDKClient = UsageClient
+
+        with tempfile.TemporaryDirectory() as tmp:
+            client = CodeBuddySdkClient(
+                cwd=tmp, on_activity=lambda activity: None, sdk_module=UsageSdk, region="cn"
+            )
+            result = client.run(
+                prompt="usage", model="hy3", reasoning_effort="",
+                idle_timeout_seconds=5, max_task_duration_seconds=30,
+                on_dispatch_accepted=lambda value: None,
+            )
+
+        # Final ResultMessage remains authoritative for Token totals; the ACP
+        # StreamEvent contributes the documented per-turn Credit only once.
+        self.assertEqual(result.usage["input_tokens"], 10)
+        self.assertEqual(result.usage["output_tokens"], 2)
+        self.assertEqual(result.usage["credit"], 0.75)
+
+
+    def test_sdk_stream_reads_real_meta_usage_and_prefixed_request_id(self) -> None:
+        class UsageClient(FakeSdkClient):
+            def receive_response(self):
+                async def gen():
+                    update = StreamEvent({
+                        "method": "session/update",
+                        "params": {"update": {
+                            "sessionUpdate": "usage_update",
+                            "_meta": {
+                                "codebuddy.ai/requestId": "req-real-123",
+                                "codebuddy.ai/messageRequestId": "msg-real-456",
+                                "usage": {
+                                    "prompt_tokens": 28600,
+                                    "completion_tokens": 2,
+                                    "total_tokens": 28602,
+                                    "prompt_cache_hit_tokens": 28544,
+                                    "prompt_cache_miss_tokens": 56,
+                                    "credit": 0.09,
+                                },
+                            },
+                        }},
+                    }, uuid="transport-only")
+                    yield update
+                    yield update
+                    terminal = ResultMessage(self.session_id)
+                    terminal.usage = {}
+                    yield terminal
+                return gen()
+
+        class UsageSdk(FakeSdkModule):
+            CodeBuddySDKClient = UsageClient
+
+        with tempfile.TemporaryDirectory() as tmp:
+            client = CodeBuddySdkClient(
+                cwd=tmp, on_activity=lambda activity: None, sdk_module=UsageSdk, region="cn"
+            )
+            result = client.run(
+                prompt="usage", model="deepseek-v4-flash", reasoning_effort="",
+                idle_timeout_seconds=5, max_task_duration_seconds=30,
+                on_dispatch_accepted=lambda value: None,
+            )
+
+        self.assertEqual(len(result.usage_samples), 1)
+        self.assertEqual(result.usage_samples[0]["sample_id"], "req-real-123")
+        self.assertEqual(result.usage_samples[0]["usage"]["credit"], 0.09)
+        self.assertEqual(result.usage["credit"], 0.09)
+
+    def test_sdk_transport_uuid_is_not_used_as_provider_usage_identity(self) -> None:
+        class UsageClient(FakeSdkClient):
+            def receive_response(self):
+                async def gen():
+                    for transport_uuid in ("transport-a", "transport-b"):
+                        yield StreamEvent({
+                            "method": "session/update",
+                            "params": {"update": {
+                                "sessionUpdate": "usage_update",
+                                "usage": {"credit": 0.75, "input_tokens": 8, "output_tokens": 2},
+                            }},
+                        }, uuid=transport_uuid)
+                    terminal = ResultMessage(self.session_id)
+                    terminal.usage = {}
+                    yield terminal
+                return gen()
+
+        class UsageSdk(FakeSdkModule):
+            CodeBuddySDKClient = UsageClient
+
+        with tempfile.TemporaryDirectory() as tmp:
+            client = CodeBuddySdkClient(
+                cwd=tmp, on_activity=lambda activity: None, sdk_module=UsageSdk, region="cn"
+            )
+            result = client.run(
+                prompt="usage", model="hy3", reasoning_effort="",
+                idle_timeout_seconds=5, max_task_duration_seconds=30,
+                on_dispatch_accepted=lambda value: None,
+            )
+
+        self.assertEqual(result.usage["credit"], 0.75)
+        self.assertEqual(len(result.usage_samples), 1)
+        self.assertEqual(result.usage_samples[0]["sample_id"], "")
+        self.assertEqual(result.usage_samples[0]["accounting"], "snapshot")
+
+    def test_sdk_stream_usage_without_uuid_treats_identical_update_as_snapshot(self) -> None:
+        class UsageClient(FakeSdkClient):
+            def receive_response(self):
+                async def gen():
+                    update = StreamEvent({
+                        "method": "session/update",
+                        "params": {"update": {
+                            "sessionUpdate": "usage_update",
+                            "usage": {"credit": 0.75, "input_tokens": 8, "output_tokens": 2},
+                        }},
+                    }, uuid="")
+                    yield update
+                    yield update
+                    terminal = ResultMessage(self.session_id)
+                    terminal.usage = {}
+                    yield terminal
+                return gen()
+
+        class UsageSdk(FakeSdkModule):
+            CodeBuddySDKClient = UsageClient
+
+        with tempfile.TemporaryDirectory() as tmp:
+            client = CodeBuddySdkClient(
+                cwd=tmp, on_activity=lambda activity: None, sdk_module=UsageSdk, region="cn"
+            )
+            result = client.run(
+                prompt="usage", model="hy3", reasoning_effort="",
+                idle_timeout_seconds=5, max_task_duration_seconds=30,
+                on_dispatch_accepted=lambda value: None,
+            )
+
+        self.assertEqual(result.usage["credit"], 0.75)
+        self.assertEqual(len(result.usage_samples), 1)
+        self.assertEqual(result.usage_samples[0]["accounting"], "snapshot")
+
+    def test_sdk_stream_without_ids_uses_latest_distinct_snapshot_not_sum(self) -> None:
+        class UsageClient(FakeSdkClient):
+            def receive_response(self):
+                async def gen():
+                    for credit, input_tokens, output_tokens in ((0.4, 8, 2), (0.5, 9, 3)):
+                        yield StreamEvent({
+                            "method": "session/update",
+                            "params": {"update": {
+                                "sessionUpdate": "usage_update",
+                                "usage": {"credit": credit, "input_tokens": input_tokens, "output_tokens": output_tokens},
+                            }},
+                        }, uuid="")
+                    terminal = ResultMessage(self.session_id)
+                    terminal.usage = {}
+                    yield terminal
+                return gen()
+
+        class UsageSdk(FakeSdkModule):
+            CodeBuddySDKClient = UsageClient
+
+        with tempfile.TemporaryDirectory() as tmp:
+            client = CodeBuddySdkClient(
+                cwd=tmp, on_activity=lambda activity: None, sdk_module=UsageSdk, region="cn"
+            )
+            result = client.run(
+                prompt="usage", model="hy3", reasoning_effort="",
+                idle_timeout_seconds=5, max_task_duration_seconds=30,
+                on_dispatch_accepted=lambda value: None,
+            )
+
+        self.assertEqual(len(result.usage_samples), 2)
+        self.assertTrue(all(sample["accounting"] == "snapshot" for sample in result.usage_samples))
+        self.assertEqual(result.usage["credit"], 0.5)
+        self.assertEqual(result.usage["input_tokens"], 9)
+        self.assertEqual(result.usage["output_tokens"], 3)
+
+    def test_sdk_stream_distinct_turn_ids_preserve_multiple_usage_samples(self) -> None:
+        class UsageClient(FakeSdkClient):
+            def receive_response(self):
+                async def gen():
+                    for event_uuid, turn_id, credit, input_tokens, output_tokens in (
+                        ("transport-a", "turn-1", 0.4, 8, 2),
+                        ("transport-b", "turn-2", 0.5, 7, 3),
+                    ):
+                        yield StreamEvent({
+                            "method": "session/update",
+                            "params": {"update": {
+                                "sessionUpdate": "usage_update",
+                                "turnId": turn_id,
+                                "usage": {"credit": credit, "input_tokens": input_tokens, "output_tokens": output_tokens},
+                            }},
+                        }, uuid=event_uuid)
+                    terminal = ResultMessage(self.session_id)
+                    terminal.usage = {}
+                    yield terminal
+                return gen()
+
+        class UsageSdk(FakeSdkModule):
+            CodeBuddySDKClient = UsageClient
+
+        with tempfile.TemporaryDirectory() as tmp:
+            client = CodeBuddySdkClient(
+                cwd=tmp, on_activity=lambda activity: None, sdk_module=UsageSdk, region="cn"
+            )
+            result = client.run(
+                prompt="usage", model="hy3", reasoning_effort="",
+                idle_timeout_seconds=5, max_task_duration_seconds=30,
+                on_dispatch_accepted=lambda value: None,
+            )
+
+        self.assertEqual([sample["sample_id"] for sample in result.usage_samples], ["turn-1", "turn-2"])
+        self.assertTrue(all(sample["accounting"] == "delta" for sample in result.usage_samples))
+        self.assertEqual(sum(sample["usage"]["credit"] for sample in result.usage_samples), 0.9)
+
+    def test_sdk_stream_provider_turn_id_wins_over_different_event_uuids(self) -> None:
+        class UsageClient(FakeSdkClient):
+            def receive_response(self):
+                async def gen():
+                    for event_uuid in ("event-a", "event-b"):
+                        yield StreamEvent({
+                            "method": "session/update",
+                            "params": {"update": {
+                                "sessionUpdate": "usage_update",
+                                "turnId": "provider-turn-7",
+                                "usage": {"credit": 0.6, "input_tokens": 9, "output_tokens": 1},
+                            }},
+                        }, uuid=event_uuid)
+                    terminal = ResultMessage(self.session_id)
+                    terminal.usage = {}
+                    yield terminal
+                return gen()
+
+        class UsageSdk(FakeSdkModule):
+            CodeBuddySDKClient = UsageClient
+
+        with tempfile.TemporaryDirectory() as tmp:
+            client = CodeBuddySdkClient(
+                cwd=tmp, on_activity=lambda activity: None, sdk_module=UsageSdk, region="cn"
+            )
+            result = client.run(
+                prompt="usage", model="hy3", reasoning_effort="",
+                idle_timeout_seconds=5, max_task_duration_seconds=30,
+                on_dispatch_accepted=lambda value: None,
+            )
+
+        self.assertEqual(len(result.usage_samples), 1)
+        self.assertEqual(result.usage_samples[0]["sample_id"], "provider-turn-7")
+        self.assertEqual(result.usage_samples[0]["accounting"], "delta")
+        self.assertEqual(result.usage["credit"], 0.6)
+        self.assertEqual(result.usage["input_tokens"], 9)
+        self.assertEqual(result.usage["output_tokens"], 1)
+
+    def test_sdk_same_provider_request_id_merges_enriched_usage_without_recounting(self) -> None:
+        class UsageClient(FakeSdkClient):
+            def receive_response(self):
+                async def gen():
+                    yield StreamEvent({
+                        "method": "session/update",
+                        "params": {"update": {
+                            "sessionUpdate": "usage_update",
+                            "requestId": "req-merge-1",
+                            "usage": {"credit": 0.4, "input_tokens": 8},
+                        }},
+                    }, uuid="transport-first")
+                    yield StreamEvent({
+                        "method": "session/update",
+                        "params": {"update": {
+                            "sessionUpdate": "usage_update",
+                            "requestId": "req-merge-1",
+                            "usage": {"output_tokens": 2},
+                        }},
+                    }, uuid="transport-second")
+                    terminal = ResultMessage(self.session_id)
+                    terminal.usage = {}
+                    yield terminal
+                return gen()
+
+        class UsageSdk(FakeSdkModule):
+            CodeBuddySDKClient = UsageClient
+
+        with tempfile.TemporaryDirectory() as tmp:
+            result = CodeBuddySdkClient(
+                cwd=tmp, on_activity=lambda activity: None, sdk_module=UsageSdk, region="cn"
+            ).run(
+                prompt="usage", model="hy3", reasoning_effort="",
+                idle_timeout_seconds=5, max_task_duration_seconds=30,
+                on_dispatch_accepted=lambda value: None,
+            )
+
+        self.assertEqual(len(result.usage_samples), 1)
+        sample = result.usage_samples[0]
+        self.assertEqual(sample["sample_id"], "req-merge-1")
+        self.assertEqual(sample["accounting"], "delta")
+        self.assertEqual(sample["usage"]["credit"], 0.4)
+        self.assertEqual(sample["usage"]["input_tokens"], 8)
+        self.assertEqual(sample["usage"]["output_tokens"], 2)
+        self.assertEqual(result.usage["credit"], 0.4)
+
+    def test_sdk_stream_usage_accepts_camel_case_and_preserves_stream_credit(self) -> None:
+        class UsageClient(FakeSdkClient):
+            def receive_response(self):
+                async def gen():
+                    yield StreamEvent({
+                        "method": "session/update",
+                        "params": {
+                            "update": {
+                                "sessionUpdate": "usage_update",
+                                "usage": {
+                                    "credit": 0.75,
+                                    "inputTokens": 8,
+                                    "outputTokens": 2,
+                                    "cacheReadTokens": 4,
+                                },
+                            }
+                        },
+                    }, uuid="camel-usage-event")
+                    terminal = ResultMessage(self.session_id)
+                    terminal.usage = {"inputTokens": 10, "outputTokens": 2, "credit": 9.0}
+                    yield terminal
+                return gen()
+
+        class UsageSdk(FakeSdkModule):
+            CodeBuddySDKClient = UsageClient
+
+        with tempfile.TemporaryDirectory() as tmp:
+            client = CodeBuddySdkClient(
+                cwd=tmp, on_activity=lambda activity: None, sdk_module=UsageSdk, region="cn"
+            )
+            result = client.run(
+                prompt="usage", model="hy3", reasoning_effort="",
+                idle_timeout_seconds=5, max_task_duration_seconds=30,
+                on_dispatch_accepted=lambda value: None,
+            )
+
+        self.assertEqual(result.usage["inputTokens"], 10)
+        self.assertEqual(result.usage["outputTokens"], 2)
+        self.assertEqual(result.usage["cacheReadTokens"], 4)
+        # ACP usage_update is the documented per-turn Credit source; a terminal
+        # SDK usage mapping must not overwrite it with a different quantity.
+        self.assertEqual(result.usage["credit"], 0.75)
+
+
     def test_frozen_context_read_only_keeps_all_native_tools_denied(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = CodeBuddySdkClient(
@@ -423,6 +788,65 @@ class CodeBuddyBackendTests(unittest.TestCase):
         self.assertEqual(callbacks.accepted, ["cb-synthetic"])
         self.assertEqual(len(callbacks.results), 1)
 
+
+    def test_backend_supports_native_acp_routes_without_silent_sdk_fallback(self) -> None:
+        calls = {"acp": 0, "sdk": 0}
+
+        class AcpTransport(FakeSyncSdkTransport):
+            def __init__(self, **kwargs):
+                calls["acp"] += 1
+                super().__init__(cwd=kwargs["cwd"], on_activity=kwargs["on_activity"])
+
+        class SdkTransport(FakeSyncSdkTransport):
+            def __init__(self, **kwargs):
+                calls["sdk"] += 1
+                super().__init__(cwd=kwargs["cwd"], on_activity=kwargs["on_activity"])
+
+        backend = CodeBuddyBackend(acp_client_factory=AcpTransport, sdk_client_factory=SdkTransport)
+        result = backend.start(self.request("acp_read_only"), Callbacks())
+        self.assertEqual(result.backend, "codebuddy")
+        self.assertEqual(calls, {"acp": 1, "sdk": 0})
+        self.assertIn("acp_read_only", backend.capabilities().routes)
+        self.assertIn("sdk_context_read_only", backend.capabilities().routes)
+
+    def test_codebuddy_sdk_route_compatibility(self) -> None:
+        calls = {"acp": 0, "sdk": 0}
+
+        class AcpTransport(FakeSyncSdkTransport):
+            def __init__(self, **kwargs):
+                calls["acp"] += 1
+                super().__init__(cwd=kwargs["cwd"], on_activity=kwargs["on_activity"])
+
+        class SdkTransport(FakeSyncSdkTransport):
+            def __init__(self, **kwargs):
+                calls["sdk"] += 1
+                super().__init__(cwd=kwargs["cwd"], on_activity=kwargs["on_activity"])
+
+        backend = CodeBuddyBackend(acp_client_factory=AcpTransport, sdk_client_factory=SdkTransport)
+        result = backend.start(self.request("sdk_context_read_only"), Callbacks())
+        self.assertEqual(result.backend, "codebuddy")
+        self.assertEqual(calls, {"acp": 0, "sdk": 1})
+        self.assertIn("sdk_context_read_only", backend.capabilities().routes)
+        self.assertIn("sdk_patch", backend.capabilities().routes)
+        self.assertIn("sdk_verify", backend.capabilities().routes)
+
+    def test_acp_unavailable_is_explicit_and_does_not_fallback_to_sdk(self) -> None:
+        calls = {"sdk": 0}
+
+        class BrokenAcp:
+            def __init__(self, **kwargs):
+                raise BackendUnavailableError("CodeBuddy ACP unavailable")
+
+        class SdkTransport(FakeSyncSdkTransport):
+            def __init__(self, **kwargs):
+                calls["sdk"] += 1
+                super().__init__(cwd=kwargs["cwd"], on_activity=kwargs["on_activity"])
+
+        backend = CodeBuddyBackend(acp_client_factory=BrokenAcp, sdk_client_factory=SdkTransport)
+        with self.assertRaisesRegex(BackendUnavailableError, "ACP unavailable"):
+            backend.start(self.request("acp_read_only"), Callbacks())
+        self.assertEqual(calls["sdk"], 0)
+
     def test_patch_route_passes_captain_policy_to_sdk_factory(self) -> None:
         calls = []
 
@@ -555,7 +979,7 @@ class CodeBuddyCaptainDispatchTests(unittest.TestCase):
         self.assertEqual(len(launch.requests), 1)
         request = launch.requests[0]
         self.assertEqual(request.runtime, "codebuddy")
-        self.assertEqual(request.route, "sdk_context_read_only")
+        self.assertEqual(request.route, "acp_read_only")
         self.assertEqual(request.cwd, str(self.root))
         self.assertEqual(request.context_id, "")
         self.assertEqual(request.routing_metadata["context_delivery"], "vendor_workspace")
@@ -591,7 +1015,7 @@ class CodeBuddyCaptainDispatchTests(unittest.TestCase):
         self.assertEqual(len(launch.requests), 1)
         request = launch.requests[0]
         self.assertEqual(request.runtime, "codebuddy")
-        self.assertEqual(request.route, "sdk_context_read_only")
+        self.assertEqual(request.route, "acp_read_only")
         self.assertEqual(request.context_id, "ctx-codebuddy")
         self.assertEqual(request.routing_metadata["context_delivery"], "runtime_snapshot")
         self.assertIn("src/sample.py", request.prompt)
@@ -684,8 +1108,6 @@ class CodeBuddyServerIntegrationTests(unittest.TestCase):
         ))
         with patch("agent_runtime.server.RepositoryResearchService", return_value=research_service), patch(
             "agent_runtime.backends.codebuddy.captain_dispatch.resolve_codebuddy_cli", return_value="codebuddy"
-        ), patch(
-            "agent_runtime.backends.codebuddy.captain_dispatch.load_codebuddy_sdk", return_value=object()
         ), patch("agent_runtime.server._create_codebuddy_backend", return_value=fake):
             started = self.server.task_dispatch(
                 objective="Study architecture", crew="codebuddy", task_kind="repository_research",
@@ -707,7 +1129,7 @@ class CodeBuddyServerIntegrationTests(unittest.TestCase):
         self.assertTrue(any(item.get("kind") == "report" and item.get("name") == "codebuddy.md" for item in result["artifacts"]))
         self.assertIn("CodeBuddy static findings.", (target / "reports" / "codebuddy.md").read_text(encoding="utf-8"))
         self.assertEqual((target / "source" / "README.md").read_text(encoding="utf-8"), "external source\n")
-        self.assertEqual(fake.starts[0].metadata["route"], "sdk_context_read_only")
+        self.assertEqual(fake.starts[0].metadata["route"], "acp_read_only")
         self.assertIn("external source", fake.starts[0].prompt)
 
     def test_captain_dispatch_uses_verified_context_and_controlled_codebuddy_route(self) -> None:
@@ -730,7 +1152,6 @@ class CodeBuddyServerIntegrationTests(unittest.TestCase):
         )
         with (
             patch("agent_runtime.backends.codebuddy.captain_dispatch.resolve_codebuddy_cli", return_value="codebuddy"),
-            patch("agent_runtime.backends.codebuddy.captain_dispatch.load_codebuddy_sdk", return_value=object()),
             patch("agent_runtime.server._create_codebuddy_backend", return_value=fake),
         ):
             started = self.server.task_dispatch(
@@ -747,7 +1168,7 @@ class CodeBuddyServerIntegrationTests(unittest.TestCase):
             self.assertEqual(self.wait(started["task_id"])["state"], "completed")
 
         self.assertEqual(len(fake.starts), 1)
-        self.assertEqual(fake.starts[0].metadata["route"], "sdk_context_read_only")
+        self.assertEqual(fake.starts[0].metadata["route"], "acp_read_only")
         self.assertIn("VALUE = 11", fake.starts[0].prompt)
         result = self.server.task_result(started["task_id"])
         self.assertTrue(result["ok"], result)
@@ -796,9 +1217,7 @@ class CodeBuddyServerIntegrationTests(unittest.TestCase):
             cwd=str(self.cwd), context_id="ctx-artifact", input_artifact_refs=[ref],
             idempotency_key="artifact-replay", timeout_seconds=10,
         )
-        with patch("agent_runtime.backends.codebuddy.captain_dispatch.resolve_codebuddy_cli", return_value="codebuddy"), patch(
-            "agent_runtime.backends.codebuddy.captain_dispatch.load_codebuddy_sdk", return_value=object()
-        ), patch("agent_runtime.server._create_codebuddy_backend", return_value=fake):
+        with patch("agent_runtime.backends.codebuddy.captain_dispatch.resolve_codebuddy_cli", return_value="codebuddy"), patch("agent_runtime.server._create_codebuddy_backend", return_value=fake):
             started = self.server.task_dispatch(**kwargs)
             self.assertTrue(started["ok"], started)
             self.assertEqual(self.wait(started["task_id"])["state"], "completed")
@@ -843,9 +1262,7 @@ class CodeBuddyServerIntegrationTests(unittest.TestCase):
         )
         with patch.dict(os.environ, {"TP_VOYAGER_HOME": str(runtime_home)}), patch(
             "agent_runtime.backends.codebuddy.captain_dispatch.resolve_codebuddy_cli", return_value="codebuddy"
-        ), patch("agent_runtime.backends.codebuddy.captain_dispatch.load_codebuddy_sdk", return_value=object()), patch(
-            "agent_runtime.server._create_codebuddy_backend", return_value=fake
-        ):
+        ), patch("agent_runtime.server._create_codebuddy_backend", return_value=fake):
             started = self.server.task_dispatch(**kwargs)
             self.assertTrue(started["ok"], started)
             self.assertEqual(self.wait(started["task_id"])["state"], "completed")

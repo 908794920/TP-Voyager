@@ -129,8 +129,22 @@ class FakeAcpProcess:
                         "sessionId": "session-protocol",
                         "update": {
                             "sessionUpdate": "usage_update",
-                            "inputTokens": 12,
-                            "outputTokens": 3,
+                            "usage": {
+                                "input_tokens": 12,
+                                "output_tokens": 3,
+                                "cached_tokens": 4,
+                                "credits": 0.25,
+                                "original_credits": 0.4,
+                                "billable": True,
+                                "model_usage": {
+                                    "model-2": {
+                                        "input_tokens": 12,
+                                        "output_tokens": 3,
+                                        "credits": 0.25,
+                                    }
+                                },
+                            },
+                            "total_credits": 1.75,
                         },
                     },
                 }
@@ -179,8 +193,14 @@ class QoderAcpProtocolTests(unittest.TestCase):
         self.assertTrue(result.model_applied)
         self.assertTrue(result.reasoning_effort_applied)
         self.assertTrue(result.context_window_tokens_applied)
-        self.assertEqual(result.usage["inputTokens"], 12)
-        self.assertEqual(result.usage["outputTokens"], 3)
+        self.assertEqual(result.usage["input_tokens"], 12)
+        self.assertEqual(result.usage["output_tokens"], 3)
+        self.assertEqual(result.usage["cached_tokens"], 4)
+        self.assertEqual(result.usage["credits"], 0.25)
+        self.assertEqual(result.usage["original_credits"], 0.4)
+        self.assertIs(result.usage["billable"], True)
+        self.assertEqual(result.usage["total_credits"], 1.75)
+        self.assertEqual(result.usage["model_usage"]["model-2"]["credits"], 0.25)
         self.assertGreaterEqual(activity.count("stream_activity"), 2)
 
     def test_read_only_vendor_tool_visibility_is_restricted_at_cli_start(self) -> None:
@@ -494,6 +514,138 @@ class QoderAcpProtocolTests(unittest.TestCase):
             client._usage["inputTokens"] = 1
             self.assertEqual(client.usage_provenance()["status"], "observed")
             client.close()
+
+    def test_multiple_usage_updates_preserve_distinct_request_samples_and_deduplicate_repeat(self) -> None:
+        fake = FakeAcpProcess()
+        with (
+            patch("agent_runtime.backends.qoder.acp_client.popen_command", return_value=fake),
+            patch("agent_runtime.backends.qoder.acp_client.terminate_process_tree"),
+        ):
+            client = QoderAcpClient(cwd=str(Path.cwd()), cli_path="qodercli", on_activity=lambda item: None)
+            for request_id, credits, total in (
+                ("req-1", 0.25, 1.25),
+                ("req-2", 0.40, 1.65),
+                ("req-2", 0.40, 1.65),
+            ):
+                client._handle_notification({
+                    "method": "session/update",
+                    "params": {"sessionId": "session-protocol", "update": {
+                        "sessionUpdate": "usage_update",
+                        "requestId": request_id,
+                        "usage": {"credits": credits, "input_tokens": 10, "output_tokens": 2},
+                        "total_credits": total,
+                    }},
+                })
+            samples = client.usage_samples()
+            self.assertEqual([sample["sample_id"] for sample in samples], ["req-1", "req-2"])
+            self.assertTrue(all(sample["accounting"] == "delta" for sample in samples))
+            self.assertEqual([sample["usage"]["credits"] for sample in samples], [0.25, 0.40])
+            self.assertEqual(samples[-1]["usage"]["total_credits"], 1.65)
+            self.assertEqual(client.usage_provenance()["request_identity"], "provider")
+            client.close()
+
+    def test_qoder_usage_identity_accepts_official_nested_request_id_and_merges_enrichment(self) -> None:
+        fake = FakeAcpProcess()
+        with (
+            patch("agent_runtime.backends.qoder.acp_client.popen_command", return_value=fake),
+            patch("agent_runtime.backends.qoder.acp_client.terminate_process_tree"),
+        ):
+            client = QoderAcpClient(cwd=str(Path.cwd()), cli_path="qodercli", on_activity=lambda item: None)
+            client._handle_notification({
+                "method": "session/update",
+                "params": {"update": {
+                    "sessionUpdate": "usage_update",
+                    "usage": {"request_id": "req-official-1", "credits": 0.25, "input_tokens": 10},
+                }},
+            })
+            client._handle_notification({
+                "method": "session/update",
+                "params": {"update": {
+                    "sessionUpdate": "usage_update",
+                    "usage": {"request_id": "req-official-1", "output_tokens": 2, "original_credits": 0.3},
+                }},
+            })
+            samples = client.usage_samples()
+            self.assertEqual(len(samples), 1)
+            self.assertEqual(samples[0]["sample_id"], "req-official-1")
+            self.assertEqual(samples[0]["accounting"], "delta")
+            self.assertEqual(samples[0]["usage"]["credits"], 0.25)
+            self.assertEqual(samples[0]["usage"]["input_tokens"], 10)
+            self.assertEqual(samples[0]["usage"]["output_tokens"], 2)
+            self.assertEqual(samples[0]["usage"]["original_credits"], 0.3)
+            client.close()
+
+    def test_qoder_anonymous_distinct_updates_remain_snapshots_with_unavailable_request_identity(self) -> None:
+        fake = FakeAcpProcess()
+        with (
+            patch("agent_runtime.backends.qoder.acp_client.popen_command", return_value=fake),
+            patch("agent_runtime.backends.qoder.acp_client.terminate_process_tree"),
+        ):
+            client = QoderAcpClient(cwd=str(Path.cwd()), cli_path="qodercli", on_activity=lambda item: None)
+            for credits, total in ((0.25, 1.25), (0.40, 1.65)):
+                client._handle_notification({
+                    "method": "session/update",
+                    "params": {"update": {
+                        "sessionUpdate": "usage_update",
+                        "usage": {"credits": credits, "input_tokens": 10, "output_tokens": 2},
+                        "total_credits": total,
+                    }},
+                })
+            samples = client.usage_samples()
+            self.assertEqual(len(samples), 2)
+            self.assertTrue(all(sample["sample_id"] == "" for sample in samples))
+            self.assertTrue(all(sample["accounting"] == "snapshot" for sample in samples))
+            provenance = client.usage_provenance()
+            self.assertEqual(provenance["status"], "observed")
+            self.assertEqual(provenance["request_identity"], "unavailable")
+            client.close()
+
+    def test_anonymous_qoder_usage_updates_are_snapshots_not_request_deltas(self) -> None:
+        fake = FakeAcpProcess()
+        with (
+            patch("agent_runtime.backends.qoder.acp_client.popen_command", return_value=fake),
+            patch("agent_runtime.backends.qoder.acp_client.terminate_process_tree"),
+        ):
+            client = QoderAcpClient(cwd=str(Path.cwd()), cli_path="qodercli", on_activity=lambda item: None)
+            update = {
+                "method": "session/update",
+                "params": {"update": {
+                    "sessionUpdate": "usage_update",
+                    "usage": {"credits": 0.25, "input_tokens": 10, "output_tokens": 2},
+                }},
+            }
+            client._handle_notification(update)
+            client._handle_notification(update)
+            samples = client.usage_samples()
+            self.assertEqual(len(samples), 1)
+            self.assertEqual(samples[0]["accounting"], "snapshot")
+            client.close()
+
+    def test_usage_update_drops_non_usage_scalars_before_snapshot(self) -> None:
+        fake = FakeAcpProcess()
+        with (
+            patch("agent_runtime.backends.qoder.acp_client.popen_command", return_value=fake),
+            patch("agent_runtime.backends.qoder.acp_client.terminate_process_tree"),
+        ):
+            client = QoderAcpClient(cwd=str(Path.cwd()), cli_path="qodercli", on_activity=lambda item: None)
+            client._handle_notification({
+                "method": "session/update",
+                "params": {
+                    "update": {
+                        "sessionUpdate": "usage_update",
+                        "usage": {
+                            "credits": 0.25,
+                            "billable": True,
+                            "rawOutput": "private answer",
+                            "command": "python secret.py",
+                            "path": "C:/private/workspace",
+                        },
+                    }
+                },
+            })
+            self.assertEqual(client.usage_snapshot(), {"credits": 0.25, "billable": True})
+            client.close()
+
 
     def test_read_only_scope_snapshot_records_content_free_file_evidence(self) -> None:
         import hashlib

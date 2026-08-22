@@ -1,4 +1,4 @@
-"""Captain adapter for CodeBuddy official controlled SDK routes."""
+"""Captain adapter for CodeBuddy controlled native ACP routes with explicit SDK compatibility."""
 
 from __future__ import annotations
 
@@ -17,8 +17,12 @@ from agent_runtime.application.dispatch.workspace import (
 )
 from agent_runtime.application.task_launch_service import TaskLaunchRequest, TaskLaunchService
 from agent_runtime.backends.codebuddy.process import resolve_codebuddy_cli
-from agent_runtime.backends.codebuddy.sdk_client import load_codebuddy_sdk
-from agent_runtime.domain.dispatch import CaptainDispatchRequest, PatchPolicy, VerificationPolicy
+from agent_runtime.domain.dispatch import (
+    _MANDATORY_FORBIDDEN,
+    CaptainDispatchRequest,
+    PatchPolicy,
+    VerificationPolicy,
+)
 
 
 _MAX_CONTEXT_BYTES = 256 * 1024
@@ -29,8 +33,7 @@ class CodeBuddyContextReadOnlyDispatcher:
 
     Read-only supports either native workspace exploration (Read/Glob/Grep) or
     an explicit Runtime-rendered immutable context snapshot. T4 patch mode runs
-    CodeBuddy in an isolated Git worktree and relies on the SDK host permission callback for per-tool path
-    and command enforcement.
+    CodeBuddy in an isolated Git worktree and relies on ACP filesystem/terminal callbacks plus CLI tool restriction for per-tool path and command enforcement.
     """
 
     def __init__(
@@ -52,12 +55,12 @@ class CodeBuddyContextReadOnlyDispatcher:
         if request.model_parameters and request.model_parameters.context_window_tokens is not None:
             return self._reject(
                 "MODEL_PARAMETERS_UNSUPPORTED",
-                "CodeBuddy controlled SDK route does not expose context_window_tokens",
+                "CodeBuddy controlled route does not expose context_window_tokens",
             )
         if request.model_parameters and request.model_parameters.reasoning_effort not in {"", "low", "medium", "high", "xhigh"}:
             return self._reject(
                 "MODEL_PARAMETERS_UNSUPPORTED",
-                "CodeBuddy controlled SDK supports reasoning_effort low, medium, high or xhigh",
+                "CodeBuddy controlled route supports reasoning_effort low, medium, high or xhigh",
             )
         if request.access_mode == "patch":
             return self._dispatch_patch(request)
@@ -76,17 +79,30 @@ class CodeBuddyContextReadOnlyDispatcher:
 
         context_id = str(request.context_id or "").strip()
         rendered: dict[str, Any] | None = None
+        scoped_workspace_fallback = False
         try:
             self._preflight()
             if context_id:
                 verified = self._contexts.verify(context_id, request.cwd)
                 if not bool(verified.get("valid")):
                     return self._reject("CONTEXT_DRIFT", "Context Manifest no longer matches the workspace")
-                rendered = self._contexts.render(
-                    context_id,
-                    request.cwd,
-                    max_total_bytes=self._max_context_bytes,
-                )
+                try:
+                    rendered = self._contexts.render(
+                        context_id,
+                        request.cwd,
+                        max_total_bytes=self._max_context_bytes,
+                    )
+                except ContextError as exc:
+                    # A read_scope is already expanded and hash-verified by
+                    # the Runtime.  Keep that exact file set, but avoid
+                    # forcing large scopes into CodeBuddy's single-prompt
+                    # frozen-context transport.
+                    if (
+                        str(exc) != "context exceeds explicit render byte limit"
+                        or not request.resolved_read_files
+                    ):
+                        raise
+                    scoped_workspace_fallback = True
         except ContextDriftError:
             return self._reject("CONTEXT_DRIFT", "Context Manifest no longer matches the workspace")
         except ContextError as exc:
@@ -96,7 +112,11 @@ class CodeBuddyContextReadOnlyDispatcher:
 
         if rendered is None:
             prompt = self._build_workspace_read_only_prompt(request.objective)
-            context_delivery = "vendor_workspace"
+            context_delivery = (
+                "vendor_workspace_scoped"
+                if scoped_workspace_fallback
+                else "vendor_workspace"
+            )
         else:
             prompt = self._build_read_only_prompt(request.objective, rendered)
             context_delivery = "runtime_snapshot"
@@ -108,7 +128,7 @@ class CodeBuddyContextReadOnlyDispatcher:
             TaskLaunchRequest(
                 prompt=prompt,
                 runtime="codebuddy",
-                route="sdk_context_read_only",
+                route="acp_read_only",
                 cwd=request.cwd,
                 timeout_seconds=timeout,
                 model=request.model,
@@ -117,6 +137,14 @@ class CodeBuddyContextReadOnlyDispatcher:
                 idle_timeout_seconds=idle,
                 max_task_duration_seconds=timeout,
                 context_id=context_id,
+                allowed_paths=(
+                    list(request.resolved_read_files)
+                    if scoped_workspace_fallback else None
+                ),
+                forbidden_paths=(
+                    list(_MANDATORY_FORBIDDEN)
+                    if scoped_workspace_fallback else None
+                ),
                 execution_mode="background",
                 agent_profile=(request.worker_profile_ref.profile_id if request.worker_profile_ref else ""),
                 routing_metadata=routing_metadata,
@@ -164,7 +192,7 @@ class CodeBuddyContextReadOnlyDispatcher:
             TaskLaunchRequest(
                 prompt=prompt,
                 runtime="codebuddy",
-                route="sdk_patch",
+                route="acp_patch",
                 cwd=workspace.worktree_root,
                 timeout_seconds=timeout,
                 model=request.model,
@@ -226,7 +254,7 @@ class CodeBuddyContextReadOnlyDispatcher:
             TaskLaunchRequest(
                 prompt=self._build_verification_prompt(request.objective, policy),
                 runtime="codebuddy",
-                route="sdk_verify",
+                route="acp_verify",
                 cwd=request.cwd,
                 timeout_seconds=timeout,
                 model=request.model,
@@ -333,7 +361,6 @@ class CodeBuddyContextReadOnlyDispatcher:
     @staticmethod
     def _default_preflight() -> None:
         resolve_codebuddy_cli()
-        load_codebuddy_sdk()
 
     @staticmethod
     def _reject(reason_code: str, detail: str) -> dict[str, Any]:

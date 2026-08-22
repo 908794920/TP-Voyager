@@ -12,6 +12,23 @@ from typing import Any, Callable, Protocol
 from agent_runtime.backends.errors import BackendError
 
 
+_SAFE_PROVIDER_USAGE_KEYS = frozenset({
+    "input_tokens", "inputTokens", "prompt_tokens",
+    "output_tokens", "outputTokens", "completion_tokens",
+    "total_tokens", "totalTokens",
+    "cache_read_tokens", "cacheReadTokens", "cache_read_input_tokens",
+    "cached_input_tokens", "cachedInputTokens", "cached_tokens", "cachedTokens",
+    "cache_miss_tokens", "cacheMissTokens",
+    "cache_write_tokens", "cacheWriteTokens", "cache_write_input_tokens",
+    "cache_creation_input_tokens", "cacheCreationInputTokens",
+    "reasoning_tokens", "reasoningTokens", "thinking_tokens", "thinkingTokens",
+    "answer_tokens", "answerTokens", "response_tokens", "responseTokens",
+    "credit", "credits", "credits_used", "creditsUsed", "credit_used",
+    "total_credits", "totalCredits", "original_credits", "originalCredits",
+    "billable",
+})
+
+
 # ---------------------------------------------------------------------------
 # Data models
 # ---------------------------------------------------------------------------
@@ -108,40 +125,121 @@ class BackendExecution:
 
 @dataclass(frozen=True)
 class BackendUsage:
-    """Provider-reported usage fact.  Values are recorded, never priced or inferred."""
+    """Provider-reported Token/Credit usage fact.
+
+    Missing values stay ``None``.  TP-Voyager never estimates Credits.  The
+    legacy ``credits_used`` field remains accepted as a constructor alias so
+    older backend/tests keep working, while the durable/public contract uses
+    ``credits`` for one turn/request and ``session_credits`` for a provider
+    cumulative session total.
+    """
 
     provider: str
+    scope: str = "turn"
     model: str = ""
     source: str = ""
+    # Accounting semantics for this provider sample. ``delta`` facts may be
+    # added across distinct request/turn identities; ``snapshot`` facts are
+    # latest-value observations and must never be cumulatively re-added.
+    accounting: str = "delta"
+    sample_id: str = ""
+    # Provider request identity used to deduplicate late/replayed usage facts.
+    request_id: str = ""
+    total_tokens: int | None = None
     input_tokens: int | None = None
+    cache_read_tokens: int | None = None
+    cache_miss_tokens: int | None = None
+    cache_write_tokens: int | None = None
     output_tokens: int | None = None
+    reasoning_tokens: int | None = None
+    answer_tokens: int | None = None
+    credits: float | None = None
+    session_credits: float | None = None
+    original_credits: float | None = None
+    billable: bool | None = None
+    derived_fields: tuple[str, ...] = ()
+    model_usage: dict[str, Any] = field(default_factory=dict)
+    # Backward-compatible input alias.  New code should use ``credits``.
     credits_used: float | None = None
+    # Retained internally for backward compatibility with old result payloads;
+    # the Voyager panel does not project monetary billing fields.
     reported_cost: float | None = None
     currency: str | None = None
     provider_usage: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> dict[str, Any]:
-        def non_negative(value: int | float | None) -> int | float | None:
-            if value is None:
-                return None
-            return value if value >= 0 else None
+    @staticmethod
+    def _non_negative(value: int | float | None) -> int | float | None:
+        if value is None or isinstance(value, bool):
+            return None
+        return value if value >= 0 else None
 
+    @classmethod
+    def _safe_model_usage(cls, value: Any) -> dict[str, Any]:
+        """Keep only bounded model identifiers + scalar Token/Credit facts."""
+        if not isinstance(value, dict):
+            return {}
+        output: dict[str, Any] = {}
+        for model, raw in list(value.items())[:32]:
+            if not isinstance(raw, dict):
+                continue
+            safe: dict[str, Any] = {}
+            for key, item in list(raw.items())[:32]:
+                if isinstance(item, bool):
+                    if str(key) == "billable":
+                        safe[str(key)[:80]] = item
+                elif isinstance(item, (int, float)) and item >= 0:
+                    safe[str(key)[:80]] = item
+            if safe:
+                output[str(model)[:160]] = safe
+        return output
+
+    def to_dict(self) -> dict[str, Any]:
         raw: dict[str, Any] = {}
         for key, value in list(self.provider_usage.items())[:32]:
-            if isinstance(value, (str, int, float, bool)) or value is None:
-                raw[str(key)[:80]] = value
+            # Provider payloads are untrusted and may also contain prompts,
+            # replies, command text, raw tool I/O or host paths.  Persist only
+            # known usage scalar keys; arbitrary strings never cross this gate.
+            safe_key = str(key)[:80]
+            if safe_key not in _SAFE_PROVIDER_USAGE_KEYS:
+                continue
+            if isinstance(value, bool):
+                if safe_key == "billable":
+                    raw[safe_key] = value
+            elif isinstance(value, (int, float)) and value >= 0:
+                raw[safe_key] = value
+
+        canonical_credits = self.credits if self.credits is not None else self.credits_used
+        usage = {
+            "total_tokens": self._non_negative(self.total_tokens),
+            "input_tokens": self._non_negative(self.input_tokens),
+            "cache_read_tokens": self._non_negative(self.cache_read_tokens),
+            "cache_miss_tokens": self._non_negative(self.cache_miss_tokens),
+            "cache_write_tokens": self._non_negative(self.cache_write_tokens),
+            "output_tokens": self._non_negative(self.output_tokens),
+            "reasoning_tokens": self._non_negative(self.reasoning_tokens),
+            "answer_tokens": self._non_negative(self.answer_tokens),
+            "credits": self._non_negative(canonical_credits),
+            "session_credits": self._non_negative(self.session_credits),
+            "original_credits": self._non_negative(self.original_credits),
+            "billable": self.billable if isinstance(self.billable, bool) else None,
+            "derived_fields": sorted({str(item) for item in self.derived_fields if str(item).strip()}),
+            # Legacy alias used by v1.0.5 flow-control readers.  It is the same
+            # provider-reported turn/request value, never a second quantity.
+            "credits_used": self._non_negative(canonical_credits),
+            "reported_cost": self._non_negative(self.reported_cost),
+            "currency": str(self.currency or "")[:16] or None,
+        }
         return {
             "schema": "tp-voyager.usage/v1",
             "provider": str(self.provider or "")[:80],
+            "scope": self.scope if self.scope in {"turn", "session"} else "turn",
             "model": str(self.model or "")[:160] or None,
             "source": str(self.source or "")[:120],
-            "usage": {
-                "input_tokens": non_negative(self.input_tokens),
-                "output_tokens": non_negative(self.output_tokens),
-                "credits_used": non_negative(self.credits_used),
-                "reported_cost": non_negative(self.reported_cost),
-                "currency": str(self.currency or "")[:16] or None,
-            },
+            "accounting": self.accounting if self.accounting in {"delta", "snapshot"} else "delta",
+            "sample_id": str(self.sample_id or "")[:160] or None,
+            "request_id": str(self.request_id or "")[:160] or None,
+            "usage": usage,
+            "model_usage": self._safe_model_usage(self.model_usage),
             "provider_usage": raw,
         }
 
@@ -160,7 +258,13 @@ class BackendResult:
 
 @dataclass
 class BackendActivity:
-    """Content-free activity event from a backend."""
+    """Bounded activity event from a backend.
+
+    ``detail`` may carry an allow-listed human-observability projection such
+    as provider-visible assistant text or safe tool metadata.  Raw prompts,
+    secrets, private chain-of-thought, and raw tool output never belong here.
+    Durable TaskEvent persistence remains content-free.
+    """
     kind: str = ""
     timestamp: float = 0.0
     detail: dict[str, Any] = field(default_factory=dict)

@@ -16,7 +16,7 @@ Crew
 └── Qoder CLI
 ```
 
-> 当前版本：**v1.0.8 — 开发中**
+> 当前版本：**v1.0.9 — 正式发布 (2026-08-22)**
 
 ## 为什么需要 TP-Voyager
 
@@ -28,7 +28,7 @@ TP-Voyager 把这些问题收在执行层：
 - **受控执行**：read-only、patch、verification 都有明确边界，不使用隐藏 fallback；
 - **隔离修改**：Patch 在 Runtime-owned Git worktree 中完成，Passenger Workspace 不由 Runtime 直接修改；
 - **Verification + Evidence**：把测试、Patch、Usage、执行结果变成可追溯事实；
-- **小型 Captain Surface**：正常只需要 6 个 MCP 工具，不要求 Captain 理解 Runtime 内部实现。
+- **小型 Captain Surface**：v1.0.9.2 默认只有 7 个 MCP 工具；原有 6 个控制/查询工具保持兼容，新增的 `render_voyager_panel` 仅用于只读 Agent 可见性。
 
 ## v1.0.7：统一配置与受控执行
 
@@ -178,18 +178,33 @@ Crew CLI 的解析顺序是“临时环境变量覆盖 → `config.json` → PAT
 
 `model_routing_profiles.json` 继续独立存在，因为它是可更新、带 Evidence/provenance 的模型认知资料，而不是普通机器配置。`tp-voyager init` 会在缺失时 materialize 随包的 26-route baseline；当前账号快照有 27 个可见条目，但 Qoder GLM-5.3 的 account-specific route id 未在本构建环境捕获，因此 baseline 不猜测该 alias。也可以单独执行 `python -m agent_runtime.cli model-routing-init`。
 
+### 4. Codex Desktop 一体化接入（可选）
+
+需要在 Codex Desktop 中使用 Captain MCP 与 Agent 面板时，从仓库根目录运行：
+
+```powershell
+.\.venv\Scripts\python.exe .\skills\tp-voyager-captain\install_codex_desktop.py
+```
+
+同一个安装器会收敛唯一的 skills-only `tp-voyager` 插件、既有 `tp_voyager` MCP 注册、`INSTALLED_BY_DEFAULT` personal marketplace entry，以及全局 `$CODEX_HOME\AGENTS.md` 中的 TP-Voyager managed block。插件只导出一个 `captain` Skill，在 Codex 中使用 `$tp-voyager:captain`；它没有第二份 `.mcp.json` / `.app.json`，不会再启动一份 Runtime。迁移期间安装器只检测并报告旧全局 `tp-voyager-captain` Skill / 旧 `tp-voyager-observability` 插件，不会静默删除；真实新会话验收通过后再按 `CODEX_DESKTOP.md` 的显式步骤清理。若输出 `restart_required=true` / `new_conversation_required=true`，请重启 Codex Desktop 并创建新任务/新会话后验收。
+
 ## Captain 怎么用
 
-默认 MCP Surface 只有 6 个高层工具：
+默认 MCP Surface 有 7 个高层工具：
 
 ```text
 voyager_overview
+render_voyager_panel
 crew_catalog
 crew_health
 crew_recommend
 task_dispatch
 task_result
 ```
+
+`render_voyager_panel` 是纯只读可见性工具，不改变原有六工具控制流程。单任务继续使用精确 `task_id`；显式并发派发可给各独立 Task 传同一个 `presentation_group_id`，或者直接用明确 `task_ids` 渲染组面板。无显式 selector 时不自动挑选“最近任务”，也不根据模糊 correlation 组装任务。支持 MCP Apps 的 Codex Host 即使把多个并发 dispatch 聚合成一张卡，也可以由该卡只读刷新同一显式组。
+
+Panel 采用“结果优先、过程可追溯”：打开/恢复先显示“正在同步”并立即读取最新 Task 状态；完成态优先使用 durable structured result 中的 canonical final answer，首屏显示中文状态、执行模型、耗时、结论、关键依据、风险与下一步；完整回答、执行活动、文件变更、用量独立折叠。Conversation 与 Timeline 分别限长，Timeline 高频事件不会裁掉最终答案；机器协议 envelope 不原样展示。Prompt、system message、secret、raw tool output、绝对宿主路径和隐藏/私有 chain-of-thought 仍不进入面板。SQLite Task/Session/Result/Event/Evidence 继续拥有 Durable truth。
 
 推荐主路径：
 

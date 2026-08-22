@@ -42,7 +42,7 @@ class CodexDesktopSyncTests(unittest.TestCase):
         self.assertEqual(mcp["env"], {})
         self.assertEqual(self.resolved_manifest["cwd"], str(ROOT.resolve()))
         self.assertEqual(self.resolved_manifest["env"], {})
-        self.assertEqual(len(mcp["required_captain_tools"]), 6)
+        self.assertEqual(len(mcp["required_captain_tools"]), 7)
         source = SCRIPT.read_text(encoding="utf-8")
         self.assertNotIn("agent_runtime.server", source)
         for tool in mcp["required_captain_tools"]:

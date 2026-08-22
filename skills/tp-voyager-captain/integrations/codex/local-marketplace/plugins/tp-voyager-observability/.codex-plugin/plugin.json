@@ -1,0 +1,26 @@
+{
+  "name": "tp-voyager-observability",
+  "version": "1.0.9.1",
+  "description": "Show TP-Voyager delegated Crew presence and execution trace inside the current Codex conversation.",
+  "license": "MIT",
+  "keywords": [
+    "tp-voyager",
+    "agents",
+    "observability",
+    "mcp"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "TP-Voyager Observability",
+    "shortDescription": "See delegated Crew activity in Codex",
+    "longDescription": "Shows TP-Voyager Crew status, model, assistant output, tool/file activity, usage, and terminal result in the current conversation through the existing TP-Voyager MCP server.",
+    "developerName": "TP-Voyager",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Read"
+    ],
+    "defaultPrompt": [
+      "Use TP-Voyager to delegate a bounded task and keep the Agent panel visible while it runs."
+    ]
+  }
+}

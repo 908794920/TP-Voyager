@@ -13,6 +13,7 @@ import fnmatch
 import re
 from typing import Any
 
+from agent_runtime.domain.enums import WorkspaceStrategy
 from agent_runtime.domain.run_control import RunControlSpec
 
 
@@ -34,6 +35,12 @@ _MANDATORY_FORBIDDEN = (
 # Credential / secret file names matched against the leaf component (glob).
 # These cannot be expressed as component prefixes because they may appear at
 # any depth (e.g. ``config/.env``, ``certs/server.pem``).
+# Canonical workspace-strategy values.  ``WorkspaceStrategy`` in ``enums.py``
+# is the single source of truth; this tuple keeps the legacy string-compatible
+# surface for callers that compare or persist plain strings.
+WORKSPACE_STRATEGIES = tuple(item.value for item in WorkspaceStrategy)
+
+
 _MANDATORY_SENSITIVE_FILES = (
     ".env",
     "*.pem",
@@ -839,6 +846,16 @@ class CaptainDispatchRequest:
     scope_segment: ScopeSegmentSpec = field(default_factory=ScopeSegmentSpec)
     worker_profile_content: str = ""
     correlation_id: str = ""
+    presentation_group_id: str = ""
+    workspace_strategy: str = "isolated_patch"
+
+    def __post_init__(self) -> None:
+        strategy = str(self.workspace_strategy or "").strip().lower()
+        if strategy not in WORKSPACE_STRATEGIES:
+            raise ValueError(
+                f"workspace_strategy must be one of: {', '.join(WORKSPACE_STRATEGIES)}"
+            )
+        object.__setattr__(self, "workspace_strategy", strategy)
 
     def routing_metadata(self) -> dict[str, Any]:
         """Return bounded routing facts safe to persist with the durable Session."""
@@ -881,4 +898,7 @@ class CaptainDispatchRequest:
             data["scope_segment"] = self.scope_segment.to_dict()
         if self.correlation_id:
             data["correlation_id"] = self.correlation_id
+        data["workspace_strategy"] = self.workspace_strategy
+        if self.presentation_group_id:
+            data["presentation_group_id"] = self.presentation_group_id
         return data

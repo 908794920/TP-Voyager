@@ -39,6 +39,12 @@ v1.0.8 保留同一路由名，但明确分成两个 delivery mode：
    - Snapshot 仍受现有 256 KiB render 上限；
    - 所有 CodeBuddy native tools 继续关闭。
 
+当 Captain 通过 `read_scope` 自动生成 Context Manifest，且具体文件集超过
+256 KiB 时，Runtime 会切换到 `vendor_workspace_scoped`：只把已经解析并
+Hash 校验过的文件复制到只读快照，CodeBuddy 仍只能使用 `Read` / `Glob` /
+`Grep`，不会扩大到整个工作区。显式传入的 `context_id` 仍保持严格的
+frozen-context 语义和 256 KiB 限制。
+
 两种模式都保留 v1.0.3 的只读终态归属规则：`changed_files=[]`，不把 Passenger Workspace 既有 diff 投影成本次任务产物。
 
 重要：当前 CodeBuddy SDK 文档把 `canUseTool` 描述为工具需要权限确认时的 callback，同时 trusted allow rules 可能直接放行。因而 TP-Voyager 的 callback 单元测试不能替代真实 Vendor session 证明。v1.0.8 在 Windows Live Matrix 通过前，`controlled_capabilities` **不宣称** `read_files` / `search_code` 已验收。

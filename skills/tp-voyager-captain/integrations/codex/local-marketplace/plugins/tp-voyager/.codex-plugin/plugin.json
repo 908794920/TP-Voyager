@@ -1,0 +1,30 @@
+{
+  "name": "tp-voyager",
+  "version": "1.0.9",
+  "description": "Captain workflow for bounded TP-Voyager Crew delegation and result-first observability.",
+  "license": "MIT",
+  "keywords": [
+    "tp-voyager",
+    "agents",
+    "captain",
+    "mcp"
+  ],
+  "skills": "./skills/",
+  "author": {
+    "name": "TP-Voyager"
+  },
+  "interface": {
+    "displayName": "TP-Voyager",
+    "shortDescription": "Bounded Crew delegation",
+    "longDescription": "Use the existing TP-Voyager MCP boundary to choose Crew and model explicitly, dispatch bounded work, review evidence, and inspect result-first read-only task panels.",
+    "developerName": "TP-Voyager",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Bounded Crew delegation",
+      "Read-only task observability"
+    ],
+    "defaultPrompt": [
+      "Use TP-Voyager Captain for this bounded task and review the final evidence."
+    ]
+  }
+}

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -58,6 +59,48 @@ class CaptainBoundaryTests(unittest.TestCase):
         self.assertEqual(item["crew"], "workbuddy")
         self.assertFalse(item["target_crew"])
         self.assertTrue(item["legacy_or_unknown_crew"])
+
+    def test_explicit_presentation_group_is_safe_routing_metadata(self) -> None:
+        request = CaptainDispatchRequest(
+            "inspect", "qoder", "research", model="lite", presentation_group_id="grp-review-01"
+        )
+        self.assertEqual(request.routing_metadata()["presentation_group_id"], "grp-review-01")
+
+    def test_high_level_dispatch_rejects_non_ascii_presentation_group_id(self) -> None:
+        from agent_runtime import server
+
+        result = server.task_dispatch(
+            objective="inspect",
+            crew="qoder",
+            task_kind="research",
+            presentation_group_id="并发组-01",
+        )
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["reason_code"], "INVALID_PRESENTATION_GROUP_ID")
+
+    def test_qoder_and_codebuddy_can_dispatch_independently_in_same_presentation_group(self) -> None:
+        caps = ("analyze_context", "read_files", "search_code")
+        registry = CrewRegistryService({
+            "qoder": CrewProvider(_descriptor("qoder", ready=True, caps=caps)),
+            "codebuddy": CrewProvider(_descriptor("codebuddy", ready=True, caps=caps)),
+        })
+        captured = []
+        def dispatch(request):
+            captured.append(request)
+            return {"ok": True, "task_id": f"{request.crew}-task"}
+        service = CaptainDispatchService(registry, {"qoder": dispatch, "codebuddy": dispatch})
+        requests = [
+            CaptainDispatchRequest("inspect qoder", "qoder", "research", model="lite", presentation_group_id="grp-parallel"),
+            CaptainDispatchRequest("inspect codebuddy", "codebuddy", "research", model="hy3", presentation_group_id="grp-parallel"),
+        ]
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(service.dispatch, requests))
+
+        self.assertEqual({item["task_id"] for item in results}, {"qoder-task", "codebuddy-task"})
+        self.assertEqual(len(captured), 2)
+        self.assertTrue(all(item.routing_metadata()["presentation_group_id"] == "grp-parallel" for item in captured))
 
     def test_dispatch_explicitly_rejects_workbuddy(self) -> None:
         service = CaptainDispatchService(CrewRegistryService({}))

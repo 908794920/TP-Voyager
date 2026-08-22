@@ -1,0 +1,20 @@
+{
+  "name": "tp-voyager-local",
+  "interface": {
+    "displayName": "TP-Voyager Local"
+  },
+  "plugins": [
+    {
+      "name": "tp-voyager",
+      "source": {
+        "source": "local",
+        "path": "./plugins/tp-voyager"
+      },
+      "policy": {
+        "installation": "INSTALLED_BY_DEFAULT",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

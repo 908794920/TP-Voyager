@@ -14,6 +14,14 @@ from agent_runtime.activity_log import ActivityLogger
 from agent_runtime.configuration import VoyagerUserConfig, VoyagerUserConfigError
 from agent_runtime.runtime.backend_callbacks import RuntimeBackendCallbacks
 from agent_runtime.api.schemas import CAPTAIN_TOOL_NAMES
+from agent_runtime.api.voyager_panel import (
+    VOYAGER_PANEL_MIME_TYPE,
+    VOYAGER_PANEL_URI,
+    VOYAGER_RUNTIME_PROFILE_MIME_TYPE,
+    VOYAGER_RUNTIME_PROFILE_URI,
+    render_voyager_panel_html,
+    render_voyager_runtime_profile_html,
+)
 from agent_runtime.domain.enums import (
     TERMINAL_STATUS_VALUES,
     EventType,
@@ -106,8 +114,14 @@ from agent_runtime.application.dispatch.profiles import (
     resolve_trusted_instruction_refs,
 )
 from agent_runtime.application.dispatch.artifact_inputs import ArtifactInputResolver
-from agent_runtime.application.voyage import VoyageOverviewService
+from agent_runtime.application.voyage import (
+    AgentObservationRecorder,
+    AgentObservationStore,
+    VoyageAgentProjection,
+    VoyageOverviewService,
+)
 from agent_runtime.domain.dispatch import (
+    WORKSPACE_STRATEGIES,
     ApplyReceipt,
     CaptainDispatchRequest,
     CommandSpec,
@@ -131,6 +145,7 @@ from agent_runtime.backends.codebuddy.capability import descriptor as codebuddy_
 from agent_runtime.backends.codebuddy.process import probe_codebuddy_cli
 from agent_runtime.backends.codebuddy.model_catalog import list_codebuddy_models
 from agent_runtime.backends.qoder.capability import descriptor as qoder_crew_descriptor
+from agent_runtime.backends.qoder.account_usage import collect_qoder_account_snapshot
 from agent_runtime.backends.qoder.model_catalog import list_qoder_models
 from agent_runtime.backends.qoder.process import probe_qoder_cli
 from agent_runtime.backends.qoder.captain_dispatch import QoderReadOnlyDispatcher
@@ -156,6 +171,7 @@ from agent_runtime.backends.errors import (
     BackendTimeoutError,
 )
 from agent_runtime.backends.base import (
+    BackendActivity,
     BackendCancelRequest,
     BackendResult,
     BackendResumeRequest,
@@ -170,6 +186,8 @@ from agent_runtime.backends.registry import BackendRegistry
 ROOT = Path(__file__).resolve().parents[2]
 LOG_DIR = canonical_runtime_home() / "runtime" / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
+_AGENT_OBSERVATION_STORE = AgentObservationStore()
+_AGENT_OBSERVATIONS = AgentObservationRecorder(_AGENT_OBSERVATION_STORE)
 
 mcp = FastMCP(
     "tp_voyager",
@@ -189,18 +207,59 @@ def _mcp_surface() -> str:
     return "diagnostic" if value == "diagnostic" else "captain"
 
 
-def _mcp_tool():
+def _mcp_tool(**tool_kwargs: Any):
     """Register only Captain tools by default; keep legacy tools callable internally.
 
     ``TP_VOYAGER_MCP_SURFACE=diagnostic`` restores the complete compatibility
     surface for maintenance.  This is one Runtime with two visibility profiles,
-    not a second control plane or state machine.
+    not a second control plane or state machine.  ``tool_kwargs`` is forwarded
+    to FastMCP so the read-only observability tool can attach MCP Apps metadata
+    without changing registration behavior for existing tools.
     """
     def decorator(func):
         if _mcp_surface() == "diagnostic" or func.__name__ in _CAPTAIN_TOOL_NAMES:
-            return mcp.tool()(func)
+            return mcp.tool(**tool_kwargs)(func)
         return func
     return decorator
+
+
+@mcp.resource(
+    VOYAGER_PANEL_URI,
+    name="TP-Voyager Agent panel",
+    title="TP-Voyager Agent",
+    description="Read-only current-task Agent presence and execution trace UI.",
+    mime_type=VOYAGER_PANEL_MIME_TYPE,
+    meta={
+        "ui": {
+            "prefersBorder": True,
+            "csp": {
+                "connectDomains": [],
+                "resourceDomains": [],
+            },
+        }
+    },
+)
+def voyager_panel_resource() -> str:
+    """Return the self-contained MCP Apps UI resource."""
+    return render_voyager_panel_html()
+
+
+@mcp.resource(
+    VOYAGER_RUNTIME_PROFILE_URI,
+    name="TP-Voyager Runtime profile",
+    title="TP-Voyager 运行与账户",
+    description="Read-only current configuration, model catalog, and Crew account status UI.",
+    mime_type=VOYAGER_RUNTIME_PROFILE_MIME_TYPE,
+    meta={
+        "ui": {
+            "prefersBorder": True,
+            "csp": {"connectDomains": [], "resourceDomains": []},
+        }
+    },
+)
+def voyager_runtime_profile_resource() -> str:
+    """Return the self-contained Runtime Profile MCP Apps resource."""
+    return render_voyager_runtime_profile_html()
 
 
 from agent_runtime.runtime.handles import (
@@ -308,6 +367,10 @@ def _runtime_database_or_none() -> Database | None:
 
 def _runtime_service() -> TaskService:
     return TaskService(_get_runtime_database())
+
+
+def _voyage_agent_projection() -> VoyageAgentProjection:
+    return VoyageAgentProjection(_runtime_service(), _AGENT_OBSERVATION_STORE)
 
 
 def _workflow_service() -> WorkflowService:
@@ -581,9 +644,9 @@ def _captain_request_contract(**values: Any) -> dict[str, Any]:
 def _note_task_activity(task: TaskState, kind: str) -> None:
     """Record an allow-listed, content-free public task activity event.
 
-    Durable tasks additionally append an ``activity_observed`` audit event.
-    Streaming activity stays in-process only (PR1): the durable audit trail
-    covers lifecycle activities, not every stream event.
+    Durable tasks additionally append an ``activity_observed`` audit event for
+    lifecycle markers.  Detailed stream observations are persisted separately
+    after the observation layer applies its public allow-list.
     """
     if kind not in {
         "task_accepted", "session_created", "prompt_accepted", "running",
@@ -608,6 +671,36 @@ def _note_task_activity(task: TaskState, kind: str) -> None:
         except RuntimePersistenceError as exc:
             # Explicit, non-silent durability failure for diagnostics.
             task.persist_error = f"activity event failed: {exc}"
+
+
+def _persist_observation_activity(task: TaskState, observed: dict[str, Any] | None) -> None:
+    """Persist safe stream activity so panels can recover it after restart."""
+    if not task.persisted or not isinstance(observed, dict):
+        return
+    kind = str(observed.get("kind") or "").strip()
+    if kind not in {"tool_activity", "file_change", "status"}:
+        return
+    details = {
+        key: observed[key]
+        for key in (
+            "tool", "action", "path", "phase", "status", "reason", "summary",
+            "provider", "source", "currency", "input_tokens", "output_tokens",
+            "duration_ms", "turns", "files_changed",
+        )
+        if key in observed
+    }
+    try:
+        _runtime_service().append_activity(
+            task.task_id,
+            kind,
+            now=float(observed.get("timestamp") or time.time()),
+            details=details,
+            lease=task.lease,
+        )
+    except RuntimePersistenceError as exc:
+        # Activity is auxiliary telemetry; preserve task truth if its optional
+        # durable projection cannot be written.
+        task.persist_error = f"activity event failed: {exc}"
 
 
 from agent_runtime.api.public_projection import (
@@ -950,6 +1043,7 @@ def _repository_research_captain_fingerprint(
     model_policy: ModelPolicy | None,
     worker_profile_ref: WorkerProfileRef | None,
     correlation_id: str,
+    presentation_group_id: str,
     required_capabilities: list[str] | None,
     repository_research: RepositoryResearchSpec,
     repository_snapshot_ref: RepositorySnapshotRef | None = None,
@@ -974,6 +1068,7 @@ def _repository_research_captain_fingerprint(
         "model_policy": model_policy.to_dict() if model_policy is not None else None,
         "worker_profile_ref": worker_profile_ref.to_dict() if worker_profile_ref is not None else None,
         "correlation_id": str(correlation_id or ""),
+        "presentation_group_id": str(presentation_group_id or ""),
         "required_capabilities": sorted(
             {str(item).strip() for item in (required_capabilities or []) if str(item).strip()}
         ),
@@ -1578,7 +1673,8 @@ def _make_backend_callbacks(
         task.backend_session_id = backend_session_id
         _note_task_activity(task, "session_created")
 
-    def on_activity(kind: str) -> None:
+    def on_activity(activity: BackendActivity) -> None:
+        kind = activity.kind
         if kind == "prompt_accepted":
             task.first_prompt_accepted_at = time.time()
             # Prompt accepted: advance the durable lifecycle to observing so
@@ -1591,9 +1687,12 @@ def _make_backend_callbacks(
                 status="observing",
                 event_type=EventType.TASK_STATUS_CHANGED.value,
             )
-        _note_task_activity(task, kind)
+        _note_task_activity(task, activity.kind)
+        observed = _AGENT_OBSERVATIONS.activity(task, activity)
+        _persist_observation_activity(task, observed)
 
     def on_usage(usage: BackendUsage) -> None:
+        _AGENT_OBSERVATIONS.usage(task, usage)
         if not task.persisted:
             return
         try:
@@ -1704,6 +1803,7 @@ def _run_official_cli_task(
             event_type=EventType.TASK_STARTED.value,
             started_at=task.started_at,
         )
+        _AGENT_OBSERVATIONS.started(task, timestamp=task.started_at)
         callbacks = _make_backend_callbacks(task, log_event)
         metadata = {
             "route": task.route,
@@ -1766,6 +1866,7 @@ def _run_official_cli_task(
         _persist_completed(task, task.result, backend_result=backend_result)
         task.state = "completed"
         _note_task_activity(task, "final_response")
+        _AGENT_OBSERVATIONS.completed(task, answer=task.answer)
     except BackendCancelledError:
         task.state = "cancelled"
         task.error = f"{backend_name} execution was cancelled"
@@ -1776,6 +1877,7 @@ def _run_official_cli_task(
             task.cancel_scope = str(cancel_scope_for_route(task.route))
         _persist_cancel_confirmed(task)
         _note_task_activity(task, "process_terminated")
+        _AGENT_OBSERVATIONS.cancelled(task)
     except Exception as exc:
         task.state = "failed"
         task.error = str(exc)
@@ -1785,6 +1887,8 @@ def _run_official_cli_task(
         if not _persist_failed_with_partial_artifacts(task):
             _persist_failed(task)
         _note_task_activity(task, "failed")
+        failure_phase = getattr(exc, "phase", None)
+        _AGENT_OBSERVATIONS.failed(task, reason=type(exc).__name__, phase=failure_phase)
         activity_logger.terminal(
             f"{backend_name} task failed",
             status=type(exc).__name__,
@@ -1843,7 +1947,7 @@ def _run_codebuddy(task: TaskState, timeout_seconds: float) -> None:
         timeout_seconds,
         backend_name="codebuddy",
         backend_factory=_create_codebuddy_backend,
-        cancel_scope_for_route=lambda route: "codebuddy_sdk",
+        cancel_scope_for_route=lambda route: "codebuddy_acp" if route.startswith("acp_") else "codebuddy_sdk",
     )
 
 def _durable_cli_start(
@@ -1915,7 +2019,7 @@ def _durable_cli_start(
     except ValueError as exc:
         return {"ok": False, "error": str(exc)}
     routing = dict(routing_metadata or {})
-    allowed_routing_keys = {"read_scope", "worker_profile_ref", "worker_skill_refs", "input_artifact_refs", "trusted_instruction_refs", "captain_request_contract", "effective_model_policy", "correlation_id", "model_policy", "model_parameters", "repository_research", "repository_snapshot_ref", "scope_segment", "run_control", "step_key", "apply_receipt", "verification_policy", "verification_subject", "context_delivery"}
+    allowed_routing_keys = {"read_scope", "worker_profile_ref", "worker_skill_refs", "input_artifact_refs", "trusted_instruction_refs", "captain_request_contract", "effective_model_policy", "correlation_id", "presentation_group_id", "model_policy", "model_parameters", "repository_research", "repository_snapshot_ref", "scope_segment", "run_control", "step_key", "apply_receipt", "verification_policy", "verification_subject", "context_delivery", "workspace_strategy"}
     if set(routing) - allowed_routing_keys:
         return {"ok": False, "error": "routing_metadata contains unsupported keys"}
     try:
@@ -2266,7 +2370,7 @@ def _codebuddy_start(
     model: str = "",
     reasoning_effort: str = "",
     context_window_tokens: int | None = None,
-    route: str = "sdk_context_read_only",
+    route: str = "acp_read_only",
     resume_task_id: str = "",
     idempotency_key: str = "",
     idle_timeout_seconds: int = 180,
@@ -2290,11 +2394,11 @@ def _codebuddy_start(
     patch_policy: dict[str, Any] | None = None,
     routing_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    canonical_route = route.strip().lower() or "sdk_context_read_only"
-    if canonical_route not in {"sdk_context_read_only", "sdk_patch", "sdk_verify"}:
+    canonical_route = route.strip().lower() or "acp_read_only"
+    if canonical_route not in {"acp_read_only", "acp_patch", "acp_verify", "sdk_context_read_only", "sdk_patch", "sdk_verify"}:
         return {
             "ok": False,
-            "error": "CodeBuddy route must be sdk_context_read_only, sdk_patch or sdk_verify",
+            "error": "CodeBuddy route must be acp_read_only, acp_patch, acp_verify, sdk_context_read_only, sdk_patch or sdk_verify",
         }
     effective_max = (
         max_task_duration_seconds
@@ -2317,7 +2421,7 @@ def _codebuddy_start(
         runtime="codebuddy",
         task_type="codebuddy",
         route=canonical_route,
-        resumable_routes=frozenset({"sdk_context_read_only", "sdk_patch", "sdk_verify"}),
+        resumable_routes=frozenset({"acp_read_only", "acp_patch", "acp_verify", "sdk_context_read_only", "sdk_patch", "sdk_verify"}),
         worker_target=_run_codebuddy,
         prompt=prompt,
         cwd=cwd,
@@ -2486,19 +2590,27 @@ def _usage_evidence_for_task(task_id: str) -> dict[str, Any]:
 def _usage_projection(
     evidence: dict[str, Any], *, observability: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Return only provider-observed usage quantities, never an estimate."""
+    """Project only provider-observed/explicitly-derived Token and Credit facts."""
     provenance = (observability or {}).get("usage_provenance") if isinstance(observability, dict) else None
     provenance_status = str(provenance.get("status") or "") if isinstance(provenance, dict) else ""
     usage = evidence.get("usage") if isinstance(evidence, dict) else None
     usage = usage if isinstance(usage, dict) else {}
     output: dict[str, Any] = {}
-    for field in ("input_tokens", "output_tokens", "credits_used", "reported_cost"):
+    for field in (
+        "total_tokens", "input_tokens", "cache_read_tokens", "cache_miss_tokens",
+        "cache_write_tokens", "output_tokens", "reasoning_tokens", "answer_tokens",
+        "credits", "session_credits", "original_credits",
+    ):
         value = usage.get(field)
+        if value is None and field == "credits":
+            value = usage.get("credits_used")
         if isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0:
             output[field] = value
-    currency = usage.get("currency")
-    if isinstance(currency, str) and currency.strip():
-        output["currency"] = currency.strip()[:16]
+    if isinstance(usage.get("billable"), bool):
+        output["billable"] = usage["billable"]
+    derived = usage.get("derived_fields")
+    if isinstance(derived, list):
+        output["derived_fields"] = [str(item)[:80] for item in derived[:16] if str(item).strip()]
     if output:
         status = "observed"
     elif provenance_status in {"provider_omitted", "protocol_unrecognized"}:
@@ -2509,7 +2621,7 @@ def _usage_projection(
         status = "provider_omitted"
     result: dict[str, Any] = {"status": status}
     if isinstance(evidence, dict):
-        for field in ("provider", "model", "source"):
+        for field in ("provider", "scope", "model", "source"):
             value = evidence.get(field)
             if isinstance(value, str) and value.strip():
                 result[field] = value.strip()[:160]
@@ -2530,6 +2642,9 @@ def _routing_projection(task: TaskState) -> dict[str, Any]:
     correlation_id = routing.get("correlation_id")
     if isinstance(correlation_id, str) and correlation_id:
         output["correlation_id"] = correlation_id
+    presentation_group_id = routing.get("presentation_group_id")
+    if isinstance(presentation_group_id, str) and presentation_group_id:
+        output["presentation_group_id"] = presentation_group_id
     profile = routing.get("worker_profile_ref")
     if isinstance(profile, dict):
         output["worker_profile_ref"] = dict(profile)
@@ -2829,7 +2944,7 @@ def _cancel_scope_for(task: TaskState) -> str:
     if task.runtime == "qoder":
         return "qoder_print" if task.route == "print" else "qoder_acp"
     if task.runtime == "codebuddy":
-        return "codebuddy_sdk"
+        return "codebuddy_acp" if task.route.startswith("acp_") else "codebuddy_sdk"
     return "backend_execution"
 
 
@@ -3142,16 +3257,319 @@ def crew_recommend(
         return {"ok": False, "error": str(exc)}
 
 
-@_mcp_tool()
-def voyager_overview(limit: int = 5) -> dict[str, Any]:
-    """Return a compact, content-free progress view for the Captain."""
+def _runtime_profile_display_path(value: str | Path, config_home: Path) -> str:
+    """Present user-owned paths without exposing an absolute host path."""
+    text = str(value or "").strip()
+    if not text:
+        return ""
     try:
-        return {"ok": True, **_voyage_overview_service().overview(limit=limit)}
-    except (RuntimePersistenceError, ValueError) as exc:
+        candidate = Path(text).expanduser().resolve()
+        home = config_home.expanduser().resolve()
+        relative = candidate.relative_to(home)
+        return "~/.tp-voyager" if str(relative) == "." else f"~/.tp-voyager/{relative.as_posix()}"
+    except (OSError, RuntimeError, ValueError):
+        name = Path(text).name
+        return f"<external>/{name}" if name else "<external>"
+
+
+def _runtime_profile_config_projection(config: VoyagerUserConfig) -> dict[str, Any]:
+    """Project all typed user config fields into safe, display-ready values."""
+    home = config.home
+    return {
+        "schema": config.schema,
+        "home": _runtime_profile_display_path(home, home),
+        "config_path": _runtime_profile_display_path(config.path, home),
+        "crew": {
+            "qoder": {
+                "enabled": config.crew.qoder.enabled,
+                "cli_path": _runtime_profile_display_path(config.crew.qoder.cli_path, home),
+                "max_concurrent_tasks": config.crew.qoder.max_concurrent_tasks,
+            },
+            "codebuddy": {
+                "enabled": config.crew.codebuddy.enabled,
+                "cli_path": _runtime_profile_display_path(config.crew.codebuddy.cli_path, home),
+                "internet_environment": config.crew.codebuddy.internet_environment,
+                "max_concurrent_tasks": config.crew.codebuddy.max_concurrent_tasks,
+            },
+        },
+        "dispatch": {
+            "allowed_models": list(config.dispatch.allowed_models),
+            "preferred_models": list(config.dispatch.preferred_models),
+            "task_kind_allowed_models": {
+                kind: list(models)
+                for kind, models in config.dispatch.task_kind_allowed_models
+            },
+        },
+        "trusted_roots": {
+            "model_evidence": {
+                alias: _runtime_profile_display_path(path, home)
+                for alias, path in config.trusted_roots.model_evidence
+            },
+            "instructions": {
+                alias: _runtime_profile_display_path(path, home)
+                for alias, path in config.trusted_roots.instructions
+            },
+        },
+        "resources": {
+            "worker_profiles_root": _runtime_profile_display_path(
+                config.resources.worker_profiles_root, home
+            ),
+            "worker_skills_root": _runtime_profile_display_path(
+                config.resources.worker_skills_root, home
+            ),
+        },
+    }
+
+
+def _runtime_profile_quota(detail: Any) -> tuple[str, str | None]:
+    """Keep account quota separate from task/session Credit facts."""
+    source = detail if isinstance(detail, dict) else {}
+    for key in ("account_usage", "user_quota", "quota"):
+        quota = source.get(key)
+        if not isinstance(quota, dict):
+            continue
+        total = quota.get("total")
+        used = quota.get("used")
+        remaining = quota.get("remaining")
+        if any(isinstance(value, (int, float)) and not isinstance(value, bool) for value in (total, used, remaining)):
+            unit = str(quota.get("unit") or "credits").strip() or "credits"
+            parts = []
+            if isinstance(total, (int, float)) and not isinstance(total, bool):
+                parts.append(f"总 {total:g}")
+            if isinstance(used, (int, float)) and not isinstance(used, bool):
+                parts.append(f"已用 {used:g}")
+            if isinstance(remaining, (int, float)) and not isinstance(remaining, bool):
+                parts.append(f"剩余 {remaining:g}")
+            return "observed", f"{' · '.join(parts)} {unit}"
+    return "not_observed", None
+
+
+def _runtime_profile_account_state(
+    *,
+    backend: str,
+    health: dict[str, Any],
+    catalog_meta: dict[str, Any],
+    refresh_profile: bool,
+) -> tuple[str, str, str | None]:
+    """Return auth and quota facts without treating task Usage as account quota."""
+    auth_status = str(health.get("auth_status") or "not_probed")
+    quota_status, quota_summary = _runtime_profile_quota(health.get("detail"))
+    if not refresh_profile:
+        return auth_status, quota_status, quota_summary
+
+    if backend == "qoder":
+        snapshot = collect_qoder_account_snapshot()
+        if snapshot.get("status") != "observed":
+            return "unknown", "unknown", "暂时无法读取账户额度"
+        auth_status = str(snapshot.get("auth_status") or "unknown")
+        quota_status, quota_summary = _runtime_profile_quota({
+            "user_quota": snapshot.get("user_quota"),
+        })
+        if quota_status != "observed":
+            quota_summary = "Provider 未返回账户额度"
+        return auth_status, quota_status, quota_summary
+
+    if backend == "codebuddy":
+        # CodeBuddy's current ACP live account model catalogue proves that the
+        # local CLI can access the account, but it has no documented balance
+        # endpoint.  Do not infer a balance from task/session Credits.
+        if (
+            str(catalog_meta.get("source") or "") == "codebuddy_acp_account_live"
+            and str(catalog_meta.get("status") or "") == "complete"
+        ):
+            auth_status = "verified"
+        return auth_status, "not_supported", "官方 CLI/ACP 未提供余额接口"
+
+    return auth_status, quota_status, quota_summary
+
+
+def _runtime_profile_projection(*, refresh_profile: bool = False) -> dict[str, Any]:
+    """Compose one read-only snapshot for the Runtime Profile MCP card."""
+    config = VoyagerUserConfig.load()
+    registry = _crew_registry_service()
+    catalog = registry.catalog(
+        probe=bool(refresh_profile), include_models=bool(refresh_profile)
+    )
+    models: list[dict[str, Any]] = []
+    accounts: list[dict[str, Any]] = []
+    for crew in list(catalog.get("crew") or []):
+        if not isinstance(crew, dict):
+            continue
+        backend = str(crew.get("backend") or "").strip().lower()
+        if not backend:
+            continue
+        health = crew.get("health") if isinstance(crew.get("health"), dict) else {}
+        catalog_meta = crew.get("model_catalog") if isinstance(crew.get("model_catalog"), dict) else {}
+        auth_status, quota_status, quota_summary = _runtime_profile_account_state(
+            backend=backend,
+            health=health,
+            catalog_meta=catalog_meta,
+            refresh_profile=refresh_profile,
+        )
+        accounts.append({
+            "backend": backend,
+            "display_name": str(crew.get("display_name") or backend),
+            "availability": str(health.get("availability") or "unknown"),
+            "version": health.get("version"),
+            "auth_status": auth_status,
+            "model_catalog_status": str(catalog_meta.get("status") or health.get("model_catalog_status") or "unknown"),
+            "model_catalog_source": str(catalog_meta.get("source") or "unknown"),
+            "last_successful_model": health.get("last_successful_model"),
+            "quota_status": quota_status,
+            "quota_summary": quota_summary,
+        })
+        model_rows = list(crew.get("models") or []) if refresh_profile else []
+        for item in model_rows:
+            if not isinstance(item, dict):
+                continue
+            metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+            reasoning = item.get("reasoning") if isinstance(item.get("reasoning"), dict) else {}
+            billing = metadata.get("billing") if isinstance(metadata.get("billing"), dict) else {}
+            reference_multiplier = item.get("reference_multiplier")
+            if not isinstance(reference_multiplier, (int, float)) or isinstance(reference_multiplier, bool) or reference_multiplier < 0:
+                reference_multiplier = billing.get("multiplier", billing.get("price_factor"))
+            if not isinstance(reference_multiplier, (int, float)) or isinstance(reference_multiplier, bool) or reference_multiplier < 0:
+                reference_multiplier = None
+            models.append({
+                "backend": backend,
+                "model_id": str(item.get("model_id") or ""),
+                "display_name": str(item.get("display_name") or item.get("model_id") or ""),
+                "available": item.get("available") if isinstance(item.get("available"), bool) else None,
+                "routable": item.get("routable") if isinstance(item.get("routable"), bool) else None,
+                "routability_status": str(item.get("routability_status") or "unknown"),
+                "reference_multiplier": float(reference_multiplier) if reference_multiplier is not None else None,
+                "context_window_tokens": item.get("context_window_tokens"),
+                "supported_efforts": list(reasoning.get("supported_efforts") or [])[:16],
+                "source": str(item.get("source") or "unknown"),
+            })
+    return {
+        "schema": "tp-voyager.runtime_profile/v1",
+        "scope": "current_user_configuration",
+        "refresh_mode": "live" if refresh_profile else "catalog",
+        "observed_at": catalog.get("updated_at") or time.time(),
+        "config": _runtime_profile_config_projection(config),
+        "models": models,
+        "accounts": accounts,
+    }
+
+
+@_mcp_tool(
+    meta={
+        "ui": {"resourceUri": VOYAGER_RUNTIME_PROFILE_URI},
+        "openai/outputTemplate": VOYAGER_RUNTIME_PROFILE_URI,
+        "openai/toolInvocation/invoking": "正在加载 TP-Voyager 运行与账户…",
+        "openai/toolInvocation/invoked": "TP-Voyager 运行与账户已就绪",
+    },
+    structured_output=True,
+)
+def voyager_overview(
+    limit: int = 5,
+    include_profile: bool = False,
+    refresh_profile: bool = False,
+) -> dict[str, Any]:
+    """Return compact voyage progress and an optional read-only Runtime Profile."""
+    try:
+        response = {"ok": True, **_voyage_overview_service().overview(limit=limit)}
+        if include_profile:
+            response["runtime_profile"] = _runtime_profile_projection(
+                refresh_profile=refresh_profile
+            )
+        return response
+    except (RuntimePersistenceError, VoyagerUserConfigError, ValueError) as exc:
         return {"ok": False, "error": type(exc).__name__}
 
 
-@_mcp_tool()
+@_mcp_tool(
+    meta={
+        "ui": {"resourceUri": VOYAGER_PANEL_URI},
+        "openai/outputTemplate": VOYAGER_PANEL_URI,
+        "openai/toolInvocation/invoking": "正在加载 TP-Voyager 任务…",
+        "openai/toolInvocation/invoked": "TP-Voyager 任务已就绪",
+    },
+    structured_output=True,
+)
+def render_voyager_panel(
+    task_id: str = "",
+    presentation_group_id: str = "",
+    task_ids: list[str] | None = None,
+    limit: int = 200,
+) -> dict[str, Any]:
+    """Render an exact, read-only Agent snapshot for the MCP Apps panel.
+
+    Selection is explicit: one ``task_id``, one ``presentation_group_id``, or
+    an explicit bounded ``task_ids`` list. No recent/global/correlation-based
+    heuristic is allowed to choose tasks for the current conversation.
+    """
+    try:
+        bounded_limit = max(1, min(int(limit), 1000))
+    except (TypeError, ValueError):
+        return {
+            "ok": False, "schema": "tp-voyager.agent_panel/v1",
+            "reason_code": "INVALID_LIMIT",
+            "error": {"message": "limit must be an integer between 1 and 1000"},
+        }
+    canonical_task_id = str(task_id or "").strip()
+    canonical_group_id = str(presentation_group_id or "").strip()
+    explicit_task_ids = list(task_ids or [])
+    selector_count = int(bool(canonical_task_id)) + int(bool(canonical_group_id)) + int(bool(explicit_task_ids))
+    if selector_count > 1:
+        return {
+            "ok": False, "schema": "tp-voyager.agent_panel/v1",
+            "reason_code": "AMBIGUOUS_PANEL_SELECTOR",
+            "error": {"message": "pass exactly one of task_id, presentation_group_id, or task_ids"},
+        }
+    if len(explicit_task_ids) > 16:
+        return {
+            "ok": False, "schema": "tp-voyager.agent_panel/v1",
+            "reason_code": "INVALID_PANEL_SELECTOR",
+            "error": {"message": "task_ids may contain at most 16 explicit task ids"},
+        }
+    try:
+        projection = _voyage_agent_projection()
+        if canonical_task_id:
+            detail = projection.detail(canonical_task_id, limit=bounded_limit)
+            if not bool(detail.get("ok")):
+                return {
+                    "ok": False, "schema": "tp-voyager.agent_panel/v1",
+                    "reason_code": str(detail.get("reason_code") or "TASK_NOT_FOUND"),
+                    "task_id": detail.get("task_id") or canonical_task_id,
+                    "error": {"message": "TP-Voyager task was not found."},
+                }
+            return {**detail, "schema": "tp-voyager.agent_panel/v1", "mode": "detail"}
+        if canonical_group_id or explicit_task_ids:
+            grouped = projection.group(
+                presentation_group_id=canonical_group_id,
+                task_ids=explicit_task_ids or None,
+                limit=bounded_limit,
+            )
+            if not bool(grouped.get("ok")):
+                return {
+                    **grouped, "schema": "tp-voyager.agent_panel/v1", "mode": "group",
+                    "error": {"message": "TP-Voyager explicit task group was not found."},
+                }
+            return {**grouped, "schema": "tp-voyager.agent_panel/v1", "mode": "group"}
+        return {
+            "ok": True, "schema": "tp-voyager.agent_panel/v1", "mode": "empty",
+            "scope": "current_conversation", "tasks": [], "conversation": [],
+            "timeline": [], "files": [], "usage": {}, "error": None,
+        }
+    except (RuntimePersistenceError, ValueError, TypeError):
+        return {
+            "ok": False, "schema": "tp-voyager.agent_panel/v1",
+            "reason_code": "OBSERVABILITY_UNAVAILABLE",
+            "error": {"message": "TP-Voyager observability data is unavailable."},
+        }
+
+
+@_mcp_tool(
+    meta={
+        "ui": {"resourceUri": VOYAGER_PANEL_URI},
+        "openai/outputTemplate": VOYAGER_PANEL_URI,
+        "openai/toolInvocation/invoking": "正在启动 TP-Voyager 任务…",
+        "openai/toolInvocation/invoked": "TP-Voyager 任务已启动",
+    },
+    structured_output=True,
+)
 def task_dispatch(
     objective: str,
     crew: str,
@@ -3174,12 +3592,14 @@ def task_dispatch(
     apply_receipt: dict[str, Any] | None = None,
     verification_policy: dict[str, Any] | None = None,
     correlation_id: str = "",
+    presentation_group_id: str = "",
     timeout_seconds: int = 300,
     required_capabilities: list[str] | None = None,
     patch_policy: dict[str, Any] | None = None,
     repository_research: dict[str, Any] | None = None,
     repository_snapshot_ref: dict[str, Any] | None = None,
     scope_segment: dict[str, Any] | None = None,
+    workspace_strategy: str = "isolated_patch",
 ) -> dict[str, Any]:
     """Dispatch one explicit Captain-selected Crew task under bounded policy.
 
@@ -3205,6 +3625,21 @@ def task_dispatch(
             "selection_performed": False,
             "dispatch_performed": False,
         }
+
+    normalized_workspace_strategy = str(workspace_strategy or "isolated_patch").strip().lower()
+    if normalized_workspace_strategy not in set(WORKSPACE_STRATEGIES):
+        return reject("INVALID_WORKSPACE_STRATEGY", "workspace_strategy must be one of model_only/live_readonly/frozen_context/isolated_patch")
+
+    # Workspace policy is an explicit dispatch contract.  Do not prepare an
+    # isolation workspace for model checks or read-only inspection.  The
+    # strategy only controls workspace preparation; it never changes the
+    # durable task_result source of truth.
+    if normalized_workspace_strategy == "model_only":
+        cwd = ""
+        repository_snapshot_ref = None
+        repository_research = None
+    elif normalized_workspace_strategy == "live_readonly":
+        patch_policy = None
 
     parsed_policy: PatchPolicy | None = None
     if patch_policy is not None:
@@ -3291,7 +3726,7 @@ def task_dispatch(
 
     resolved_files: tuple[str, ...] = ()
     context_auto_created = False
-    if supplied_files:
+    if supplied_files and normalized_workspace_strategy != "model_only":
         try:
             registered = _context_service().register(effective_cwd, supplied_files)
             effective_context_id = str(registered.manifest.get("context_id") or "")
@@ -3300,7 +3735,7 @@ def task_dispatch(
             return reject("CONTEXT_INVALID", str(exc))
         except RuntimePersistenceError:
             return reject("RUNTIME_UNAVAILABLE", "runtime database unavailable")
-    elif parsed_scope is not None and normalized_kind != "repository_research" and normalized_mode != "verification":
+    elif parsed_scope is not None and normalized_kind != "repository_research" and normalized_mode != "verification" and normalized_workspace_strategy != "model_only":
         try:
             resolved_files = tuple(_context_service().resolve_read_scope(effective_cwd, parsed_scope))
             # ContextManifest is the provider-neutral Scope Manifest truth.
@@ -3398,6 +3833,19 @@ def task_dispatch(
         ):
             return reject("INVALID_CORRELATION_ID", "correlation_id must be printable and at most 160 characters")
 
+    external_presentation_group_id = str(presentation_group_id or "").strip()
+    if external_presentation_group_id:
+        if (
+            len(external_presentation_group_id) > 160
+            or not external_presentation_group_id.isascii()
+            or not external_presentation_group_id[0].isalnum()
+            or any(not (ch.isalnum() or ch in "._-") for ch in external_presentation_group_id)
+        ):
+            return reject(
+                "INVALID_PRESENTATION_GROUP_ID",
+                "presentation_group_id must use only letters, digits, dot, underscore, or hyphen and be at most 160 characters",
+            )
+
     context_root_hash = ""
     if effective_context_id:
         try:
@@ -3433,6 +3881,8 @@ def task_dispatch(
         repository_snapshot_ref=parsed_snapshot_ref.to_dict() if parsed_snapshot_ref is not None else None,
         scope_segment=parsed_scope_segment.to_dict(),
         correlation_id=external_correlation_id,
+        presentation_group_id=external_presentation_group_id,
+        workspace_strategy=normalized_workspace_strategy,
     )
     canonical_key = str(idempotency_key or "").strip()
     if canonical_key and parsed_research is None:
@@ -3464,6 +3914,7 @@ def task_dispatch(
                     "replayed": True,
                     "effective_model_policy": dict(stored_policy) if isinstance(stored_policy, dict) else {},
                     **_public(_task_state_from_durable(durable, runtime)),
+                    **({"presentation_group_id": external_presentation_group_id} if external_presentation_group_id else {}),
                 }
 
     if parsed_profile is not None:
@@ -3535,6 +3986,7 @@ def task_dispatch(
             read_scope=parsed_scope,  # type: ignore[arg-type]
             model_policy=parsed_model_policy, worker_profile_ref=parsed_profile,
             correlation_id=external_correlation_id,
+            presentation_group_id=external_presentation_group_id,
             required_capabilities=required_capabilities,
             repository_research=parsed_research,
             repository_snapshot_ref=parsed_snapshot_ref,
@@ -3590,6 +4042,8 @@ def task_dispatch(
                 }
                 if external_correlation_id:
                     replay["correlation_id"] = external_correlation_id
+                if external_presentation_group_id:
+                    replay["presentation_group_id"] = external_presentation_group_id
                 if parsed_profile is not None:
                     replay["worker_profile_ref"] = parsed_profile.to_dict()
                 return replay
@@ -3729,6 +4183,8 @@ def task_dispatch(
             repository_snapshot_ref=parsed_snapshot_ref,
             scope_segment=parsed_scope_segment,
             correlation_id=external_correlation_id,
+            presentation_group_id=external_presentation_group_id,
+            workspace_strategy=normalized_workspace_strategy,
         )
     )
     if verification_workspace is not None and (not result.get("ok") or bool(result.get("replayed"))):
@@ -3770,6 +4226,7 @@ def task_dispatch(
             **result,
             "context_id": effective_context_id,
             "context_auto_created": True,
+            "workspace_strategy": normalized_workspace_strategy,
         }
         if parsed_scope is not None:
             result = {**result, "read_scope_resolved_file_count": len(resolved_files)}
@@ -3777,6 +4234,8 @@ def task_dispatch(
         result = {**result, "read_scope_resolved_file_count": len(resolved_files)}
     if external_correlation_id:
         result = {**result, "correlation_id": external_correlation_id}
+    if external_presentation_group_id:
+        result = {**result, "presentation_group_id": external_presentation_group_id}
     if parsed_run_control is not None:
         result = {**result, "run_id": parsed_run_control.run_id, "step_key": canonical_step_key}
     if parsed_profile is not None:

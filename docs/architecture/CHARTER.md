@@ -55,6 +55,8 @@ Result
 
 The Captain should see compact progress, crew capabilities/health, dispatch status, decisions required, and bounded results.  Vendor CLI flags, ACP framing, SDK callbacks, SQLite internals, raw logs, and full patches stay below the Captain boundary unless explicitly requested for diagnostics.
 
+A bounded **Agent observability projection** may additionally expose, on demand and for an explicitly identified delegated Task, Provider-visible assistant output plus safe Tool/File/Usage activity. This is a human visibility/read model, not planning authority and not a second Task truth. Content-bearing observations stay bounded and transient in Runtime memory; Prompt/system content, secrets, raw tool output, and hidden/private chain-of-thought are outside the contract. Durable Task/Event/Evidence ownership does not move.
+
 The Captain decides whom to dispatch. TP-Voyager may expose normalized Crew/model catalogs, provider-declared capability/billing reference metadata, durable historical success/usage facts, and compatible-Crew recommendations, but it must not silently switch backend/model, score/select a model, retry indefinitely, estimate provider charges from public rates, or expand mission scope.
 
 ## 5. Worker boundary

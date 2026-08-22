@@ -278,6 +278,8 @@ Blocked tasks
 Captain decisions required
 Risk summary
 Progress aggregation
+Read-only Agent presence / trace projection over existing Runtime truth
+Bounded transient observation read model for current-process human visibility
 ```
 
 Must not:
@@ -288,6 +290,8 @@ Autonomously decompose missions
 Choose business strategy
 Call AI models to plan
 Create a second workflow state machine
+Persist Prompt / assistant transcript as a new durable truth
+Expose hidden/private chain-of-thought or raw tool output
 ```
 
 Voyage is a progress/control projection, not an intelligent planner.
@@ -748,12 +752,13 @@ Rules:
 
 ```text
 Tool-independent when possible
-No .codex-specific ownership
+Host-specific loading/presentation packages may live under an existing Skill's integrations/<host>/ subtree
+Host integration packages must not own Runtime state or business execution logic
 No business runtime code
 No duplicate architecture documentation
 ```
 
-A Skill does not become a substitute for Runtime policy enforcement.
+A Skill does not become a substitute for Runtime policy enforcement. Codex/Claude Code/etc. integration packaging is allowed only as a thin Host loading/presentation layer; it must reuse the same Runtime/MCP truth instead of starting a parallel control plane.
 
 ---
 
@@ -909,6 +914,7 @@ Preferred compact public surface:
 
 ```text
 voyager_overview
+render_voyager_panel   # read-only visibility projection; explicit task_id for task data
 
 crew_catalog
 crew_health

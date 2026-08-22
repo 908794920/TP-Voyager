@@ -54,12 +54,11 @@ class TaskLaunchServiceTests(unittest.TestCase):
         self.assertIn("legacy review/session fields", invalid["error"])
         self.assertEqual(self.calls, [])
 
-    def test_codebuddy_routes_only_controlled_official_sdk_shapes(self) -> None:
+    def test_codebuddy_defaults_to_acp_and_keeps_explicit_sdk_compatibility(self) -> None:
         result = self.service.start(
             TaskLaunchRequest(
                 prompt="analyze bounded context",
                 runtime="codebuddy",
-                route="sdk_context_read_only",
                 model="hy3",
                 agent_profile="research",
             )
@@ -67,9 +66,16 @@ class TaskLaunchServiceTests(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(self.calls[0][0], "codebuddy")
         kwargs = self.calls[0][1]
-        self.assertEqual(kwargs["route"], "sdk_context_read_only")
+        self.assertEqual(kwargs["route"], "acp_read_only")
         self.assertEqual(kwargs["model"], "hy3")
         self.assertEqual(kwargs["agent_profile"], "research")
+
+        self.calls.clear()
+        sdk = self.service.start(
+            TaskLaunchRequest(prompt="compat", runtime="codebuddy", route="sdk_context_read_only")
+        )
+        self.assertTrue(sdk["ok"], sdk)
+        self.assertEqual(self.calls[0][1]["route"], "sdk_context_read_only")
 
         self.calls.clear()
         invalid = self.service.start(
@@ -94,3 +100,11 @@ class TaskLaunchServiceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_mcp_server_codebuddy_route_contract_includes_native_acp_and_sdk_compatibility():
+    from pathlib import Path
+    source = (Path(__file__).resolve().parents[1] / "agent_runtime" / "api" / "mcp_server.py").read_text(encoding="utf-8")
+    assert 'route: str = "acp_read_only"' in source
+    assert '"acp_read_only", "acp_patch", "acp_verify"' in source
+    assert '"sdk_context_read_only", "sdk_patch", "sdk_verify"' in source

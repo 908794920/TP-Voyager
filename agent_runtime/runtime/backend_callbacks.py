@@ -10,7 +10,8 @@ Synchronous contract notes:
 - ``on_dispatch_accepted`` is the only callback that must complete before
   the backend may send a real prompt/stream; a persistence failure raises
   so the route aborts the dispatch.
-- ``on_activity`` carries typed, content-free activity.
+- ``on_activity`` carries typed, bounded activity; optional observation detail may
+  include provider-visible assistant text for the human-facing projection.
 - ``on_result`` marks the task execution finished so the runtime closes
   its finalization window (rejects cancels while it finalizes).
 - ``on_raw_event`` is an optional private diagnostic sink (activity log);
@@ -35,7 +36,7 @@ class RuntimeBackendCallbacks:
         self,
         *,
         on_dispatch_accepted: Callable[[str], None],
-        on_activity: Callable[[str], None],
+        on_activity: Callable[[BackendActivity], None],
         on_usage: Callable[[BackendUsage], None] | None = None,
         on_result: Callable[[BackendResult], None] | None = None,
         on_raw_event: Callable[[dict[str, Any]], None] | None = None,
@@ -54,7 +55,7 @@ class RuntimeBackendCallbacks:
         self._dispatch_accepted(backend_session_id)
 
     def on_activity(self, activity: BackendActivity) -> None:
-        self._activity(activity.kind)
+        self._activity(activity)
 
     def on_usage(self, usage: BackendUsage) -> None:
         """Persist a provider-reported usage fact through the Runtime-owned sink."""
