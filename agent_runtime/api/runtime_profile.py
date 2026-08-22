@@ -437,7 +437,7 @@ def render_voyager_runtime_profile_html() -> str:
   }, { passive: true });
 
   request("ui/initialize", {
-    appInfo: { name: "tp-voyager-runtime-profile", version: "1.0.9" },
+    appInfo: { name: "tp-voyager-runtime-profile", version: "1.1.0" },
     appCapabilities: {}, protocolVersion: "2026-01-26",
   }, 2500).then(() => notify("ui/notifications/initialized", {})).catch(() => {});
 })();

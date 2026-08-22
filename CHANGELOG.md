@@ -1,5 +1,9 @@
 # Changelog
 
+### v1.1.0 — Unreleased
+
+- Open release line `v1.1.0` (1.0.9 → 1.1.0).
+
 ### v1.0.9 Agent Observability & Runtime Profile — 2026-08-22
 
 - Open release line `v1.0.9` (1.0.8 → 1.0.9) and converge the product version to `1.0.9` (pyproject, Captain Skill/manifest, plugin, CodeBuddy catalog clientInfo, doctor projection, panel appInfo, docs/tests).

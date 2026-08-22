@@ -1520,7 +1520,7 @@ def render_voyager_panel_html() -> str:
   }, { passive: true });
 
   const bridgeReady = request("ui/initialize", {
-    appInfo: { name: "tp-voyager-agent-panel", version: "1.0.9" },
+    appInfo: { name: "tp-voyager-agent-panel", version: "1.1.0" },
     appCapabilities: {},
     protocolVersion: "2026-01-26",
   }, BRIDGE_INIT_TIMEOUT_MS).then(() => {

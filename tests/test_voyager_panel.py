@@ -103,7 +103,7 @@ class VoyagerPanelHtmlTests(unittest.TestCase):
         self.assertIn('ui/notifications/initialized', html)
         self.assertIn('2026-01-26', html)
         self.assertIn('ui/notifications/tool-input', html)
-        self.assertIn('version: "1.0.9"', html)
+        self.assertIn('version: "1.1.0"', html)
         self.assertIn('setTimeout(refresh', html)
         self.assertNotIn('setTimeout(refresh, 80)', html)
         self.assertNotIn("task_dispatch", html)

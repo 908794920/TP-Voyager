@@ -2,7 +2,7 @@
 name: tp-voyager-captain
 description: Legacy migration shim only. Use the TP-Voyager plugin Captain Skill instead.
 metadata:
-  version: "1.0.9"
+  version: "1.1.0"
   protocol: "tp-voyager-captain/v1"
 ---
 

@@ -12,9 +12,9 @@
 
 ## 当前基线
 
-**TP-Voyager v1.0.9 — 正式发布 (2026-08-22)**
+**TP-Voyager v1.1.0 — 开发中**
 
-v1.0.9 收敛 Agent Observability 与 Runtime Profile：完成态面板以 durable task result / canonical final answer 为结果真源，新增只读 Runtime Profile MCP Apps 资源（配置/模型目录/Crew 账户状态，主机绝对路径脱敏），显式 `workspace_strategy` 派发契约，CodeBuddy 接入 ACP v1 stdio client，Qoder ACP 会话通过 SDK 适配器补记 Provider-reported Usage。默认 Captain Surface 仍严格为七个工具，Runtime/Captain/Durable Core/Patch/Receipt/Verification/RunControl 边界不变。
+v1.1.0 基于 v1.0.9 正式版（Agent Observability & Runtime Profile）开新开发线，当前暂无可交付增量。
 
 ```text
 Passenger → Captain AI → TP-Voyager → Crew
