@@ -1,4 +1,4 @@
-"""v1.0.9.3: Markdown safe-reader security tests.
+"""v1.0.9: Markdown safe-reader security tests.
 
 The panel renders model output through an escape-first minimal Markdown
 renderer.  These tests assert the renderer's whitelist/escape structure in the

@@ -1,4 +1,4 @@
-"""CodeBuddy official Python SDK backend behind the shared Runtime contract."""
+"""CodeBuddy native ACP backend with explicit SDK compatibility routes."""
 
 from __future__ import annotations
 
@@ -19,8 +19,9 @@ from agent_runtime.backends.base import (
     BackendStartRequest,
     BackendUsage,
 )
+from agent_runtime.backends.codebuddy.acp_client import CodeBuddyAcpClient
 from agent_runtime.backends.codebuddy.process import resolve_codebuddy_cli
-from agent_runtime.backends.codebuddy.sdk_client import CodeBuddySdkClient, load_codebuddy_sdk
+from agent_runtime.backends.codebuddy.sdk_client import CodeBuddySdkClient
 from agent_runtime.backends.errors import BackendCancelledError, BackendProtocolError
 from agent_runtime.backends.workspace_snapshot import materialize_workspace_snapshot
 from agent_runtime.domain.dispatch import CommandSpec, _MANDATORY_FORBIDDEN
@@ -30,7 +31,7 @@ from agent_runtime.domain.dispatch import CommandSpec, _MANDATORY_FORBIDDEN
 class _LiveExecution:
     route: str
     session_id: str = ""
-    client: CodeBuddySdkClient | None = None
+    client: Any | None = None
     cancel_pending: bool = False
 
 
@@ -38,8 +39,10 @@ class CodeBuddyBackend:
     def __init__(
         self,
         *,
+        acp_client_factory: Callable[..., Any] = CodeBuddyAcpClient,
         sdk_client_factory: Callable[..., CodeBuddySdkClient] = CodeBuddySdkClient,
     ) -> None:
+        self._acp_client_factory = acp_client_factory
         self._sdk_client_factory = sdk_client_factory
         self._lock = threading.Lock()
         self._live: dict[str, _LiveExecution] = {}
@@ -48,7 +51,7 @@ class CodeBuddyBackend:
     def capabilities(self) -> BackendCapabilities:
         return BackendCapabilities(
             runtime="codebuddy",
-            routes=("sdk_context_read_only", "sdk_patch", "sdk_verify"),
+            routes=("acp_read_only", "acp_patch", "acp_verify", "sdk_context_read_only", "sdk_patch", "sdk_verify"),
             supports_resume=True,
             supports_streaming=True,
             supports_cancel=True,
@@ -57,22 +60,22 @@ class CodeBuddyBackend:
         )
 
     def start(self, request: BackendStartRequest, callbacks: BackendCallbacks) -> BackendResult:
-        route = str(request.metadata.get("route") or "").strip().lower()
-        if route not in {"sdk_context_read_only", "sdk_patch", "sdk_verify"}:
-            raise BackendProtocolError(f"Unsupported CodeBuddy route: {route}")
-        return self._run_sdk(request, callbacks, resume_session_id="")
+        route = str(request.metadata.get("route") or "acp_read_only").strip().lower()
+        if route in {"acp_read_only", "acp_patch", "acp_verify"}:
+            return self._run_acp(request, callbacks, resume_session_id="")
+        if route in {"sdk_context_read_only", "sdk_patch", "sdk_verify"}:
+            return self._run_sdk(request, callbacks, resume_session_id="")
+        raise BackendProtocolError(f"Unsupported CodeBuddy route: {route}")
 
     def resume(self, request: BackendResumeRequest, callbacks: BackendCallbacks) -> BackendResult:
-        route = str(request.metadata.get("route") or "").strip().lower()
-        if route not in {"sdk_context_read_only", "sdk_patch", "sdk_verify"}:
-            raise BackendProtocolError("CodeBuddy resume is only supported on controlled SDK routes")
+        route = str(request.metadata.get("route") or "acp_read_only").strip().lower()
+        if route not in self.capabilities().routes:
+            raise BackendProtocolError("CodeBuddy resume route is unsupported")
         if not request.resume_session_id:
-            raise BackendProtocolError("CodeBuddy SDK resume requires a durable session id")
-        return self._run_sdk(
-            request,
-            callbacks,
-            resume_session_id=request.resume_session_id,
-        )
+            raise BackendProtocolError("CodeBuddy resume requires a durable session id")
+        if route.startswith("acp_"):
+            return self._run_acp(request, callbacks, resume_session_id=request.resume_session_id)
+        return self._run_sdk(request, callbacks, resume_session_id=request.resume_session_id)
 
     def cancel(self, request: BackendCancelRequest) -> BackendCancelResult:
         with self._lock:
@@ -88,23 +91,26 @@ class CodeBuddyBackend:
             live.cancel_pending = True
         try:
             if live.client is not None:
-                live.client.cancel()
+                if live.route.startswith("acp_"):
+                    live.client.cancel(live.session_id or request.backend_session_id)
+                else:
+                    live.client.cancel()
                 return BackendCancelResult(
                     ok=True,
-                    scope=request.cancel_scope or "codebuddy_sdk",
+                    scope=request.cancel_scope or ("codebuddy_acp" if live.route.startswith("acp_") else "codebuddy_sdk"),
                     active_execution_found=True,
                     transport_requested=True,
                 )
             return BackendCancelResult(
                 ok=True,
-                scope=request.cancel_scope or "codebuddy_sdk",
+                scope=request.cancel_scope or ("codebuddy_acp" if live.route.startswith("acp_") else "codebuddy_sdk"),
                 active_execution_found=True,
                 transport_requested=False,
             )
         except Exception as exc:
             return BackendCancelResult(
                 ok=False,
-                scope=request.cancel_scope or "codebuddy_sdk",
+                scope=request.cancel_scope or ("codebuddy_acp" if live.route.startswith("acp_") else "codebuddy_sdk"),
                 error=type(exc).__name__,
                 active_execution_found=True,
                 transport_requested=False,
@@ -113,7 +119,10 @@ class CodeBuddyBackend:
     def reconcile(self, request: BackendReconcileRequest) -> BackendReconcileResult:
         with self._lock:
             live = self._live.get(request.task_id)
-        if live and live.client is not None and live.client.running:
+        if live and live.client is not None and (
+            (live.route.startswith("acp_") and getattr(getattr(live.client, "process", None), "poll", lambda: 0)() is None)
+            or (not live.route.startswith("acp_") and bool(getattr(live.client, "running", False)))
+        ):
             return BackendReconcileResult(
                 outcome="orphaned",
                 detail={"route": live.route},
@@ -125,13 +134,11 @@ class CodeBuddyBackend:
 
     def probe(self) -> dict[str, Any]:
         resolve_codebuddy_cli()
-        load_codebuddy_sdk()
         # Authentication is intentionally verified by an explicit live task,
         # not by reading or exposing cached credentials in a health probe.
         return {
             "ok": True,
             "runtime": "codebuddy",
-            "sdk_installed": True,
             "capabilities": self.capabilities().to_dict(),
         }
 
@@ -150,7 +157,9 @@ class CodeBuddyBackend:
         # versions wrap the same fields in ``usage``; accept both without
         # retaining the nested/raw payload.
         nested = raw.get("usage") if isinstance(raw.get("usage"), dict) else {}
-        values = {**raw, **nested}
+        meta = raw.get("_meta") if isinstance(raw.get("_meta"), dict) else {}
+        meta_usage = meta.get("usage") if isinstance(meta.get("usage"), dict) else {}
+        values = {**raw, **nested, **meta_usage}
         if not values and total_cost_usd is None:
             return None
 
@@ -166,13 +175,13 @@ class CodeBuddyBackend:
         raw_input = number("input_tokens", "inputTokens", "prompt_tokens")
         cache_read = number(
             "cache_read_tokens", "cacheReadTokens", "cache_read_input_tokens",
-            "cached_input_tokens", "cachedInputTokens",
+            "cached_input_tokens", "cachedInputTokens", "prompt_cache_hit_tokens",
         )
         cache_write = number(
             "cache_write_tokens", "cacheWriteTokens", "cache_write_input_tokens",
-            "cache_creation_input_tokens", "cacheCreationInputTokens",
+            "cache_creation_input_tokens", "cacheCreationInputTokens", "prompt_cache_write_tokens",
         )
-        explicit_cache_miss = number("cache_miss_tokens", "cacheMissTokens")
+        explicit_cache_miss = number("cache_miss_tokens", "cacheMissTokens", "prompt_cache_miss_tokens")
         output_tokens = number("output_tokens", "outputTokens", "completion_tokens")
         reasoning_tokens = number("reasoning_tokens", "reasoningTokens", "thinking_tokens", "thinkingTokens")
         answer_tokens = number("answer_tokens", "answerTokens", "response_tokens", "responseTokens")
@@ -185,18 +194,20 @@ class CodeBuddyBackend:
         # both cache categories were actually reported; missing never means 0.
         input_tokens = raw_input
         cache_miss = explicit_cache_miss
-        if cache_miss is None and raw_input is not None and (cache_read is not None or cache_write is not None):
-            # Provider ``input_tokens`` is the non-cache input category in the
-            # CodeBuddy cost breakdown. Mapping it to TP-Voyager's explicit
-            # cache-miss slot is a semantic derivation, not a provider-named
-            # field, so surface that provenance to the panel.
-            cache_miss = raw_input
-            derived.append("cache_miss_tokens")
-        if raw_input is not None and cache_read is not None and cache_write is not None:
-            input_tokens = raw_input + cache_read + cache_write
-            derived.append("input_tokens")
+        if source != "codebuddy_acp_usage_update":
+            if cache_miss is None and raw_input is not None and (cache_read is not None or cache_write is not None):
+                cache_miss = raw_input
+                derived.append("cache_miss_tokens")
+            if raw_input is not None and cache_read is not None and cache_write is not None:
+                input_tokens = raw_input + cache_read + cache_write
+                derived.append("input_tokens")
         total_tokens = explicit_total
-        if total_tokens is None and input_tokens is not None and output_tokens is not None:
+        if (
+            source != "codebuddy_acp_usage_update"
+            and total_tokens is None
+            and input_tokens is not None
+            and output_tokens is not None
+        ):
             total_tokens = input_tokens + output_tokens
             derived.append("total_tokens")
 
@@ -240,6 +251,137 @@ class CodeBuddyBackend:
         with self._lock:
             self._live.pop(task_id, None)
             self._pending_cancel.discard(task_id)
+
+    def _run_acp(
+        self,
+        request: BackendStartRequest | BackendResumeRequest,
+        callbacks: BackendCallbacks,
+        *,
+        resume_session_id: str,
+    ) -> BackendResult:
+        route = str(request.metadata.get("route") or "acp_read_only").strip().lower()
+        mode = "patch" if route == "acp_patch" else ("verification" if route == "acp_verify" else "read_only")
+        plan = request.metadata.get("patch_policy")
+        plan = plan if isinstance(plan, dict) else {}
+        raw_specs = plan.get("commands", plan.get("command_specs"))
+        command_specs: list[CommandSpec] = []
+        if isinstance(raw_specs, list):
+            for item in raw_specs:
+                try:
+                    command_specs.append(CommandSpec.from_dict(item))
+                except ValueError as exc:
+                    raise BackendProtocolError("CodeBuddy patch policy contains an invalid command spec") from exc
+        workspace_snapshot: tempfile.TemporaryDirectory[str] | None = None
+        client_cwd = request.cwd
+        allowed_paths = tuple(str(item) for item in plan.get("allowed_paths", []) if isinstance(item, str))
+        forbidden_paths = tuple(str(item) for item in plan.get("forbidden_paths", []) if isinstance(item, str))
+        native_read_tools = False
+        if mode == "read_only":
+            routing = request.metadata.get("routing_metadata")
+            routing = routing if isinstance(routing, dict) else {}
+            native_read_tools = routing.get("context_delivery") in {"vendor_workspace", "vendor_workspace_scoped"}
+            if native_read_tools:
+                read_plan = request.metadata.get("verification_plan")
+                read_plan = read_plan if isinstance(read_plan, dict) else {}
+                allowed_paths = tuple(str(item) for item in read_plan.get("allowed_paths", []) if isinstance(item, str))
+                workspace_snapshot, snapshot_root = materialize_workspace_snapshot(
+                    request.cwd,
+                    allowed_paths=(allowed_paths or None) if routing.get("context_delivery") == "vendor_workspace_scoped" else None,
+                )
+                client_cwd = str(snapshot_root)
+            else:
+                # Frozen-context ACP must not regain workspace reads merely
+                # because the ACP client advertises filesystem callbacks.
+                # Run it in an empty disposable cwd; the prompt already holds
+                # the exact Runtime-rendered context.
+                workspace_snapshot = tempfile.TemporaryDirectory(prefix="tp-voyager-codebuddy-frozen-")
+                client_cwd = workspace_snapshot.name
+            forbidden_paths = tuple(_MANDATORY_FORBIDDEN)
+        try:
+            client = self._acp_client_factory(
+                cwd=client_cwd,
+                on_activity=callbacks.on_activity,
+                access_mode=mode,
+                native_read_tools=native_read_tools,
+                allowed_paths=allowed_paths,
+                forbidden_paths=forbidden_paths,
+                command_specs=tuple(command_specs),
+            )
+        except Exception:
+            if workspace_snapshot is not None:
+                workspace_snapshot.cleanup()
+            raise
+        live = _LiveExecution(route=route, client=client)
+        self._register(request.task_id, live)
+        try:
+            if live.cancel_pending:
+                client.cancel()
+                raise BackendCancelledError("CodeBuddy execution cancelled before dispatch")
+
+            def accepted(session_id: str) -> None:
+                live.session_id = session_id
+                callbacks.on_dispatch_accepted(session_id)
+                if live.cancel_pending:
+                    client.cancel(session_id)
+
+            result = client.run(
+                prompt=request.prompt,
+                resume_session_id=resume_session_id,
+                model=request.model,
+                reasoning_effort=request.reasoning_effort,
+                idle_timeout_seconds=request.idle_timeout_seconds,
+                max_task_duration_seconds=request.max_task_duration_seconds,
+                on_dispatch_accepted=accepted,
+            )
+            usage_sink = getattr(callbacks, "on_usage", None)
+            samples = tuple(getattr(result, "usage_samples", ()) or ())
+            if callable(usage_sink):
+                if samples:
+                    for sample in samples:
+                        if not isinstance(sample, dict):
+                            continue
+                        raw_sample = sample.get("usage") if isinstance(sample.get("usage"), dict) else {}
+                        fact = self._usage_fact(
+                            request, raw_sample, None,
+                            source="codebuddy_acp_usage_update",
+                            accounting=str(sample.get("accounting") or "snapshot"),
+                            sample_id=str(sample.get("sample_id") or ""),
+                        )
+                        if fact is not None:
+                            usage_sink(fact)
+                else:
+                    fallback = self._usage_fact(
+                        request, dict(getattr(result, "usage", {}) or {}), None,
+                        source="codebuddy_acp_usage_update", accounting="snapshot",
+                    )
+                    if fallback is not None:
+                        usage_sink(fallback)
+            usage_fact = self._usage_fact(
+                request, dict(getattr(result, "usage", {}) or {}), None,
+                source="codebuddy_acp_usage_update", accounting="snapshot",
+            )
+            backend_result = BackendResult(
+                backend="codebuddy",
+                stop_reason=result.stop_reason,
+                answer=result.answer,
+                result={
+                    "answer": result.answer,
+                    "backend": "codebuddy",
+                    "stopReason": result.stop_reason,
+                    "model_applied": getattr(result, "model_applied", bool(request.model) if request.model else None),
+                    "reasoning_effort_applied": getattr(result, "reasoning_effort_applied", bool(request.reasoning_effort) if request.reasoning_effort else None),
+                    "usage": usage_fact.to_dict() if usage_fact is not None else {},
+                },
+                observability={**dict(getattr(result, "observability", {}) or {})},
+                backend_session_id=result.session_id,
+            )
+            callbacks.on_result(backend_result)
+            return backend_result
+        finally:
+            client.close()
+            self._unregister(request.task_id)
+            if workspace_snapshot is not None:
+                workspace_snapshot.cleanup()
 
     def _run_sdk(
         self,

@@ -1,4 +1,4 @@
-"""v1.0.9.3: explicit ``workspace_strategy`` dispatch contract tests.
+"""v1.0.9: explicit ``workspace_strategy`` dispatch contract tests.
 
 Covers the four-strategy enum, the default value, fail-closed validation at
 the domain and MCP boundaries, the model_only/live_readonly preparation

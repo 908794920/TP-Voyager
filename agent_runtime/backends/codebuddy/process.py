@@ -5,7 +5,9 @@ from __future__ import annotations
 import importlib.util
 import os
 from pathlib import Path
+from typing import Mapping, Sequence
 import shutil
+import signal
 import subprocess
 
 from agent_runtime.backends.errors import BackendUnavailableError
@@ -42,6 +44,63 @@ def resolve_codebuddy_cli() -> str:
     raise BackendUnavailableError("CodeBuddy CLI is not installed or not on PATH")
 
 
+
+def popen_command(
+    command: Sequence[str],
+    *,
+    cwd: str,
+    env: Mapping[str, str] | None = None,
+) -> subprocess.Popen[bytes]:
+    """Launch CodeBuddy in a separate process group for bounded cleanup."""
+    process_env = os.environ.copy()
+    if env:
+        process_env.update({str(key): str(value) for key, value in env.items()})
+    kwargs: dict[str, object] = {
+        "cwd": cwd,
+        "stdin": subprocess.PIPE,
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.PIPE,
+        "bufsize": 0,
+        "env": process_env,
+    }
+    if os.name == "nt":
+        kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+    else:
+        kwargs["start_new_session"] = True
+    return subprocess.Popen(list(command), **kwargs)  # type: ignore[arg-type]
+
+
+def terminate_process_tree(process: subprocess.Popen[bytes], timeout: float = 5.0) -> None:
+    """Terminate the complete native ACP CLI process tree; idempotent."""
+    if process.poll() is not None:
+        return
+    try:
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=timeout,
+                check=False,
+            )
+            try:
+                process.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=timeout)
+        else:
+            os.killpg(process.pid, signal.SIGTERM)
+            try:
+                process.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                os.killpg(process.pid, signal.SIGKILL)
+    except (OSError, subprocess.SubprocessError):
+        try:
+            process.kill()
+        except OSError:
+            pass
+
 def probe_codebuddy_cli() -> dict[str, object]:
     cli = resolve_codebuddy_cli()
     completed = subprocess.run(
@@ -68,15 +127,14 @@ def probe_codebuddy_cli() -> dict[str, object]:
     )
     sdk_installed = importlib.util.find_spec("codebuddy_agent_sdk") is not None
     return {
-        # The accepted Captain route requires both the CLI and the official
-        # Python SDK.  Keep the CLI fact separately so health can explain why
-        # an otherwise installed vendor tool is not dispatchable.
-        "installed": sdk_installed,
+        # Native ACP dispatch requires the configured CLI only.  Keep SDK
+        # presence informational for explicit compatibility routes.
+        "installed": True,
         "cli_installed": True,
         "sdk_installed": sdk_installed,
         "version": (completed.stdout or completed.stderr).strip().splitlines()[0] if (completed.stdout or completed.stderr).strip() else None,
         "region": region,
         "environment_auth_configured": auth_configured,
         "auth_probe_performed": False,
-        "dispatch_ready": sdk_installed,
+        "dispatch_ready": True,
     }

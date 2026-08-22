@@ -91,6 +91,76 @@ class UsageAccountingTests(unittest.TestCase):
         self.assertIn("cache_miss_tokens", usage["derived_fields"])
         self.assertIn("total_tokens", usage["derived_fields"])
 
+
+    def test_codebuddy_real_acp_meta_usage_maps_prompt_tokens_without_cache_double_count(self) -> None:
+        request = BackendStartRequest(
+            task_id="cb-real-acp", attempt_id="at", runtime_session_id="rs",
+            prompt="x", cwd=str(self.root), model="deepseek-v4-flash"
+        )
+        fact = CodeBuddyBackend._usage_fact(
+            request,
+            {
+                "_meta": {
+                    "usage": {
+                        "prompt_tokens": 28600,
+                        "completion_tokens": 2,
+                        "total_tokens": 28602,
+                        "prompt_cache_hit_tokens": 28544,
+                        "prompt_cache_miss_tokens": 56,
+                        "credit": 0.09,
+                    }
+                }
+            },
+            None,
+            source="codebuddy_acp_usage_update",
+            accounting="delta",
+            sample_id="req-real-123",
+        )
+        self.assertIsNotNone(fact)
+        payload = fact.to_dict()
+        usage = payload["usage"]
+        self.assertEqual(payload["source"], "codebuddy_acp_usage_update")
+        self.assertEqual(usage["input_tokens"], 28600)
+        self.assertEqual(usage["cache_read_tokens"], 28544)
+        self.assertEqual(usage["cache_miss_tokens"], 56)
+        self.assertIsNone(usage["cache_write_tokens"])
+        self.assertEqual(usage["output_tokens"], 2)
+        self.assertEqual(usage["total_tokens"], 28602)
+        self.assertEqual(usage["credits"], 0.09)
+        self.assertNotIn("input_tokens", usage["derived_fields"])
+
+    def test_codebuddy_acp_missing_provider_total_stays_none_instead_of_being_derived(self) -> None:
+        request = BackendStartRequest(
+            task_id="cb-missing-total", attempt_id="at", runtime_session_id="rs",
+            prompt="x", cwd=str(self.root), model="deepseek-v4-flash",
+        )
+        fact = CodeBuddyBackend._usage_fact(
+            request, {"prompt_tokens": 12, "completion_tokens": 3}, None,
+            source="codebuddy_acp_usage_update",
+        )
+        self.assertIsNotNone(fact)
+        usage = fact.to_dict()["usage"]
+        self.assertEqual(usage["input_tokens"], 12)
+        self.assertEqual(usage["output_tokens"], 3)
+        self.assertIsNone(usage["total_tokens"])
+        self.assertNotIn("total_tokens", usage["derived_fields"])
+
+    def test_codebuddy_acp_credit_zero_is_observed_and_missing_credit_stays_none(self) -> None:
+        request = BackendStartRequest(
+            task_id="cb-zero", attempt_id="at", runtime_session_id="rs",
+            prompt="x", cwd=str(self.root), model="deepseek-v4-flash"
+        )
+        zero = CodeBuddyBackend._usage_fact(
+            request, {"prompt_tokens": 1, "credit": 0}, None,
+            source="codebuddy_acp_usage_update",
+        )
+        missing = CodeBuddyBackend._usage_fact(
+            request, {"prompt_tokens": 1}, None,
+            source="codebuddy_acp_usage_update",
+        )
+        self.assertEqual(zero.to_dict()["usage"]["credits"], 0.0)
+        self.assertIsNone(missing.to_dict()["usage"]["credits"])
+
     def test_qoder_usage_maps_request_and_session_credits_without_conflation(self) -> None:
         request = BackendStartRequest(
             task_id="q", attempt_id="at", runtime_session_id="rs", prompt="x", cwd=str(self.root), model="lite"
@@ -194,8 +264,8 @@ class UsageAccountingTests(unittest.TestCase):
             prompt="x", cwd=str(self.root), model="hy3",
         )
         for sample_id, raw in (
-            ("turn-1", {"input_tokens": 8, "output_tokens": 2, "credit": 0.4}),
-            ("turn-2", {"input_tokens": 7, "output_tokens": 3, "credit": 0.5}),
+            ("turn-1", {"input_tokens": 8, "output_tokens": 2, "total_tokens": 10, "credit": 0.4}),
+            ("turn-2", {"input_tokens": 7, "output_tokens": 3, "total_tokens": 10, "credit": 0.5}),
         ):
             fact = CodeBuddyBackend._usage_fact(
                 request, raw, None,

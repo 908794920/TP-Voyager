@@ -6,7 +6,7 @@ Captain Skill 是上层 AI 使用 TP-Voyager 的操作规范。
 
 ## 当前 Codex 入口
 
-Codex v1.0.9.3 的规范入口是唯一 `TP-Voyager` 插件中的 `$tp-voyager:captain`。仓库根部 `SKILL.md` 只保留 legacy migration shim；完整行为规则以 `integrations/codex/local-marketplace/plugins/tp-voyager/skills/captain/SKILL.md` 为准。
+Codex v1.0.9 的规范入口是唯一 `TP-Voyager` 插件中的 `$tp-voyager:captain`。仓库根部 `SKILL.md` 只保留 legacy migration shim；完整行为规则以 `integrations/codex/local-marketplace/plugins/tp-voyager/skills/captain/SKILL.md` 为准。
 
 ## 自动触发
 
@@ -17,7 +17,7 @@ Captain 仍须读取当前目录/策略、显式选择 Crew 与模型，并在�
 或扩大范围时停下等待人类决定。
 
 ```text
-Captain Skill 1.0.9.3
+Captain Skill 1.0.9
 ```
 
 ## Captain MCP 合约

@@ -1,4 +1,4 @@
-"""v1.0.9.3: Panel UI state lifecycle and concurrent workbench tests.
+"""v1.0.9: Panel UI state lifecycle and concurrent workbench tests.
 
 State is kept only in iframe memory (``PanelUIStateStore``) keyed per
 presentation group / task, restored after render and on page lifecycle
@@ -94,10 +94,11 @@ class PanelStateTests(unittest.TestCase):
         ):
             self.assertIn(marker, html)
 
-    def test_workbench_responsive_layout_collapses_navigation(self) -> None:
+    def test_workbench_responsive_layout_collapses_only_below_640px(self) -> None:
         html = render_voyager_panel_html()
         self.assertIn(".workbench { display: flex;", html)
-        self.assertIn("@media (max-width: 520px)", html)
+        self.assertIn("@media (max-width: 639px)", html)
+        self.assertIn(".workbench { flex-direction: column; grid-template-columns: minmax(0, 1fr); }", html)
 
 
 if __name__ == "__main__":

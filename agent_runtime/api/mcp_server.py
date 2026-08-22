@@ -17,7 +17,10 @@ from agent_runtime.api.schemas import CAPTAIN_TOOL_NAMES
 from agent_runtime.api.voyager_panel import (
     VOYAGER_PANEL_MIME_TYPE,
     VOYAGER_PANEL_URI,
+    VOYAGER_RUNTIME_PROFILE_MIME_TYPE,
+    VOYAGER_RUNTIME_PROFILE_URI,
     render_voyager_panel_html,
+    render_voyager_runtime_profile_html,
 )
 from agent_runtime.domain.enums import (
     TERMINAL_STATUS_VALUES,
@@ -142,6 +145,7 @@ from agent_runtime.backends.codebuddy.capability import descriptor as codebuddy_
 from agent_runtime.backends.codebuddy.process import probe_codebuddy_cli
 from agent_runtime.backends.codebuddy.model_catalog import list_codebuddy_models
 from agent_runtime.backends.qoder.capability import descriptor as qoder_crew_descriptor
+from agent_runtime.backends.qoder.account_usage import collect_qoder_account_snapshot
 from agent_runtime.backends.qoder.model_catalog import list_qoder_models
 from agent_runtime.backends.qoder.process import probe_qoder_cli
 from agent_runtime.backends.qoder.captain_dispatch import QoderReadOnlyDispatcher
@@ -238,6 +242,24 @@ def _mcp_tool(**tool_kwargs: Any):
 def voyager_panel_resource() -> str:
     """Return the self-contained MCP Apps UI resource."""
     return render_voyager_panel_html()
+
+
+@mcp.resource(
+    VOYAGER_RUNTIME_PROFILE_URI,
+    name="TP-Voyager Runtime profile",
+    title="TP-Voyager 运行与账户",
+    description="Read-only current configuration, model catalog, and Crew account status UI.",
+    mime_type=VOYAGER_RUNTIME_PROFILE_MIME_TYPE,
+    meta={
+        "ui": {
+            "prefersBorder": True,
+            "csp": {"connectDomains": [], "resourceDomains": []},
+        }
+    },
+)
+def voyager_runtime_profile_resource() -> str:
+    """Return the self-contained Runtime Profile MCP Apps resource."""
+    return render_voyager_runtime_profile_html()
 
 
 from agent_runtime.runtime.handles import (
@@ -1925,7 +1947,7 @@ def _run_codebuddy(task: TaskState, timeout_seconds: float) -> None:
         timeout_seconds,
         backend_name="codebuddy",
         backend_factory=_create_codebuddy_backend,
-        cancel_scope_for_route=lambda route: "codebuddy_sdk",
+        cancel_scope_for_route=lambda route: "codebuddy_acp" if route.startswith("acp_") else "codebuddy_sdk",
     )
 
 def _durable_cli_start(
@@ -2348,7 +2370,7 @@ def _codebuddy_start(
     model: str = "",
     reasoning_effort: str = "",
     context_window_tokens: int | None = None,
-    route: str = "sdk_context_read_only",
+    route: str = "acp_read_only",
     resume_task_id: str = "",
     idempotency_key: str = "",
     idle_timeout_seconds: int = 180,
@@ -2372,11 +2394,11 @@ def _codebuddy_start(
     patch_policy: dict[str, Any] | None = None,
     routing_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    canonical_route = route.strip().lower() or "sdk_context_read_only"
-    if canonical_route not in {"sdk_context_read_only", "sdk_patch", "sdk_verify"}:
+    canonical_route = route.strip().lower() or "acp_read_only"
+    if canonical_route not in {"acp_read_only", "acp_patch", "acp_verify", "sdk_context_read_only", "sdk_patch", "sdk_verify"}:
         return {
             "ok": False,
-            "error": "CodeBuddy route must be sdk_context_read_only, sdk_patch or sdk_verify",
+            "error": "CodeBuddy route must be acp_read_only, acp_patch, acp_verify, sdk_context_read_only, sdk_patch or sdk_verify",
         }
     effective_max = (
         max_task_duration_seconds
@@ -2399,7 +2421,7 @@ def _codebuddy_start(
         runtime="codebuddy",
         task_type="codebuddy",
         route=canonical_route,
-        resumable_routes=frozenset({"sdk_context_read_only", "sdk_patch", "sdk_verify"}),
+        resumable_routes=frozenset({"acp_read_only", "acp_patch", "acp_verify", "sdk_context_read_only", "sdk_patch", "sdk_verify"}),
         worker_target=_run_codebuddy,
         prompt=prompt,
         cwd=cwd,
@@ -2922,7 +2944,7 @@ def _cancel_scope_for(task: TaskState) -> str:
     if task.runtime == "qoder":
         return "qoder_print" if task.route == "print" else "qoder_acp"
     if task.runtime == "codebuddy":
-        return "codebuddy_sdk"
+        return "codebuddy_acp" if task.route.startswith("acp_") else "codebuddy_sdk"
     return "backend_execution"
 
 
@@ -3235,12 +3257,225 @@ def crew_recommend(
         return {"ok": False, "error": str(exc)}
 
 
-@_mcp_tool()
-def voyager_overview(limit: int = 5) -> dict[str, Any]:
-    """Return a compact, content-free progress view for the Captain."""
+def _runtime_profile_display_path(value: str | Path, config_home: Path) -> str:
+    """Present user-owned paths without exposing an absolute host path."""
+    text = str(value or "").strip()
+    if not text:
+        return ""
     try:
-        return {"ok": True, **_voyage_overview_service().overview(limit=limit)}
-    except (RuntimePersistenceError, ValueError) as exc:
+        candidate = Path(text).expanduser().resolve()
+        home = config_home.expanduser().resolve()
+        relative = candidate.relative_to(home)
+        return "~/.tp-voyager" if str(relative) == "." else f"~/.tp-voyager/{relative.as_posix()}"
+    except (OSError, RuntimeError, ValueError):
+        name = Path(text).name
+        return f"<external>/{name}" if name else "<external>"
+
+
+def _runtime_profile_config_projection(config: VoyagerUserConfig) -> dict[str, Any]:
+    """Project all typed user config fields into safe, display-ready values."""
+    home = config.home
+    return {
+        "schema": config.schema,
+        "home": _runtime_profile_display_path(home, home),
+        "config_path": _runtime_profile_display_path(config.path, home),
+        "crew": {
+            "qoder": {
+                "enabled": config.crew.qoder.enabled,
+                "cli_path": _runtime_profile_display_path(config.crew.qoder.cli_path, home),
+                "max_concurrent_tasks": config.crew.qoder.max_concurrent_tasks,
+            },
+            "codebuddy": {
+                "enabled": config.crew.codebuddy.enabled,
+                "cli_path": _runtime_profile_display_path(config.crew.codebuddy.cli_path, home),
+                "internet_environment": config.crew.codebuddy.internet_environment,
+                "max_concurrent_tasks": config.crew.codebuddy.max_concurrent_tasks,
+            },
+        },
+        "dispatch": {
+            "allowed_models": list(config.dispatch.allowed_models),
+            "preferred_models": list(config.dispatch.preferred_models),
+            "task_kind_allowed_models": {
+                kind: list(models)
+                for kind, models in config.dispatch.task_kind_allowed_models
+            },
+        },
+        "trusted_roots": {
+            "model_evidence": {
+                alias: _runtime_profile_display_path(path, home)
+                for alias, path in config.trusted_roots.model_evidence
+            },
+            "instructions": {
+                alias: _runtime_profile_display_path(path, home)
+                for alias, path in config.trusted_roots.instructions
+            },
+        },
+        "resources": {
+            "worker_profiles_root": _runtime_profile_display_path(
+                config.resources.worker_profiles_root, home
+            ),
+            "worker_skills_root": _runtime_profile_display_path(
+                config.resources.worker_skills_root, home
+            ),
+        },
+    }
+
+
+def _runtime_profile_quota(detail: Any) -> tuple[str, str | None]:
+    """Keep account quota separate from task/session Credit facts."""
+    source = detail if isinstance(detail, dict) else {}
+    for key in ("account_usage", "user_quota", "quota"):
+        quota = source.get(key)
+        if not isinstance(quota, dict):
+            continue
+        total = quota.get("total")
+        used = quota.get("used")
+        remaining = quota.get("remaining")
+        if any(isinstance(value, (int, float)) and not isinstance(value, bool) for value in (total, used, remaining)):
+            unit = str(quota.get("unit") or "credits").strip() or "credits"
+            parts = []
+            if isinstance(total, (int, float)) and not isinstance(total, bool):
+                parts.append(f"总 {total:g}")
+            if isinstance(used, (int, float)) and not isinstance(used, bool):
+                parts.append(f"已用 {used:g}")
+            if isinstance(remaining, (int, float)) and not isinstance(remaining, bool):
+                parts.append(f"剩余 {remaining:g}")
+            return "observed", f"{' · '.join(parts)} {unit}"
+    return "not_observed", None
+
+
+def _runtime_profile_account_state(
+    *,
+    backend: str,
+    health: dict[str, Any],
+    catalog_meta: dict[str, Any],
+    refresh_profile: bool,
+) -> tuple[str, str, str | None]:
+    """Return auth and quota facts without treating task Usage as account quota."""
+    auth_status = str(health.get("auth_status") or "not_probed")
+    quota_status, quota_summary = _runtime_profile_quota(health.get("detail"))
+    if not refresh_profile:
+        return auth_status, quota_status, quota_summary
+
+    if backend == "qoder":
+        snapshot = collect_qoder_account_snapshot()
+        if snapshot.get("status") != "observed":
+            return "unknown", "unknown", "暂时无法读取账户额度"
+        auth_status = str(snapshot.get("auth_status") or "unknown")
+        quota_status, quota_summary = _runtime_profile_quota({
+            "user_quota": snapshot.get("user_quota"),
+        })
+        if quota_status != "observed":
+            quota_summary = "Provider 未返回账户额度"
+        return auth_status, quota_status, quota_summary
+
+    if backend == "codebuddy":
+        # CodeBuddy's current ACP live account model catalogue proves that the
+        # local CLI can access the account, but it has no documented balance
+        # endpoint.  Do not infer a balance from task/session Credits.
+        if (
+            str(catalog_meta.get("source") or "") == "codebuddy_acp_account_live"
+            and str(catalog_meta.get("status") or "") == "complete"
+        ):
+            auth_status = "verified"
+        return auth_status, "not_supported", "官方 CLI/ACP 未提供余额接口"
+
+    return auth_status, quota_status, quota_summary
+
+
+def _runtime_profile_projection(*, refresh_profile: bool = False) -> dict[str, Any]:
+    """Compose one read-only snapshot for the Runtime Profile MCP card."""
+    config = VoyagerUserConfig.load()
+    registry = _crew_registry_service()
+    catalog = registry.catalog(
+        probe=bool(refresh_profile), include_models=bool(refresh_profile)
+    )
+    models: list[dict[str, Any]] = []
+    accounts: list[dict[str, Any]] = []
+    for crew in list(catalog.get("crew") or []):
+        if not isinstance(crew, dict):
+            continue
+        backend = str(crew.get("backend") or "").strip().lower()
+        if not backend:
+            continue
+        health = crew.get("health") if isinstance(crew.get("health"), dict) else {}
+        catalog_meta = crew.get("model_catalog") if isinstance(crew.get("model_catalog"), dict) else {}
+        auth_status, quota_status, quota_summary = _runtime_profile_account_state(
+            backend=backend,
+            health=health,
+            catalog_meta=catalog_meta,
+            refresh_profile=refresh_profile,
+        )
+        accounts.append({
+            "backend": backend,
+            "display_name": str(crew.get("display_name") or backend),
+            "availability": str(health.get("availability") or "unknown"),
+            "version": health.get("version"),
+            "auth_status": auth_status,
+            "model_catalog_status": str(catalog_meta.get("status") or health.get("model_catalog_status") or "unknown"),
+            "model_catalog_source": str(catalog_meta.get("source") or "unknown"),
+            "last_successful_model": health.get("last_successful_model"),
+            "quota_status": quota_status,
+            "quota_summary": quota_summary,
+        })
+        model_rows = list(crew.get("models") or []) if refresh_profile else []
+        for item in model_rows:
+            if not isinstance(item, dict):
+                continue
+            metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+            reasoning = item.get("reasoning") if isinstance(item.get("reasoning"), dict) else {}
+            billing = metadata.get("billing") if isinstance(metadata.get("billing"), dict) else {}
+            reference_multiplier = item.get("reference_multiplier")
+            if not isinstance(reference_multiplier, (int, float)) or isinstance(reference_multiplier, bool) or reference_multiplier < 0:
+                reference_multiplier = billing.get("multiplier", billing.get("price_factor"))
+            if not isinstance(reference_multiplier, (int, float)) or isinstance(reference_multiplier, bool) or reference_multiplier < 0:
+                reference_multiplier = None
+            models.append({
+                "backend": backend,
+                "model_id": str(item.get("model_id") or ""),
+                "display_name": str(item.get("display_name") or item.get("model_id") or ""),
+                "available": item.get("available") if isinstance(item.get("available"), bool) else None,
+                "routable": item.get("routable") if isinstance(item.get("routable"), bool) else None,
+                "routability_status": str(item.get("routability_status") or "unknown"),
+                "reference_multiplier": float(reference_multiplier) if reference_multiplier is not None else None,
+                "context_window_tokens": item.get("context_window_tokens"),
+                "supported_efforts": list(reasoning.get("supported_efforts") or [])[:16],
+                "source": str(item.get("source") or "unknown"),
+            })
+    return {
+        "schema": "tp-voyager.runtime_profile/v1",
+        "scope": "current_user_configuration",
+        "refresh_mode": "live" if refresh_profile else "catalog",
+        "observed_at": catalog.get("updated_at") or time.time(),
+        "config": _runtime_profile_config_projection(config),
+        "models": models,
+        "accounts": accounts,
+    }
+
+
+@_mcp_tool(
+    meta={
+        "ui": {"resourceUri": VOYAGER_RUNTIME_PROFILE_URI},
+        "openai/outputTemplate": VOYAGER_RUNTIME_PROFILE_URI,
+        "openai/toolInvocation/invoking": "正在加载 TP-Voyager 运行与账户…",
+        "openai/toolInvocation/invoked": "TP-Voyager 运行与账户已就绪",
+    },
+    structured_output=True,
+)
+def voyager_overview(
+    limit: int = 5,
+    include_profile: bool = False,
+    refresh_profile: bool = False,
+) -> dict[str, Any]:
+    """Return compact voyage progress and an optional read-only Runtime Profile."""
+    try:
+        response = {"ok": True, **_voyage_overview_service().overview(limit=limit)}
+        if include_profile:
+            response["runtime_profile"] = _runtime_profile_projection(
+                refresh_profile=refresh_profile
+            )
+        return response
+    except (RuntimePersistenceError, VoyagerUserConfigError, ValueError) as exc:
         return {"ok": False, "error": type(exc).__name__}
 
 

@@ -12,9 +12,9 @@
 
 ## 当前基线
 
-**TP-Voyager v1.0.9.3 — 开发中**
+**TP-Voyager v1.0.9 — 正式发布 (2026-08-22)**
 
-v1.0.8 已完成 workspace read-only convergence 与 Windows 实机验收。v1.0.9.2 在 v1.0.9.1 host hardening 基线上一次性收敛 Observability 与 Codex 安装形态：完成态面板以 durable task result / canonical final answer 为结果真源，流式 Conversation 与 Timeline 独立限长；面板打开/恢复先进入“正在同步”并只读拉取最新状态；显式 `presentation_group_id` / `task_ids` 支持同一 Host 卡片展示并发子任务；Codex 入口收敛为唯一 `tp-voyager` 插件和 `$tp-voyager:captain` Skill。默认 Captain Surface 仍严格为七个工具，Runtime/Captain/Durable Core/Patch/Receipt/Verification/RunControl 边界不变。
+v1.0.9 收敛 Agent Observability 与 Runtime Profile：完成态面板以 durable task result / canonical final answer 为结果真源，新增只读 Runtime Profile MCP Apps 资源（配置/模型目录/Crew 账户状态，主机绝对路径脱敏），显式 `workspace_strategy` 派发契约，CodeBuddy 接入 ACP v1 stdio client，Qoder ACP 会话通过 SDK 适配器补记 Provider-reported Usage。默认 Captain Surface 仍严格为七个工具，Runtime/Captain/Durable Core/Patch/Receipt/Verification/RunControl 边界不变。
 
 ```text
 Passenger → Captain AI → TP-Voyager → Crew

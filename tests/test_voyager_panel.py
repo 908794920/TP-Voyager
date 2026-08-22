@@ -9,12 +9,68 @@ from agent_runtime.api.voyager_panel import (
     VOYAGER_PANEL_URI,
     render_voyager_panel_html,
 )
+import agent_runtime.api.voyager_panel as voyager_panel
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class VoyagerPanelHtmlTests(unittest.TestCase):
+    def test_runtime_profile_card_reuses_the_mcp_app_visual_system(self) -> None:
+        self.assertEqual(
+            getattr(voyager_panel, "VOYAGER_RUNTIME_PROFILE_URI", None),
+            "ui://tp-voyager/runtime-profile/v1.html",
+        )
+        renderer = getattr(voyager_panel, "render_voyager_runtime_profile_html", None)
+        self.assertTrue(callable(renderer))
+        html = renderer()
+        self.assertIn("TP-Voyager 运行与账户", html)
+        self.assertIn('name: "voyager_overview"', html)
+        for label in ("概览", "模型", "账户"):
+            self.assertIn(label, html)
+        self.assertIn("可信根目录", html)
+        self.assertIn("工作资源", html)
+        self.assertIn("model_evidence", html)
+        self.assertIn("worker_profiles_root", html)
+        self.assertIn("profile-tab", html)
+        self.assertIn("profile-refresh", html)
+        self.assertIn("data-active-tab", html)
+        self.assertIn("const REQUEST_TIMEOUT_MS = 30000;", html)
+        self.assertIn("void loadProfile(true);", html)
+        self.assertNotIn("innerHTML =", html)
+        self.assertNotRegex(html, r"https?://")
+
+    def test_runtime_profile_explains_fallbacks_and_collapses_advanced_config(self) -> None:
+        renderer = getattr(voyager_panel, "render_voyager_runtime_profile_html", None)
+        self.assertTrue(callable(renderer))
+        html = renderer()
+
+        self.assertIn('node("details", "advanced-config")', html)
+        self.assertIn("高级配置（可选）", html)
+        self.assertIn("自动从系统 PATH 发现", html)
+        self.assertIn("使用插件内置默认 Profile", html)
+        self.assertIn("未配置（不启用外部 Worker Skill）", html)
+        self.assertIn("模型资料根目录", html)
+        self.assertIn("受信任指令根目录", html)
+
+    def test_runtime_profile_shows_provider_reference_multiplier_not_plan_labels(self) -> None:
+        renderer = getattr(voyager_panel, "render_voyager_runtime_profile_html", None)
+        self.assertTrue(callable(renderer))
+        html = renderer()
+
+        self.assertIn("参考倍率", html)
+        self.assertIn("reference_multiplier", html)
+        self.assertNotIn("计费未知", html)
+
+    def test_runtime_profile_localizes_account_status_labels(self) -> None:
+        renderer = getattr(voyager_panel, "render_voyager_runtime_profile_html", None)
+        self.assertTrue(callable(renderer))
+        html = renderer()
+
+        self.assertIn("已验证", html)
+        self.assertIn("未单独验证", html)
+        self.assertIn("模型列表：已完整获取", html)
+
     def test_panel_is_self_contained_mcp_app_with_read_only_live_refresh(self) -> None:
         html = render_voyager_panel_html()
         self.assertEqual(VOYAGER_PANEL_URI, "ui://tp-voyager/agent-panel/v1.html")
@@ -47,7 +103,7 @@ class VoyagerPanelHtmlTests(unittest.TestCase):
         self.assertIn('ui/notifications/initialized', html)
         self.assertIn('2026-01-26', html)
         self.assertIn('ui/notifications/tool-input', html)
-        self.assertIn('version: "1.0.9.3"', html)
+        self.assertIn('version: "1.0.9"', html)
         self.assertIn('setTimeout(refresh', html)
         self.assertNotIn('setTimeout(refresh, 80)', html)
         self.assertNotIn("task_dispatch", html)
@@ -83,8 +139,6 @@ class VoyagerPanelHtmlTests(unittest.TestCase):
         html = render_voyager_panel_html()
         for label in (
             "状态",
-            "执行单元",
-            "执行模型",
             "耗时",
             "结论",
             "关键依据",
@@ -150,6 +204,166 @@ class VoyagerPanelHtmlTests(unittest.TestCase):
         self.assertIn('node("div", null, "wb-tabs")', html)
         self.assertIn('node("div", null, "wb-body")', html)
         self.assertIn("renderGroupBody();", html)
+        self.assertRegex(html, r"\.workbench\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*minmax\(220px,\s*270px\)\s+minmax\(0,\s*1fr\)")
+        self.assertRegex(html, r"\.wb-nav\s*\{[^}]*overflow-y:\s*auto")
+        self.assertRegex(html, r"\.wb-main\s*\{[^}]*min-width:\s*0")
+
+    def test_panel_keeps_wide_layout_until_below_640px(self) -> None:
+        html = render_voyager_panel_html()
+        wide_css = html.split("@media (max-width: 639px)", 1)[0]
+        self.assertNotIn("@media (max-width: 760px)", html)
+        self.assertIn("@media (max-width: 639px)", html)
+        self.assertRegex(
+            wide_css,
+            r"\.summary-grid\s*\{[^}]*grid-template-columns:\s*minmax\(190px,\s*220px\)\s+minmax\(0,\s*1fr\)",
+        )
+        self.assertRegex(
+            wide_css,
+            r"\.usage-overview\s*\{[^}]*grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\)",
+        )
+        self.assertRegex(
+            wide_css,
+            r"\.workbench\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*minmax\(220px,\s*270px\)\s+minmax\(0,\s*1fr\)",
+        )
+        self.assertIn(".summary-grid > .usage-overview { margin-top: 0; }", wide_css)
+        self.assertIn("white-space: nowrap", wide_css)
+        narrow_css = html.split("@media (max-width: 639px)", 1)[1]
+        self.assertIn(".summary-grid { grid-template-columns: minmax(0, 1fr); }", narrow_css)
+        self.assertIn(".usage-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }", narrow_css)
+        self.assertIn(".workbench { flex-direction: column; grid-template-columns: minmax(0, 1fr); }", narrow_css)
+        self.assertIn("@media (max-width: 519px)", html)
+        self.assertIn(".usage-overview, .usage-metrics { grid-template-columns: minmax(0, 1fr); }", html)
+
+    def test_detail_body_has_compact_typography_and_clamped_summary_preview(self) -> None:
+        html = render_voyager_panel_html()
+        self.assertRegex(
+            html,
+            r"\.wb-body\s*\{[^}]*font-size:\s*11\.5px;[^}]*line-height:\s*1\.55;",
+        )
+        self.assertIn("wb-body-summary", html)
+        self.assertIn(".wb-body-summary .result-text", html)
+        self.assertIn("-webkit-line-clamp: 4", html)
+        self.assertIn("overflow-wrap: anywhere", html)
+        self.assertIn("word-break: break-word", html)
+
+    def test_key_evidence_uses_explicit_semantic_status_classes(self) -> None:
+        html = render_voyager_panel_html()
+        for fragment in (
+            "evidence-list", "evidence-item", "evidence-status-dot", "evidence-status-text",
+            "evidence-status-completed", "evidence-status-running",
+            "evidence-status-failed", "evidence-status-unknown",
+            "data-evidence-status", 'setAttribute("aria-label"',
+        ):
+            self.assertIn(fragment, html)
+        self.assertIn(".evidence-status-completed .evidence-status-dot { background: var(--green); }", html)
+        self.assertIn(".evidence-status-running .evidence-status-dot { background: var(--blue); }", html)
+        self.assertIn(".evidence-status-failed .evidence-status-dot { background: var(--red); }", html)
+        self.assertIn(".evidence-status-unknown .evidence-status-dot { background: var(--text-muted); }", html)
+        self.assertNotIn(".evidence-item:nth-child", html)
+        self.assertIn('item.setAttribute("aria-label", semantic);', html)
+
+    def test_panel_no_brand_rail(self) -> None:
+        html = render_voyager_panel_html()
+        self.assertNotIn('class="brand-rail"', html)
+        self.assertNotIn('.brand-rail', html)
+        self.assertNotIn('brand-mark', html)
+        self.assertRegex(html, r"\.panel-shell\s*\{[^}]*width:\s*100%;[^}]*min-width:\s*0;")
+
+    def test_panel_no_static_group_conclusion(self) -> None:
+        html = render_voyager_panel_html()
+        self.assertNotIn("并发任务组包含", html)
+        self.assertNotIn("从左侧选择任务查看详情", html)
+        self.assertIn('resultPart("关键依据"', html)
+        self.assertIn('const GROUP_TABS = ["摘要", "完整回答", "执行活动", "文件变更", "用量"]', html)
+
+    def test_panel_usage_cards_single_row(self) -> None:
+        html = render_voyager_panel_html()
+        wide_css = html.split('@media (max-width: 639px)', 1)[0]
+        self.assertRegex(wide_css, r"\.usage-overview\s*\{[^}]*grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\)")
+        order = [
+            'usageOverviewCard("子任务 Tokens"',
+            'usageOverviewCard("子任务 Credits"',
+            'usageOverviewCard("当前 Tokens"',
+            'usageOverviewCard("当前 Credits"',
+        ]
+        positions = [html.index(fragment) for fragment in order]
+        self.assertEqual(positions, sorted(positions))
+
+    def test_panel_workbench_two_column(self) -> None:
+        html = render_voyager_panel_html()
+        wide_css = html.split('@media (max-width: 639px)', 1)[0]
+        self.assertRegex(
+            wide_css,
+            r"\.workbench\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*minmax\(220px,\s*270px\)\s+minmax\(0,\s*1fr\)",
+        )
+        self.assertIn('@media (max-width: 639px)', html)
+
+    def test_panel_status_indicator_by_state(self) -> None:
+        html = render_voyager_panel_html()
+        for semantic, token in (
+            ('completed', '--green'),
+            ('running', '--blue'),
+            ('failed', '--red'),
+            ('unknown', '--text-muted'),
+        ):
+            self.assertIn(f'evidence-status-{semantic}', html)
+            self.assertIn(
+                f'.evidence-status-{semantic} .evidence-status-dot {{ background: var({token}); }}',
+                html,
+            )
+        self.assertIn('item.setAttribute("data-evidence-status", semantic);', html)
+        self.assertIn('item.setAttribute("aria-label", semantic);', html)
+        self.assertNotIn('.evidence-item:nth-child', html)
+
+    def test_usage_overview_marks_unknown_values_neutral(self) -> None:
+        html = render_voyager_panel_html()
+        self.assertIn("usage-card-unknown", html)
+        self.assertIn(".usage-card-unknown .usage-card-value { color: var(--text-muted); }", html)
+        self.assertIn('const unknown = value === null || value === undefined || value === \"\";', html)
+
+    def test_workbench_navigation_and_detail_scroll_independently(self) -> None:
+        html = render_voyager_panel_html()
+        self.assertRegex(html, r"\.wb-nav\s*\{[^}]*overflow-y:\s*auto")
+        self.assertRegex(html, r"\.wb-body\s*\{[^}]*overflow-y:\s*auto")
+        self.assertRegex(html, r"\.wb-body\s*\{[^}]*overflow-x:\s*hidden")
+
+    def test_panel_uses_dark_console_shell_and_semantic_ui_regions(self) -> None:
+        html = render_voyager_panel_html()
+        for token in (
+            "--bg-page", "--bg-panel", "--bg-surface", "--text-primary",
+            "--text-secondary", "--border-subtle", "--green", "--space-1",
+            "--radius-md", "--shadow-panel",
+        ):
+            self.assertIn(token, html)
+        for fragment in (
+            'class="panel-shell"',
+            'class="panel-main"', 'class="panel-header', 'class="header-main',
+            'class="header-title-row', 'class="status-badge', 'class="header-meta',
+            'class="refresh-button',
+        ):
+            self.assertIn(fragment, html)
+        self.assertNotIn('class="brand-rail"', html)
+        self.assertNotIn('class="brand-mark"', html)
+        self.assertIn('node("div", null, "summary-grid")', html)
+        self.assertIn('node("div", null, "usage-overview")', html)
+        self.assertIn('node("div", null, "usage-card usage-card-token")', html)
+        self.assertIn('node("div", null, "usage-card usage-card-credit")', html)
+
+    def test_group_tabs_and_render_only_structures_are_explicit(self) -> None:
+        html = render_voyager_panel_html()
+        self.assertIn('const GROUP_TABS = ["摘要", "完整回答", "执行活动", "文件变更", "用量"]', html)
+        for class_name in (
+            "wb-task-identity", "usage-metrics", "usage-metric", "usage-metric-label",
+            "activity-timeline", "activity-item", "activity-marker", "activity-time",
+            "activity-title", "activity-description", "activity-meta",
+            "file-change-list", "file-change-item", "file-change-kind",
+            "file-change-path", "file-change-summary",
+        ):
+            self.assertIn(class_name, html)
+        self.assertNotIn('["执行单元", task?.crew]', html)
+        self.assertNotIn('["执行模型", task?.model]', html)
+        self.assertNotIn("原始 Credit", html)
+        self.assertNotIn("Billable", html)
 
     def test_single_task_is_normalized_to_fixed_group_without_sync_blank(self) -> None:
         html = render_voyager_panel_html()

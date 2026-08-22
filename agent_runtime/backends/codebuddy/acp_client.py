@@ -1,4 +1,4 @@
-"""Minimal ACP v1 stdio client used by the Qoder backend.
+"""Minimal ACP v1 stdio client used by the CodeBuddy backend.
 
 The client implements the protocol surface required by coding agents:
 initialize, session new/load, prompt streaming, filesystem callbacks,
@@ -27,9 +27,10 @@ from agent_runtime.backends.errors import (
     BackendProtocolError,
     BackendTimeoutError,
 )
-from agent_runtime.backends.qoder.process import (
+from agent_runtime.backends.codebuddy.process import (
     popen_command,
-    resolve_qoder_cli,
+    resolve_codebuddy_cli,
+    resolve_codebuddy_internet_environment,
     terminate_process_tree,
 )
 
@@ -58,21 +59,23 @@ _READ_TOOL_NAMES = {"read", "openfile", "open_file", "view"}
 _SEARCH_TOOL_NAMES = {"grep", "search", "glob", "find", "codesearch"}
 _WRITE_TOOL_NAMES = {"write", "edit", "applypatch", "apply_patch", "createfile"}
 _SHELL_TOOL_NAMES = {"bash", "shell", "terminal", "exec", "runcommand"}
-_QODER_USAGE_ID_KEYS = (
-    # Qoder SDK exposes request-level usage on Assistant messages and documents
+_CODEBUDDY_USAGE_ID_KEYS = (
+    # CodeBuddy SDK exposes request-level usage on Assistant messages and documents
     # ``request_id`` (including the existing ``message.usage.request_id``).
     # Keep only provider/business IDs here; JSON-RPC/transport IDs are excluded.
     "requestId", "request_id", "turnId", "turn_id",
     "modelRequestId", "model_request_id", "messageId", "message_id",
+    "messageRequestId", "message_request_id",
+    "codebuddy.ai/requestId", "codebuddy.ai/messageRequestId",
 )
-_QODER_USAGE_SCALAR_KEYS = frozenset({
+_CODEBUDDY_USAGE_SCALAR_KEYS = frozenset({
     "inputTokens", "input_tokens", "prompt_tokens",
     "outputTokens", "output_tokens", "completion_tokens",
     "total_tokens", "totalTokens",
     "cached_tokens", "cachedTokens", "cache_read_tokens", "cacheReadTokens",
-    "cached_input_tokens", "cachedInputTokens",
-    "cache_miss_tokens", "cacheMissTokens",
-    "cache_write_tokens", "cacheWriteTokens",
+    "cached_input_tokens", "cachedInputTokens", "prompt_cache_hit_tokens",
+    "cache_miss_tokens", "cacheMissTokens", "prompt_cache_miss_tokens",
+    "cache_write_tokens", "cacheWriteTokens", "prompt_cache_write_tokens",
     "reasoning_tokens", "reasoningTokens", "thinking_tokens", "thinkingTokens",
     "answer_tokens", "answerTokens", "response_tokens", "responseTokens",
     "credits", "credit", "creditsUsed", "credits_used", "credit_used",
@@ -81,15 +84,19 @@ _QODER_USAGE_SCALAR_KEYS = frozenset({
 })
 
 
-def _qoder_usage_identity(update: dict[str, Any], nested_usage: dict[str, Any]) -> str:
-    """Return a bounded provider request/turn identity, never a transport ID."""
-    sources: list[dict[str, Any]] = [nested_usage, update]
-    for owner in (nested_usage, update):
-        meta = owner.get("_meta") if isinstance(owner, dict) else None
-        if isinstance(meta, dict):
-            sources.append(meta)
+def _codebuddy_usage_identity(
+    update: dict[str, Any],
+    nested_usage: dict[str, Any],
+    meta: dict[str, Any],
+) -> str:
+    """Return a bounded provider request/message identity, never transport IDs."""
+    sources: list[dict[str, Any]] = [nested_usage, meta, update]
+    for owner in (nested_usage, meta, update):
+        nested_meta = owner.get("_meta") if isinstance(owner, dict) else None
+        if isinstance(nested_meta, dict):
+            sources.append(nested_meta)
     for source in sources:
-        for key in _QODER_USAGE_ID_KEYS:
+        for key in _CODEBUDDY_USAGE_ID_KEYS:
             value = source.get(key)
             if isinstance(value, (str, int)) and not isinstance(value, bool):
                 text = str(value).strip()
@@ -98,7 +105,7 @@ def _qoder_usage_identity(update: dict[str, Any], nested_usage: dict[str, Any]) 
     return ""
 
 
-def _merge_qoder_usage_sample(existing: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
+def _merge_codebuddy_usage_sample(existing: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
     """Merge late fields for one request without creating a second delta."""
     previous_usage = existing.get("usage") if isinstance(existing.get("usage"), dict) else {}
     next_usage = incoming.get("usage") if isinstance(incoming.get("usage"), dict) else {}
@@ -151,17 +158,15 @@ class _Terminal:
             return self.output.decode("utf-8", "replace"), self.truncated
 
 
-class QoderAcpClient:
+class CodeBuddyAcpClient:
     def __init__(
         self,
         *,
         cwd: str,
         on_activity: Callable[[BackendActivity], None],
         cli_path: str | None = None,
-        allow_permissions: bool = True,
-        read_only: bool = False,
-        allow_file_writes: bool | None = None,
-        allow_terminal: bool | None = None,
+        access_mode: str = "read_only",
+        native_read_tools: bool = False,
         context_window_tokens: int | None = None,
         allowed_paths: tuple[str, ...] = (),
         forbidden_paths: tuple[str, ...] = (),
@@ -171,28 +176,37 @@ class QoderAcpClient:
     ) -> None:
         self.cwd = Path(cwd).resolve()
         self.on_activity = on_activity
-        self.read_only = bool(read_only)
-        self.allow_file_writes = (not self.read_only) if allow_file_writes is None else bool(allow_file_writes)
-        self.allow_terminal = (not self.read_only) if allow_terminal is None else bool(allow_terminal)
-        self.allow_permissions = bool(allow_permissions) and (self.allow_terminal or self.allow_file_writes)
+        self.access_mode = str(access_mode or "read_only").strip().lower()
+        if self.access_mode not in {"read_only", "patch", "verification"}:
+            raise BackendProtocolError(f"Unsupported CodeBuddy ACP access mode: {self.access_mode}")
+        self.read_only = self.access_mode == "read_only"
+        self.native_read_tools = bool(native_read_tools)
+        self.allow_file_writes = self.access_mode == "patch"
+        self.allow_terminal = self.access_mode in {"patch", "verification"}
+        self.allow_permissions = self.allow_file_writes or self.allow_terminal
         self.context_window_tokens = context_window_tokens
         self.allowed_paths = tuple(str(item).replace("\\", "/").strip("/") for item in allowed_paths if str(item).strip())
         self.forbidden_paths = tuple(str(item).replace("\\", "/").strip("/") for item in forbidden_paths if str(item).strip())
         self.visible_tools = tuple(str(item).strip() for item in visible_tools if str(item).strip())
         self.allowed_tools = tuple(str(item).strip() for item in allowed_tools if str(item).strip())
         self.command_specs = tuple(command_specs)
-        cli = cli_path or resolve_qoder_cli()
+        cli = cli_path or resolve_codebuddy_cli()
         # Preserve the exact TP-Voyager-config-resolved CLI path so auxiliary
-        # Qoder adapters use the same runtime identity without hardcoding it.
+        # CodeBuddy adapters use the same runtime identity without hardcoding it.
         self.cli_path = cli
-        command = [cli, "--acp"]
-        if self.context_window_tokens is not None:
-            command.extend(["--context-window", str(self.context_window_tokens)])
-        if self.visible_tools:
-            command.extend(["--tools", *self.visible_tools])
-        if self.allowed_tools:
-            command.extend(["--allowed-tools", ",".join(self.allowed_tools)])
-        self.process = popen_command(command, cwd=str(self.cwd))
+        # Native ACP is the execution transport.  ``--strict-mcp-config``
+        # prevents repository/user MCP configuration from silently widening
+        # the Captain-owned permission surface.
+        command = [cli, "--acp", "--strict-mcp-config"]
+        if self.access_mode == "read_only":
+            tool_set = "Read,Glob,Grep" if self.native_read_tools else ""
+        elif self.access_mode == "patch":
+            tool_set = "Read,Glob,Grep,Edit,MultiEdit,Write" + (",Bash" if self.command_specs else "")
+        else:
+            tool_set = "Read,Glob,Grep" + (",Bash" if self.command_specs else "")
+        command.extend(["--tools", tool_set])
+        env = {"CODEBUDDY_INTERNET_ENVIRONMENT": resolve_codebuddy_internet_environment()}
+        self.process = popen_command(command, cwd=str(self.cwd), env=env)
         self._write_lock = threading.Lock()
         self._responses: dict[int, queue.Queue[dict[str, Any]]] = {}
         self._responses_lock = threading.Lock()
@@ -207,7 +221,7 @@ class QoderAcpClient:
         self._usage_events: list[dict[str, Any]] = []
         self._usage_samples: list[dict[str, Any]] = []
         self._usage_sample_indexes: dict[str, int] = {}
-        self._anonymous_usage_signatures: set[str] = set()
+        self._anonymous_usage_index: int | None = None
         self._file_access_events: list[dict[str, Any]] = []
         self._agent_request_errors: list[dict[str, str]] = []
         self._read_scope_evidence_captured = False
@@ -263,7 +277,7 @@ class QoderAcpClient:
                     timeout=45.0,
                 )
             else:
-                raise BackendProtocolError("Qoder ACP does not advertise session/load")
+                raise BackendProtocolError("CodeBuddy ACP does not advertise session/load")
         else:
             session_response = self._request(
                 "session/new",
@@ -272,7 +286,7 @@ class QoderAcpClient:
             )
             session_id = str(session_response.get("sessionId") or "")
             if not session_id:
-                raise BackendProtocolError("Qoder ACP session/new returned no sessionId")
+                raise BackendProtocolError("CodeBuddy ACP session/new returned no sessionId")
 
         config_options = session_response.get("configOptions")
         if not isinstance(config_options, list):
@@ -283,13 +297,9 @@ class QoderAcpClient:
             category="model",
             requested_value=model,
         )
-        if context_window_tokens != self.context_window_tokens:
-            raise BackendProtocolError("Qoder ACP context window launch setting mismatch")
-        # Qoder exposes context window as a CLI session-start option
-        # (``qodercli --context-window <tokens>``), not as an ACP config
-        # option.  The value is therefore fixed before the ACP transport
-        # begins and is only reported applied after the session was created.
-        context_window_applied = (True if context_window_tokens is not None else None)
+        if context_window_tokens is not None:
+            raise BackendProtocolError("CodeBuddy controlled ACP does not expose context_window_tokens")
+        context_window_applied = None
         reasoning_applied, config_options = self._apply_config_option(
             session_id=session_id,
             config_options=config_options,
@@ -297,7 +307,7 @@ class QoderAcpClient:
             requested_value=reasoning_effort,
         )
         if reasoning_effort and reasoning_applied is not True:
-            raise BackendProtocolError("Qoder ACP did not accept the requested thinking effort")
+            raise BackendProtocolError("CodeBuddy ACP did not accept the requested thinking effort")
 
         # Hard dispatch gate: durable session id must be committed before the
         # real prompt request is written to the CLI.
@@ -344,7 +354,7 @@ class QoderAcpClient:
         return json.loads(json.dumps(self._usage_samples, ensure_ascii=False))
 
     def usage_provenance(self) -> dict[str, Any]:
-        known_keys = _QODER_USAGE_SCALAR_KEYS
+        known_keys = _CODEBUDDY_USAGE_SCALAR_KEYS
         has_known_numeric = any(
             key in known_keys
             and isinstance(value, (int, float)) and not isinstance(value, bool)
@@ -501,7 +511,7 @@ class QoderAcpClient:
 
     @staticmethod
     def _resolve_config_value(option: dict[str, Any], requested: str) -> str:
-        return QoderAcpClient._resolve_declared_config_value(option, requested) or requested
+        return CodeBuddyAcpClient._resolve_declared_config_value(option, requested) or requested
 
     @staticmethod
     def _resolve_declared_config_value(option: dict[str, Any], requested: str) -> str | None:
@@ -536,19 +546,19 @@ class QoderAcpClient:
         try:
             while True:
                 if self._cancelled.is_set():
-                    raise BackendCancelledError("Qoder execution cancelled")
+                    raise BackendCancelledError("CodeBuddy execution cancelled")
                 if self._reader_error is not None:
                     raise BackendProtocolError(
-                        f"Qoder ACP reader stopped: {type(self._reader_error).__name__}"
+                        f"CodeBuddy ACP reader stopped: {type(self._reader_error).__name__}"
                     )
                 if self.process.poll() is not None and response_queue.empty():
                     raise BackendProtocolError(
-                        f"Qoder ACP exited during request {method} ({self.process.returncode})"
+                        f"CodeBuddy ACP exited during request {method} ({self.process.returncode})"
                     )
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     raise BackendTimeoutError(
-                        f"Qoder ACP request timed out: {method}",
+                        f"CodeBuddy ACP request timed out: {method}",
                         timeout_reason="transport_timeout",
                     )
                 try:
@@ -577,26 +587,26 @@ class QoderAcpClient:
         try:
             while True:
                 if self._cancelled.is_set():
-                    raise BackendCancelledError("Qoder execution cancelled")
+                    raise BackendCancelledError("CodeBuddy execution cancelled")
                 if self._reader_error is not None:
                     raise BackendProtocolError(
-                        f"Qoder ACP reader stopped: {type(self._reader_error).__name__}"
+                        f"CodeBuddy ACP reader stopped: {type(self._reader_error).__name__}"
                     )
                 if self.process.poll() is not None and response_queue.empty():
                     raise BackendProtocolError(
-                        f"Qoder ACP exited before final response ({self.process.returncode})"
+                        f"CodeBuddy ACP exited before final response ({self.process.returncode})"
                     )
                 now = time.monotonic()
                 if now - started >= max_task_duration_seconds:
                     self.cancel(str(params.get("sessionId") or ""))
                     raise BackendTimeoutError(
-                        "Qoder execution exceeded max duration",
+                        "CodeBuddy execution exceeded max duration",
                         timeout_reason="max_task_duration",
                     )
                 if now - self._last_activity >= idle_timeout_seconds:
                     self.cancel(str(params.get("sessionId") or ""))
                     raise BackendTimeoutError(
-                        "Qoder execution became semantically idle",
+                        "CodeBuddy execution became semantically idle",
                         timeout_reason="idle_timeout",
                     )
                 try:
@@ -635,13 +645,13 @@ class QoderAcpClient:
     def _send(self, payload: dict[str, Any]) -> None:
         data = (json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
         if self.process.stdin is None:
-            raise BackendProtocolError("Qoder ACP stdin is unavailable")
+            raise BackendProtocolError("CodeBuddy ACP stdin is unavailable")
         with self._write_lock:
             try:
                 self.process.stdin.write(data)
                 self.process.stdin.flush()
             except OSError as exc:
-                raise BackendProtocolError("Failed to write Qoder ACP request") from exc
+                raise BackendProtocolError("Failed to write CodeBuddy ACP request") from exc
 
     def _notify(self, method: str, params: dict[str, Any]) -> None:
         self._send({"jsonrpc": "2.0", "method": method, "params": params})
@@ -649,7 +659,7 @@ class QoderAcpClient:
     def _read_loop(self) -> None:
         stream = self.process.stdout
         if stream is None:
-            self._reader_error = BackendProtocolError("Qoder ACP stdout is unavailable")
+            self._reader_error = BackendProtocolError("CodeBuddy ACP stdout is unavailable")
             return
         try:
             while not self._closed.is_set():
@@ -657,11 +667,11 @@ class QoderAcpClient:
                 if not line:
                     return
                 if len(line) > _MAX_LINE_BYTES:
-                    raise BackendProtocolError("Qoder ACP message exceeded size limit")
+                    raise BackendProtocolError("CodeBuddy ACP message exceeded size limit")
                 try:
                     message = json.loads(line.decode("utf-8"))
                 except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-                    raise BackendProtocolError("Qoder ACP emitted invalid JSON") from exc
+                    raise BackendProtocolError("CodeBuddy ACP emitted invalid JSON") from exc
                 if not isinstance(message, dict):
                     continue
                 if "method" in message and "id" in message:
@@ -720,47 +730,36 @@ class QoderAcpClient:
                 }
         elif kind == "usage_update":
             keys = sorted(str(key)[:80] for key in update if key != "sessionUpdate")[:64]
-            self._usage_events.append({"type": "usage_update", "keys": keys, "timestamp": round(time.time(), 6), "size_bytes": len(json.dumps(update, ensure_ascii=False).encode("utf-8"))})
+            self._usage_events.append({
+                "type": "usage_update",
+                "keys": keys,
+                "timestamp": round(time.time(), 6),
+                "size_bytes": len(json.dumps(update, ensure_ascii=False).encode("utf-8")),
+            })
             if len(self._usage_events) > 32:
                 del self._usage_events[:-32]
 
-            # ACP providers use both top-level scalar usage fields and a
-            # nested ``usage`` object. Keep only bounded Token/Credit facts.
+            # Real CodeBuddy ACP v2.99+ publishes usage under update._meta.usage.
+            # Keep direct/top-level and update.usage shapes for compatibility,
+            # but never infer Credit from model multipliers or Token counts.
+            meta = update.get("_meta") if isinstance(update.get("_meta"), dict) else {}
+            meta_usage = meta.get("usage") if isinstance(meta.get("usage"), dict) else {}
             nested_usage = update.get("usage") if isinstance(update.get("usage"), dict) else {}
             sample_values: dict[str, Any] = {}
-            for source in (update, nested_usage):
+            for source in (update, nested_usage, meta_usage):
                 for key, value in source.items():
                     safe_key = str(key)[:80]
-                    if safe_key not in _QODER_USAGE_SCALAR_KEYS:
+                    if safe_key not in _CODEBUDDY_USAGE_SCALAR_KEYS:
                         continue
                     if isinstance(value, bool):
                         if safe_key == "billable":
                             sample_values[safe_key] = value
                     elif isinstance(value, (int, float)) and value >= 0:
                         sample_values[safe_key] = value
-            for source in (update, nested_usage):
-                for key in ("model_usage", "modelUsage"):
-                    raw_models = source.get(key)
-                    if not isinstance(raw_models, dict):
-                        continue
-                    safe_models: dict[str, dict[str, int | float | bool]] = {}
-                    for model, raw_values in list(raw_models.items())[:32]:
-                        if not isinstance(raw_values, dict):
-                            continue
-                        safe_values: dict[str, int | float | bool] = {}
-                        for field, value in list(raw_values.items())[:32]:
-                            if isinstance(value, bool) or (
-                                isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0
-                            ):
-                                safe_values[str(field)[:80]] = value
-                        if safe_values:
-                            safe_models[str(model)[:160]] = safe_values
-                    if safe_models:
-                        sample_values["model_usage"] = safe_models
 
             if sample_values:
                 self._usage.update(sample_values)
-                sample_id = _qoder_usage_identity(update, nested_usage)
+                sample_id = _codebuddy_usage_identity(update, meta_usage or nested_usage, meta)
                 accounting = "delta" if sample_id else "snapshot"
                 sample = {
                     "usage": json.loads(json.dumps(sample_values, ensure_ascii=False)),
@@ -773,14 +772,16 @@ class QoderAcpClient:
                         self._usage_sample_indexes[sample_id] = len(self._usage_samples)
                         self._usage_samples.append(sample)
                     else:
-                        # Replayed/enriched update for the same request replaces
-                        # that logical sample instead of creating a new delta.
-                        self._usage_samples[index] = _merge_qoder_usage_sample(self._usage_samples[index], sample)
+                        self._usage_samples[index] = _merge_codebuddy_usage_sample(
+                            self._usage_samples[index], sample
+                        )
+                elif self._anonymous_usage_index is None:
+                    self._anonymous_usage_index = len(self._usage_samples)
+                    self._usage_samples.append(sample)
                 else:
-                    signature = json.dumps(sample_values, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-                    if signature not in self._anonymous_usage_signatures:
-                        self._anonymous_usage_signatures.add(signature)
-                        self._usage_samples.append(sample)
+                    # No provider request ID means this is a non-additive
+                    # snapshot.  Retain only the latest valid observation.
+                    self._usage_samples[self._anonymous_usage_index] = sample
         elif tool_like_update:
             raw_tool = nested_tool
             if not isinstance(raw_tool, dict):
@@ -937,7 +938,7 @@ class QoderAcpClient:
             raw_path = str(params.get("path") or "")
             try:
                 if not self.allow_file_writes:
-                    raise PermissionError("Qoder ACP policy denies file writes")
+                    raise PermissionError("CodeBuddy ACP policy denies file writes")
                 path = self._safe_path(raw_path, write=True)
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(str(params.get("content") or ""), encoding="utf-8")
@@ -957,7 +958,7 @@ class QoderAcpClient:
             return {"outcome": {"outcome": "selected", "optionId": selected}}
         if method == "terminal/create":
             if not self.allow_terminal:
-                raise PermissionError("Qoder ACP policy denies terminal execution")
+                raise PermissionError("CodeBuddy ACP policy denies terminal execution")
             result = self._terminal_create(params)
             self._emit_client_tool_activity(tool="Shell", action="execute", status="in_progress")
             return result
@@ -1003,7 +1004,7 @@ class QoderAcpClient:
         if self.allowed_paths and not self._matches(rel, self.allowed_paths):
             raise PermissionError("ACP file access is outside the Captain allowed_paths")
         if write and not self.allow_file_writes:
-            raise PermissionError("Qoder ACP policy denies file writes")
+            raise PermissionError("CodeBuddy ACP policy denies file writes")
         return candidate
 
     def _select_permission(self, options: list[Any]) -> str | None:
@@ -1040,10 +1041,10 @@ class QoderAcpClient:
             for spec in self.command_specs
         )
         if not allowed:
-            raise PermissionError("Qoder terminal command is not in the Captain command whitelist")
+            raise PermissionError("CodeBuddy terminal command is not in the Captain command whitelist")
         env_items = params.get("env")
         if isinstance(env_items, list) and env_items:
-            raise PermissionError("Qoder terminal environment overrides are not authorized")
+            raise PermissionError("CodeBuddy terminal environment overrides are not authorized")
         env = os.environ.copy()
         kwargs: dict[str, Any] = {
             "cwd": str(cwd),

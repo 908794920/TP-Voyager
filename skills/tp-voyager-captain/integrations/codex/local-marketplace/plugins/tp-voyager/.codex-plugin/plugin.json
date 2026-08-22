@@ -1,6 +1,6 @@
 {
   "name": "tp-voyager",
-  "version": "1.0.9.3",
+  "version": "1.0.9",
   "description": "Captain workflow for bounded TP-Voyager Crew delegation and result-first observability.",
   "license": "MIT",
   "keywords": [

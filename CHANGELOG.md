@@ -1,5 +1,17 @@
 # Changelog
 
+### v1.0.9 Agent Observability & Runtime Profile — 2026-08-22
+
+- Open release line `v1.0.9` (1.0.8 → 1.0.9) and converge the product version to `1.0.9` (pyproject, Captain Skill/manifest, plugin, CodeBuddy catalog clientInfo, doctor projection, panel appInfo, docs/tests).
+- Add the read-only `render_voyager_panel(task_id=...)` Captain tool and a self-contained `text/html;profile=mcp-app` Agent panel resource: durable-result-first presentation, bounded transient observation, Chinese result-first UI, concurrent presentation groups, and no second dispatch path.
+- Add the read-only Runtime Profile MCP Apps resource (`ui://tp-voyager/runtime-profile/v1.html`): a self-contained card projecting current typed configuration, model catalog, and Crew account status; user-owned paths are redacted to `~/.tp-voyager/...` or `<external>/...` and never leak an absolute host path.
+- Add an explicit `workspace_strategy` dispatch contract (`model_only` / `live_readonly` / `frozen_context` / `isolated_patch`, default `isolated_patch`) as a `str`-backed enum; invalid values fail closed at the MCP boundary and in `CaptainDispatchRequest`, and the idempotency contract includes `workspace_strategy`.
+- Harden the Agent panel against injected HTML: assistant/conversation text renders through `createTextNode` plus a safe minimal Markdown renderer; the previous direct inner-HTML sink is removed.
+- Add a minimal ACP v1 stdio client for the CodeBuddy backend (initialize, session new/load, prompt streaming, filesystem/terminal callbacks, permission decisions, cancellation); durable task state remains in the runtime.
+- Add best-effort Qoder SDK usage collection for already-executed ACP sessions: the optional SDK is loaded only when requested, copies an existing local session into an in-memory store, and never starts/resumes an Agent task; missing Provider Credit/Usage data is reported as `provider_omitted` instead of fabricating facts.
+- Harden usage accounting for replay and multi-request streams: Provider request/turn IDs define additive `delta` samples, identical logical IDs replay/replace one sample, no-ID updates use non-additive `snapshot` semantics, and `total_credits` stays a latest session snapshot.
+- Keep the seven-tool Captain Surface, durable SQLite truth, and all authority boundaries unchanged; full suite passes (`641 passed, 1 skipped, 76 subtests`).
+
 ### v1.0.9.3 — Development baseline (2026-08-21)
 
 - Add an explicit `workspace_strategy` dispatch contract (`model_only` / `live_readonly` / `frozen_context` / `isolated_patch`, default `isolated_patch`). The strategy only controls workspace preparation and never changes the durable `task_result` source of truth: `model_only` skips workspace/snapshot/context preparation for model checks, `live_readonly` omits the patch policy. Invalid values fail closed (`INVALID_WORKSPACE_STRATEGY` at the MCP boundary, `ValueError` in `CaptainDispatchRequest`). The four strategies are now a `str`-backed `WorkspaceStrategy` enum (`agent_runtime/domain/enums.py`) that remains the single source of truth for the dispatch domain and the MCP boundary, and the idempotency contract now includes `workspace_strategy` so a repeated `idempotency_key` with a different strategy fails closed instead of silently replaying.

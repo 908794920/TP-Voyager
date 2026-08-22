@@ -8,6 +8,12 @@ active iframe. UI refresh always calls the existing read-only
 
 from __future__ import annotations
 
+from agent_runtime.api.runtime_profile import (
+    VOYAGER_RUNTIME_PROFILE_MIME_TYPE,
+    VOYAGER_RUNTIME_PROFILE_URI,
+    render_voyager_runtime_profile_html,
+)
+
 
 VOYAGER_PANEL_URI = "ui://tp-voyager/agent-panel/v1.html"
 VOYAGER_PANEL_MIME_TYPE = "text/html;profile=mcp-app"
@@ -22,155 +28,415 @@ def render_voyager_panel_html() -> str:
 <title>TP-Voyager 任务</title>
 <style>
   :root {
-    color-scheme: dark light;
+    color-scheme: dark;
     font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    --bg: color-mix(in srgb, Canvas 96%, transparent);
-    --surface: color-mix(in srgb, CanvasText 5%, Canvas 95%);
-    --muted: color-mix(in srgb, CanvasText 58%, Canvas 42%);
-    --line: color-mix(in srgb, CanvasText 14%, transparent);
-    --ok: #2fbf71;
-    --active: #37c978;
-    --starting: #4f8cff;
-    --wait: #e3ae38;
-    --bad: #ef5350;
-    --idle: #8a9099;
+    --bg-page: #080b10;
+    --bg-panel: #0d1117;
+    --bg-surface: #111720;
+    --bg-surface-raised: #151c26;
+    --bg-surface-hover: #19222e;
+    --text-primary: #eef3f8;
+    --text-secondary: #aab6c4;
+    --text-muted: #748191;
+    --border-subtle: #26303b;
+    --border-strong: #344252;
+    --green: #38c976;
+    --green-soft: rgba(56, 201, 118, .10);
+    --blue: #5b8ff9;
+    --purple: #9b7cf8;
+    --red: #ff6b6b;
+    --amber: #e7b348;
+    --space-1: 8px;
+    --space-2: 16px;
+    --space-3: 24px;
+    --space-4: 32px;
+    --radius-sm: 8px;
+    --radius-md: 12px;
+    --radius-lg: 16px;
+    --shadow-panel: 0 16px 40px rgba(0, 0, 0, .24);
   }
   * { box-sizing: border-box; }
-  body { margin: 0; padding: 8px; background: transparent; color: CanvasText; }
-  #panel {
-    --state-color: var(--idle);
-    border: 1px solid color-mix(in srgb, var(--state-color) 68%, transparent);
-    border-left-width: 3px;
-    border-radius: 12px;
-    background: var(--bg);
+  html, body { min-width: 0; max-width: 100%; }
+  body {
+    margin: 0;
+    padding: var(--space-1);
+    background: var(--bg-page);
+    color: var(--text-primary);
+  }
+  .panel-shell {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+    width: 100%;
+    min-width: 0;
+  }
+  #panel.panel-main {
+    --state-color: var(--text-muted);
+    min-width: 0;
     overflow: hidden;
-    transition: border-color .2s ease, box-shadow .2s ease;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    background: var(--bg-panel);
+    box-shadow: var(--shadow-panel);
+    transition: border-color .18s ease;
   }
-  #panel[data-sync-state="syncing"] { --state-color: var(--starting); }
-  #panel[data-task-state="queued"] { --state-color: var(--idle); }
-  #panel[data-task-state="connecting"] { --state-color: var(--starting); }
-  #panel[data-task-state="running"] { --state-color: var(--active); }
-  #panel[data-task-state="observing"] { --state-color: var(--active); }
-  #panel[data-task-state="completed"] { --state-color: var(--ok); }
-  #panel[data-task-state="failed"] { --state-color: var(--bad); }
-  #panel[data-task-state="cancelled"] { --state-color: var(--idle); }
-  #panel[data-task-state="lost"] { --state-color: var(--bad); }
-  #panel[data-task-state="orphaned"] { --state-color: var(--bad); }
-  #panel[data-task-state="running"], #panel[data-task-state="observing"], #panel[data-sync-state="syncing"] {
-    box-shadow: 0 0 0 1px color-mix(in srgb, var(--state-color) 15%, transparent),
-                0 0 18px color-mix(in srgb, var(--state-color) 10%, transparent);
+  #panel[data-sync-state="syncing"] { --state-color: var(--blue); }
+  #panel[data-task-state="queued"] { --state-color: var(--text-muted); }
+  #panel[data-task-state="connecting"] { --state-color: var(--blue); }
+  #panel[data-task-state="running"], #panel[data-task-state="observing"] { --state-color: var(--green); }
+  #panel[data-task-state="completed"] { --state-color: var(--green); }
+  #panel[data-task-state="failed"], #panel[data-task-state="lost"], #panel[data-task-state="orphaned"] { --state-color: var(--red); }
+  #panel[data-task-state="cancelled"] { --state-color: var(--text-muted); }
+  #panel[data-task-state="running"],
+  #panel[data-task-state="observing"],
+  #panel[data-task-state="completed"] { border-color: rgba(56, 201, 118, .28); }
+  #panel[data-task-state="failed"],
+  #panel[data-task-state="lost"],
+  #panel[data-task-state="orphaned"] { border-color: rgba(255, 107, 107, .34); }
+  .panel-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border-subtle);
   }
-  .top { display: flex; gap: 10px; align-items: center; padding: 11px 12px 9px; }
+  .header-main {
+    min-width: 0;
+    flex: 1;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+  }
   .status-dot {
-    width: 10px; height: 10px; min-width: 10px; border-radius: 50%;
-    background: var(--state-color); box-shadow: 0 0 0 3px color-mix(in srgb, var(--state-color) 18%, transparent);
+    width: 9px;
+    height: 9px;
+    min-width: 9px;
+    margin-top: 6px;
+    border-radius: 999px;
+    background: var(--state-color);
   }
-  #panel[data-task-state="running"] .status-dot,
-  #panel[data-task-state="observing"] .status-dot,
-  #panel[data-sync-state="syncing"] .status-dot { animation: pulse 1.45s ease-in-out infinite; }
-  @keyframes pulse { 0%,100% { opacity: .55; transform: scale(.92); } 50% { opacity: 1; transform: scale(1.12); } }
+  #panel[data-task-state="running"] > .panel-header .status-dot,
+  #panel[data-task-state="observing"] > .panel-header .status-dot,
+  #panel[data-sync-state="syncing"] > .panel-header .status-dot { animation: pulse 1.45s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity: .55; } 50% { opacity: 1; } }
   .identity { min-width: 0; flex: 1; }
-  .title-row { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
-  .title { font-weight: 720; font-size: 13.5px; letter-spacing: .01em; }
-  .state { color: var(--state-color); font-size: 12px; font-weight: 650; }
-  .meta { margin-top: 5px; display: flex; gap: 5px 10px; flex-wrap: wrap; font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
-  .fact { display: inline-flex; gap: 4px; min-width: 0; }
-  .fact-key { color: color-mix(in srgb, CanvasText 42%, Canvas 58%); }
-  .fact-value { color: color-mix(in srgb, CanvasText 78%, Canvas 22%); font-weight: 550; }
+  .header-title-row {
+    min-width: 0;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .title { font-weight: 760; font-size: 15px; letter-spacing: -.01em; }
+  .status-badge {
+    display: inline-flex;
+    align-items: center;
+    min-height: 22px;
+    padding: 2px 8px;
+    border: 1px solid color-mix(in srgb, var(--state-color) 42%, transparent);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--state-color) 9%, transparent);
+    color: var(--state-color);
+    font-size: 10.5px;
+    font-weight: 700;
+  }
+  .header-meta {
+    margin-top: 6px;
+    display: flex;
+    gap: 4px 12px;
+    flex-wrap: wrap;
+    color: var(--text-muted);
+    font-size: 10.5px;
+    overflow-wrap: anywhere;
+  }
+  .fact { min-width: 0; display: inline-flex; gap: 5px; }
+  .fact-key { color: var(--text-muted); }
+  .fact-value { color: var(--text-secondary); font-weight: 600; overflow-wrap: anywhere; }
   button {
-    appearance: none; border: 1px solid var(--line); border-radius: 8px; background: var(--surface);
-    color: CanvasText; padding: 6px 9px; font: inherit; font-size: 11.5px; cursor: pointer;
+    appearance: none;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    font: inherit;
+    cursor: pointer;
   }
   button:disabled { opacity: .45; cursor: default; }
-  .summary { border-top: 1px solid var(--line); padding: 10px 12px; font-size: 12px; line-height: 1.55; }
-  .result-part + .result-part { margin-top: 10px; }
-  .result-title { font-weight: 700; margin-bottom: 3px; }
-  .result-text { color: color-mix(in srgb, CanvasText 88%, Canvas 12%); white-space: pre-wrap; overflow-wrap: anywhere; }
-  .result-list { margin: 3px 0 0; padding-left: 18px; }
+  .refresh-button {
+    flex: 0 0 auto;
+    padding: 6px 10px;
+    color: var(--text-secondary);
+    font-size: 11px;
+  }
+  .refresh-button:hover { border-color: var(--border-strong); background: var(--bg-surface-hover); color: var(--text-primary); }
+  .summary {
+    padding: 14px 18px 16px;
+    font-size: 11.5px;
+    line-height: 1.55;
+  }
+  .summary-grid {
+    display: grid;
+    grid-template-columns: minmax(190px, 220px) minmax(0, 1fr);
+    gap: 10px;
+  }
+  .result-part {
+    min-width: 0;
+    padding: 10px 12px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    background: var(--bg-surface);
+  }
+  .summary-support { grid-column: 1 / -1; }
+  .result-title { margin-bottom: 4px; color: var(--text-secondary); font-size: 10.5px; font-weight: 700; }
+  .result-text { color: var(--text-primary); white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
+  .result-list { margin: 4px 0 0; padding-left: 17px; color: var(--text-secondary); }
   .result-list li + li { margin-top: 3px; }
-  .summary-detail { color: var(--muted); font-size: 11px; white-space: pre-wrap; }
-  .empty { color: var(--muted); }
-  .details { border-top: 1px solid var(--line); padding: 0 12px 9px; }
+  .evidence-list { list-style: none; padding-left: 0; display: grid; gap: 5px; }
+  .evidence-item {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: 8px auto minmax(0, 1fr);
+    gap: 6px;
+    align-items: start;
+    color: var(--text-secondary);
+  }
+  .evidence-status-dot { width: 7px; height: 7px; margin-top: 5px; border-radius: 999px; background: var(--text-muted); }
+  .evidence-status-text { color: var(--text-muted); font-size: 9.5px; font-weight: 700; white-space: nowrap; }
+  .evidence-text { min-width: 0; overflow-wrap: anywhere; word-break: break-word; }
+  .evidence-status-completed .evidence-status-dot { background: var(--green); }
+  .evidence-status-running .evidence-status-dot { background: var(--blue); }
+  .evidence-status-failed .evidence-status-dot { background: var(--red); }
+  .evidence-status-unknown .evidence-status-dot { background: var(--text-muted); }
+  .evidence-status-completed .evidence-status-text { color: var(--green); }
+  .evidence-status-running .evidence-status-text { color: var(--blue); }
+  .evidence-status-failed .evidence-status-text { color: var(--red); }
+  .empty { color: var(--text-muted); }
+  .error { color: var(--red); }
+  .usage-overview {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--space-1);
+    margin-top: 10px;
+  }
+  .summary-grid > .usage-overview { margin-top: 0; }
+  .usage-card {
+    min-width: 0;
+    padding: 9px 10px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    background: var(--bg-surface-raised);
+  }
+  .usage-card-label { min-width: 0; color: var(--text-muted); font-size: 9.5px; font-weight: 650; overflow-wrap: anywhere; }
+  .usage-card-value { min-width: 0; margin-top: 3px; color: var(--text-primary); font-size: 13px; font-weight: 740; overflow-wrap: normal; word-break: normal; white-space: nowrap; }
+  .usage-card-token .usage-card-value { color: var(--blue); }
+  .usage-card-credit .usage-card-value { color: var(--purple); }
+  .usage-card-unknown .usage-card-value { color: var(--text-muted); }
+  .details { min-width: 0; border-top: 1px solid var(--border-subtle); }
   .details:empty { display: none; }
-  details { border-bottom: 1px solid var(--line); padding: 7px 0; }
-  details:last-child { border-bottom: 0; }
-  summary { cursor: pointer; font-size: 11.5px; font-weight: 650; color: color-mix(in srgb, CanvasText 82%, Canvas 18%); }
-  .list { margin-top: 7px; display: grid; gap: 6px; }
-  .row { border-left: 2px solid var(--line); padding: 3px 0 3px 8px; font-size: 11.5px; line-height: 1.45; overflow-wrap: anywhere; }
-  .row .label { color: var(--muted); font-size: 10.5px; margin-bottom: 2px; }
-  .answer.markdown { white-space: pre-wrap; overflow-wrap: anywhere; font-family: inherit; }
+  .workbench { display: flex; gap: var(--space-2); align-items: stretch; min-width: 0; padding: 14px 18px 16px; }
+  @supports (display: grid) {
+    .workbench {
+      display: grid;
+      grid-template-columns: minmax(220px, 270px) minmax(0, 1fr);
+    }
+    .wb-nav { width: auto; flex-basis: auto; }
+  }
+  .wb-nav {
+    width: 250px;
+    min-width: 0;
+    flex: 0 0 250px;
+    max-height: 390px;
+    overflow-y: auto;
+    display: grid;
+    gap: var(--space-1);
+    align-content: start;
+    padding-right: 2px;
+  }
+  .wb-task {
+    --task-color: var(--text-muted);
+    min-width: 0;
+    display: grid;
+    gap: 5px;
+    padding: 9px 10px;
+    text-align: left;
+    border: 1px solid var(--border-subtle);
+    border-left: 2px solid var(--task-color);
+    border-radius: var(--radius-md);
+    background: var(--bg-surface);
+    color: var(--text-primary);
+  }
+  .wb-task:hover { background: var(--bg-surface-hover); border-color: var(--border-strong); border-left-color: var(--task-color); }
+  .wb-task.active { background: var(--green-soft); border-color: rgba(56, 201, 118, .36); border-left-color: var(--green); border-left-width: 3px; }
+  .wb-task[data-task-state="running"], .wb-task[data-task-state="observing"] { --task-color: var(--green); }
+  .wb-task[data-task-state="connecting"] { --task-color: var(--blue); }
+  .wb-task[data-task-state="queued"] { --task-color: #697789; }
+  .wb-task[data-task-state="completed"] { --task-color: var(--green); }
+  .wb-task[data-task-state="failed"], .wb-task[data-task-state="lost"], .wb-task[data-task-state="orphaned"] { --task-color: var(--red); }
+  .wb-task[data-task-state="cancelled"] { --task-color: var(--text-muted); }
+  .wb-task .status-dot { width: 7px; height: 7px; min-width: 7px; margin-top: 0; background: var(--task-color); }
+  .wb-task-head { min-width: 0; display: flex; gap: 7px; align-items: center; }
+  .wb-task-state { color: var(--text-secondary); font-size: 10.5px; font-weight: 700; }
+  .wb-task-meta { min-width: 0; color: var(--text-muted); font-size: 10px; }
+  .wb-task-identity { color: var(--text-primary); font-size: 11px; font-weight: 650; overflow-wrap: anywhere; word-break: break-word; }
+  .wb-task-id, .wb-task-duration { color: var(--text-muted); font-size: 9.5px; overflow-wrap: anywhere; word-break: break-word; }
+  .wb-task-failure { color: var(--red); font-size: 10px; overflow-wrap: anywhere; word-break: break-word; }
+  .wb-main {
+    min-width: 0;
+    flex: 1;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 9px;
+  }
+  .wb-tabs {
+    min-width: 0;
+    display: flex;
+    gap: 2px;
+    flex-wrap: wrap;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .wb-tab {
+    padding: 7px 9px 6px;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    border-radius: 6px 6px 0 0;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 10.5px;
+  }
+  .wb-tab:hover { background: var(--bg-surface-hover); color: var(--text-secondary); }
+  .wb-tab.active { border-bottom-color: var(--green); color: var(--text-primary); background: var(--green-soft); }
+  .wb-body {
+    min-width: 0;
+    min-height: 150px;
+    max-height: 390px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    font-size: 11.5px;
+    line-height: 1.55;
+    display: grid;
+    gap: var(--space-1);
+    align-content: start;
+    padding: 11px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    background: var(--bg-surface);
+  }
+  .row {
+    min-width: 0;
+    padding: 8px 9px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    background: var(--bg-panel);
+    font-size: 11px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+  .row .label { color: var(--text-muted); font-size: 10px; }
+  .wb-body-summary .result-text {
+    max-width: 100%;
+    max-height: calc(4 * 1.55em);
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 4;
+  }
+  .wb-body-summary .evidence-text,
+  .wb-body-summary .result-list > li:not(.evidence-item) {
+    max-width: 100%;
+    max-height: calc(3 * 1.55em);
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+  .answer.markdown { min-width: 0; max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; font-family: inherit; }
   .answer.markdown pre, .answer.markdown code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-  .answer.markdown code { background: color-mix(in srgb, CanvasText 6%, var(--surface)); border-radius: 6px; padding: 1px 5px; }
-  .answer.markdown pre { background: color-mix(in srgb, CanvasText 6%, var(--surface)); border-radius: 8px; padding: 8px 10px; overflow-x: auto; margin: 6px 0; }
-  .answer.markdown pre code { padding: 0; background: transparent; }
-  .answer.markdown blockquote { margin: 6px 0; padding: 2px 0 2px 10px; border-left: 3px solid var(--line); color: var(--muted); }
-  .answer.markdown table { border-collapse: collapse; width: 100%; margin: 6px 0; }
-  .answer.markdown th, .answer.markdown td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; }
-  .answer.markdown th { background: color-mix(in srgb, CanvasText 5%, var(--surface)); }
-  .answer.markdown a { color: var(--starting); }
-  .answer.markdown ul { margin: 3px 0; padding-left: 20px; }
+  .answer.markdown code { max-width: 100%; background: var(--bg-surface-raised); border-radius: 5px; padding: 1px 4px; overflow-wrap: anywhere; }
+  .answer.markdown pre { max-width: 100%; margin: 6px 0; padding: 8px 10px; overflow-x: auto; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: #0a0f15; white-space: pre; }
+  .answer.markdown pre code { padding: 0; background: transparent; white-space: pre; overflow-wrap: normal; word-break: normal; }
+  .answer.markdown blockquote { margin: 6px 0; padding: 2px 0 2px 10px; border-left: 2px solid var(--border-strong); color: var(--text-secondary); }
+  .answer.markdown table { display: block; width: 100%; max-width: 100%; overflow-x: auto; border-collapse: collapse; margin: 6px 0; }
+  .answer.markdown th, .answer.markdown td { border: 1px solid var(--border-subtle); padding: 4px 7px; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+  .answer.markdown th { background: var(--bg-surface-raised); }
+  .answer.markdown a { color: var(--blue); overflow-wrap: anywhere; word-break: break-all; }
+  .answer.markdown ul { margin: 3px 0; padding-left: 19px; }
   .answer.markdown em { font-style: italic; }
-  .file { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-  .kv { display: grid; grid-template-columns: minmax(90px,auto) 1fr; gap: 4px 10px; font-size: 11.5px; }
-  .kv > :nth-child(odd) { color: var(--muted); }
-  .error { color: var(--bad); }
-  .group-summary { border-top: 1px solid var(--line); padding: 10px 12px 4px; font-size: 12px; font-weight: 700; }
-  .child-group { border-top: 1px solid var(--line); padding: 8px 12px 10px; display: grid; gap: 8px; }
-  .child-card { border: 1px solid var(--line); border-radius: 9px; padding: 9px 10px; background: var(--surface); }
-  .child-card[data-task-state="running"], .child-card[data-task-state="observing"] { border-left: 3px solid var(--active); }
-  .child-card[data-task-state="completed"] { border-left: 3px solid var(--ok); }
-  .child-card[data-task-state="failed"], .child-card[data-task-state="lost"], .child-card[data-task-state="orphaned"] { border-left: 3px solid var(--bad); }
-  .child-title { display: flex; gap: 6px 10px; align-items: baseline; flex-wrap: wrap; font-size: 11.5px; font-weight: 700; }
-  .child-meta { margin-top: 4px; display: flex; gap: 4px 10px; flex-wrap: wrap; color: var(--muted); font-size: 10.5px; overflow-wrap: anywhere; }
-  .child-summary { margin-top: 7px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11.5px; line-height: 1.5; }
-  .child-details { margin-top: 7px; }
-  .child-details > summary { font-weight: 600; }
-  .child-sections { padding-left: 4px; }
-  .foot { display: flex; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 10px; padding: 0 12px 9px; }
-  .workbench { display: flex; gap: 10px; padding: 10px 12px 12px; align-items: stretch; }
-  .wb-nav { width: 250px; min-width: 210px; display: grid; gap: 6px; align-content: start; max-height: 340px; overflow-y: auto; padding-right: 2px; }
-  .wb-task { appearance: none; text-align: left; border: 1px solid var(--line); border-left-width: 3px; border-radius: 9px; padding: 8px 9px; display: grid; gap: 3px; cursor: pointer; background: var(--surface); color: CanvasText; }
-  .wb-task:hover { background: color-mix(in srgb, CanvasText 5%, var(--surface)); }
-  .wb-task.active { background: color-mix(in srgb, CanvasText 7%, var(--surface)); box-shadow: inset 0 0 0 1px color-mix(in srgb, CanvasText 18%, transparent); }
-  .wb-task[data-task-state="running"], .wb-task[data-task-state="observing"], .wb-task[data-task-state="connecting"], .wb-task[data-task-state="queued"] { border-left-color: var(--active); }
-  .wb-task[data-task-state="completed"] { border-left-color: var(--ok); }
-  .wb-task[data-task-state="failed"], .wb-task[data-task-state="lost"], .wb-task[data-task-state="orphaned"] { border-left-color: var(--bad); }
-  .wb-task-head { display: flex; gap: 6px; align-items: center; }
-  .wb-task-state { font-weight: 650; }
-  .wb-task-meta { display: flex; gap: 4px 8px; color: var(--muted); font-size: 10.5px; flex-wrap: wrap; }
-  .wb-task-id { color: var(--muted); font-size: 10px; overflow-wrap: anywhere; }
-  .wb-task-duration { color: var(--muted); font-size: 10px; }
-  .wb-task-failure { color: var(--bad); font-size: 10.5px; overflow-wrap: anywhere; }
-  .wb-main { flex: 1; min-width: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 8px; }
-  .wb-tabs { display: flex; gap: 4px; flex-wrap: wrap; }
-  .wb-tab { appearance: none; border-radius: 999px; padding: 4px 10px; font-size: 11px; }
-  .wb-tab.active { background: color-mix(in srgb, CanvasText 10%, var(--surface)); border-color: color-mix(in srgb, CanvasText 30%, transparent); }
-  .wb-body { border: 1px solid var(--line); border-radius: 9px; padding: 10px; min-height: 140px; max-height: 340px; overflow-y: auto; display: grid; gap: 8px; align-content: start; }
-  .usage-strip { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
-  .usage-pill { border: 1px solid var(--line); border-radius: 999px; padding: 5px 9px; font-size: 12px; }
-  .usage-derived { font-size: 11px; opacity: .72; margin-left: 4px; }
-  .wb-summary-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; }
-  @media (max-width: 520px) {
-    .workbench { flex-direction: column; }
-    .wb-nav { width: auto; min-width: 0; max-height: 150px; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }
-    .wb-main { grid-template-rows: auto minmax(0, 1fr); }
+  .activity-timeline { min-width: 0; display: grid; }
+  .activity-item { position: relative; min-width: 0; display: grid; grid-template-columns: 14px minmax(0, 1fr); gap: 9px; padding: 0 0 11px; }
+  .activity-item:last-child { padding-bottom: 0; }
+  .activity-marker { position: relative; width: 8px; height: 8px; margin-top: 5px; border: 2px solid var(--green); border-radius: 999px; background: var(--bg-surface); }
+  .activity-marker::after { content: ""; position: absolute; top: 8px; left: 2px; width: 1px; height: calc(100% + 13px); background: var(--border-strong); }
+  .activity-item:last-child .activity-marker::after { display: none; }
+  .activity-content { min-width: 0; }
+  .activity-head { min-width: 0; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+  .activity-time { color: var(--text-muted); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 9.5px; }
+  .activity-title { color: var(--text-primary); font-size: 10.5px; font-weight: 700; }
+  .activity-description { margin-top: 2px; color: var(--text-secondary); font-size: 10.5px; overflow-wrap: anywhere; word-break: break-word; }
+  .activity-meta { margin-top: 3px; color: var(--text-muted); font-size: 9.5px; overflow-wrap: anywhere; word-break: break-word; }
+  .file-change-list { min-width: 0; display: grid; gap: 7px; }
+  .file-change-item { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 5px 9px; padding: 8px 9px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: var(--bg-panel); }
+  .file-change-kind { color: var(--green); font-size: 9.5px; font-weight: 700; }
+  .file-change-path { min-width: 0; color: var(--text-primary); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 10.5px; overflow-wrap: anywhere; word-break: break-all; }
+  .file-change-summary { grid-column: 1 / -1; color: var(--text-muted); font-size: 9.5px; overflow-wrap: anywhere; word-break: break-word; }
+  .usage-metrics { min-width: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
+  .usage-metric { min-width: 0; padding: 8px 9px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: var(--bg-panel); }
+  .usage-metric-label { color: var(--text-muted); font-size: 9.5px; font-weight: 650; }
+  .usage-metric-value { margin-top: 3px; color: var(--text-primary); font-size: 11.5px; font-weight: 700; overflow-wrap: anywhere; }
+  .usage-derived { margin-left: 4px; color: var(--amber); font-size: 8.5px; font-weight: 700; }
+  details { border-bottom: 1px solid var(--border-subtle); padding: 7px 0; }
+  details:last-child { border-bottom: 0; }
+  summary { cursor: pointer; color: var(--text-secondary); font-size: 11px; font-weight: 650; }
+  .list { margin-top: 7px; display: grid; gap: 6px; }
+  .foot {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-1);
+    padding: 9px 18px 11px;
+    border-top: 1px solid var(--border-subtle);
+    color: var(--text-muted);
+    font-size: 9.5px;
+  }
+  @media (max-width: 639px) {
+    body { padding: 0; overflow-x: hidden; }
+    .panel-shell { grid-template-columns: minmax(0, 1fr); gap: 0; }
+    #panel.panel-main { border-radius: 0; }
+    .summary-grid { grid-template-columns: minmax(0, 1fr); }
+    .summary-support { grid-column: auto; }
+    .usage-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .workbench { flex-direction: column; grid-template-columns: minmax(0, 1fr); }
+    .wb-nav { width: auto; flex-basis: auto; max-height: 190px; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+  }
+  @media (max-width: 519px) {
+    .usage-overview, .usage-metrics { grid-template-columns: minmax(0, 1fr); }
+  }
+  @media (max-width: 460px) {
+    .panel-header, .summary, .workbench { padding-left: 12px; padding-right: 12px; }
+    .panel-header { align-items: flex-start; }
+    .refresh-button { padding: 5px 8px; }
   }
 </style>
 </head>
 <body>
-  <section id="panel" data-task-state="unknown" data-sync-state="syncing" aria-live="polite">
-    <div class="top">
-      <span class="status-dot" aria-hidden="true"></span>
-      <div class="identity">
-        <div class="title-row"><span class="title">TP-Voyager 任务</span><span class="state" id="state">正在同步</span></div>
-        <div class="meta" id="meta">等待任务数据…</div>
-      </div>
-      <button id="refresh" type="button">刷新</button>
-    </div>
-    <div class="summary empty" id="summary">正在同步最新任务状态…</div>
-    <div class="details" id="details"></div>
-    <div class="foot"><span id="stamp"></span><span>当前会话面板</span></div>
-  </section>
+  <div class="panel-shell">
+    <section id="panel" class="panel-main" data-task-state="unknown" data-sync-state="syncing" aria-live="polite">
+      <header class="panel-header top">
+        <div class="header-main">
+          <span class="status-dot" aria-hidden="true"></span>
+          <div class="identity">
+            <div class="header-title-row title-row"><span class="title">TP-Voyager 任务</span><span class="status-badge state" id="state">正在同步</span></div>
+            <div class="header-meta meta" id="meta">等待任务数据…</div>
+          </div>
+        </div>
+        <button class="refresh-button" id="refresh" type="button">刷新</button>
+      </header>
+      <div class="summary empty" id="summary">正在同步最新任务状态…</div>
+      <div class="details" id="details"></div>
+      <footer class="foot"><span id="stamp"></span><span>当前会话面板</span></footer>
+    </section>
+  </div>
 <script>
 (() => {
   const panel = document.getElementById("panel");
@@ -186,7 +452,7 @@ def render_voyager_panel_html() -> str:
   let latestData = null;
   let latestGroupItems = [];
   let refreshTimer = null;
-  // v1.0.9.3: iframe-memory presentation state only. Never persisted.
+  // v1.0.9: iframe-memory presentation state only. Never persisted.
   const PanelUIStateStore = new Map();
   let refreshing = false;
   let taskState = "unknown";
@@ -306,8 +572,6 @@ def render_voyager_panel_html() -> str:
     const state = stateOverride || task?.state || "";
     const facts = [
       ["状态", state ? stateLabel(state) : null],
-      ["执行单元", task?.crew],
-      ["执行模型", task?.model],
       ["任务", task?.task_id],
       ["耗时", formatDuration(task?.duration_seconds)],
     ];
@@ -321,19 +585,56 @@ def render_voyager_panel_html() -> str:
     if (!metaEl.childNodes.length) metaEl.appendChild(node("span", "等待任务数据…"));
   }
 
-  function resultPart(title, value) {
+  function evidenceSemanticStatus(value) {
+    const state = String(value || "").toLowerCase();
+    if (["completed", "passed"].includes(state)) return "completed";
+    if (["running", "observing", "connecting", "starting"].includes(state)) return "running";
+    if (["failed", "lost", "orphaned"].includes(state)) return "failed";
+    return "unknown";
+  }
+
+  function evidenceStatusLabel(value) {
+    return ({ completed: "已完成", running: "执行中", failed: "异常", unknown: "未知" })[value] || "未知";
+  }
+
+  function evidenceList(values, statusHint = "unknown") {
+    const list = node("ul", null, "result-list evidence-list");
+    for (let index = 0; index < values.length; index += 1) {
+      const semantic = evidenceSemanticStatus(Array.isArray(statusHint) ? statusHint[index] : statusHint);
+      const label = evidenceStatusLabel(semantic);
+      const item = node("li", null, `evidence-item evidence-status-${semantic}`);
+      item.dataset.evidenceStatus = semantic;
+      item.setAttribute("data-evidence-status", semantic);
+      item.setAttribute("aria-label", semantic);
+      const dot = node("span", null, "evidence-status-dot");
+      dot.setAttribute("aria-label", label);
+      item.appendChild(dot);
+      item.appendChild(node("span", `${label} `, "evidence-status-text"));
+      item.appendChild(node("span", values[index], "evidence-text"));
+      list.appendChild(item);
+    }
+    return list;
+  }
+
+  function resultPart(title, value, container = summaryEl, evidenceStatus = "unknown") {
     if (value === null || value === undefined || value === "") return;
-    const wrapper = node("div", null, "result-part");
+    if (Array.isArray(value) && !value.length) return;
+    const region = title === "结论"
+      ? "summary-conclusion"
+      : (title === "关键依据" ? "summary-evidence" : "summary-support");
+    const wrapper = node("div", null, `result-part ${region}`);
     wrapper.appendChild(node("div", title, "result-title"));
     if (Array.isArray(value)) {
-      if (!value.length) return;
-      const list = node("ul", null, "result-list");
-      for (const item of value) list.appendChild(node("li", item));
-      wrapper.appendChild(list);
+      if (title === "关键依据") wrapper.appendChild(evidenceList(value, evidenceStatus));
+      else {
+        const list = node("ul", null, "result-list");
+        for (const item of value) list.appendChild(node("li", item));
+        wrapper.appendChild(list);
+      }
     } else {
       wrapper.appendChild(node("div", value, "result-text"));
     }
-    summaryEl.appendChild(wrapper);
+    container.appendChild(wrapper);
   }
 
   function latestActivity(data) {
@@ -353,34 +654,36 @@ def render_voyager_panel_html() -> str:
       summaryEl.appendChild(node("div", "正在同步最新任务状态…"));
       return;
     }
+    const grid = node("div", null, "summary-grid");
+    summaryEl.appendChild(grid);
     if (data.error?.message) {
       summaryEl.className = "summary error";
-      resultPart("结论", "任务执行失败。");
+      resultPart("结论", "任务执行失败。", grid);
       const details = [];
       if (data.error.stage) details.push(`阶段：${phaseLabel(data.error.stage)}`);
       details.push(`原因：${data.error.message}`);
-      resultPart("风险", details);
+      resultPart("风险", details, grid);
       return;
     }
     const card = data?.result_card && typeof data.result_card === "object" ? data.result_card : null;
     if (card) {
-      resultPart("结论", card.conclusion || "任务已结束；完整结论见回答。");
-      resultPart("关键依据", Array.isArray(card.key_evidence) ? card.key_evidence : []);
-      resultPart("风险", Array.isArray(card.risks) ? card.risks : []);
-      resultPart("下一步", Array.isArray(card.next_steps) ? card.next_steps : []);
+      resultPart("结论", card.conclusion || "任务已结束；完整结论见回答。", grid);
+      resultPart("关键依据", Array.isArray(card.key_evidence) ? card.key_evidence : [], grid, state);
+      resultPart("风险", Array.isArray(card.risks) ? card.risks : [], grid);
+      resultPart("下一步", Array.isArray(card.next_steps) ? card.next_steps : [], grid);
       return;
     }
     if (task?.active) {
-      resultPart("结论", "任务正在执行。");
+      resultPart("结论", "任务正在执行。", grid);
       const activity = latestActivity(data);
-      if (activity) resultPart("当前安全活动", activity);
+      if (activity) resultPart("当前安全活动", activity, grid);
       return;
     }
     if (state === "completed") {
-      resultPart("结论", "任务已完成。完整回答可在下方展开查看。");
+      resultPart("结论", "任务已完成。完整回答可在下方展开查看。", grid);
       return;
     }
-    resultPart("结论", "暂无可展示的结构化结果。");
+    resultPart("结论", "暂无可展示的结构化结果。", grid);
   }
 
   function escapeHtml(value) {
@@ -473,24 +776,51 @@ def render_voyager_panel_html() -> str:
   }
 
   function timelineRows(items) {
-    return (items || []).map((item) => {
-      const row = node("div", null, "row");
+    const events = Array.isArray(items) ? items : [];
+    if (!events.length) return [];
+    const timeline = node("div", null, "activity-timeline");
+    for (const item of events) {
+      const row = node("div", null, "activity-item");
+      row.appendChild(node("span", null, "activity-marker"));
+      const content = node("div", null, "activity-content");
+      const head = node("div", null, "activity-head");
+      const time = formatTime(item.timestamp);
+      if (time) head.appendChild(node("span", time, "activity-time"));
+      const titleParts = [toolLabel(item.tool), actionLabel(item.action)].filter(Boolean);
+      const fallbackTitle = item.phase
+        ? phaseLabel(item.phase)
+        : stateLabel(item.kind || item.status || "tool_activity");
+      head.appendChild(node("span", titleParts.join(" · ") || fallbackTitle || "执行活动", "activity-title"));
+      content.appendChild(head);
+      const description = String(item.reason || item.summary || "").trim();
+      if (description) content.appendChild(node("div", description, "activity-description"));
       const count = Number(item.count || 1);
-      const parts = [formatTime(item.timestamp), toolLabel(item.tool), actionLabel(item.action), item.path, item.phase ? phaseLabel(item.phase) : null, stateLabel(item.status || item.kind)].filter(Boolean);
-      if (count > 1) parts.push(`×${count}`);
-      row.appendChild(node("div", parts.join(" · ") || "执行活动"));
-      if (item.reason || item.summary) row.appendChild(node("div", item.reason || item.summary, "label"));
-      return row;
-    });
+      const meta = [
+        item.path,
+        item.phase ? phaseLabel(item.phase) : null,
+        stateLabel(item.status || item.kind),
+        count > 1 ? `×${count}` : null,
+      ].filter(Boolean);
+      if (meta.length) content.appendChild(node("div", meta.join(" · "), "activity-meta"));
+      row.appendChild(content);
+      timeline.appendChild(row);
+    }
+    return [timeline];
   }
 
   function fileRows(items) {
-    return (items || []).map((item) => {
-      const row = node("div", null, "row file");
-      row.appendChild(node("div", `${actionLabel(item.action) || stateLabel(item.kind) || "变更"}  ${item.path || ""}`));
-      if (item.capture_state) row.appendChild(node("div", item.capture_state, "label"));
-      return row;
-    });
+    const files = Array.isArray(items) ? items : [];
+    if (!files.length) return [];
+    const list = node("div", null, "file-change-list");
+    for (const item of files) {
+      const row = node("div", null, "file-change-item");
+      row.appendChild(node("div", actionLabel(item.action) || stateLabel(item.kind) || "变更", "file-change-kind"));
+      row.appendChild(node("div", item.path || "", "file-change-path"));
+      const summary = String(item.summary || item.capture_state || "").trim();
+      if (summary) row.appendChild(node("div", summary, "file-change-summary"));
+      list.appendChild(row);
+    }
+    return [list];
   }
 
   function usageLabel(key) {
@@ -504,8 +834,6 @@ def render_voyager_panel_html() -> str:
       cache_hit_rate: "缓存命中率",
       credits: "本轮 Credit",
       session_credits: "会话累计 Credit",
-      original_credits: "原始 Credit",
-      billable: "Billable",
     })[key] || key.replaceAll("_", " ");
   }
 
@@ -523,7 +851,7 @@ def render_voyager_panel_html() -> str:
   }
 
   function usageRows(evidence) {
-    const { evidence: source, values } = usagePayload(evidence);
+    const { values } = usagePayload(evidence);
     const derived = new Set(Array.isArray(values.derived_fields) ? values.derived_fields.map(String) : []);
     const entries = [
       ["total_tokens", values.total_tokens],
@@ -546,18 +874,18 @@ def render_voyager_panel_html() -> str:
     entries.push(["credits", values.credits ?? values.credits_used]);
     entries.push(["session_credits", values.session_credits]);
 
-    const row = node("div", null, "row");
-    const grid = node("div", null, "kv");
+    const metrics = node("div", null, "usage-metrics");
     for (const [key, value] of entries) {
-      const label = node("div", usageLabel(key));
+      const metric = node("div", null, "usage-metric");
+      const label = node("div", usageLabel(key), "usage-metric-label");
       if (derived.has(key) || (key === "cache_hit_rate" && value !== null)) {
         label.appendChild(node("span", "推导", "usage-derived"));
       }
-      grid.appendChild(label);
-      grid.appendChild(node("div", usageValue(value)));
+      metric.appendChild(label);
+      metric.appendChild(node("div", usageValue(value), "usage-metric-value"));
+      metrics.appendChild(metric);
     }
-    row.appendChild(grid);
-    return [row];
+    return [metrics];
   }
 
   function usageSummaryValues(evidence) {
@@ -568,26 +896,40 @@ def render_voyager_panel_html() -> str:
     };
   }
 
+  function usageOverviewCard(label, value, kind) {
+    const unknown = value === null || value === undefined || value === "";
+    const card = kind === "token"
+      ? node("div", null, "usage-card usage-card-token")
+      : node("div", null, "usage-card usage-card-credit");
+    if (unknown) card.classList.add("usage-card-unknown");
+    card.appendChild(node("div", `${label}：`, "usage-card-label"));
+    card.appendChild(node("div", usageValue(value), "usage-card-value"));
+    return card;
+  }
+
   function renderUsageStrip(container, data) {
-    const old = container.querySelector(".usage-strip");
+    const host = container.classList?.contains("summary-grid")
+      ? container
+      : (container.querySelector(".summary-grid") || container);
+    const old = host.querySelector(".usage-overview");
     if (old) old.remove();
-    const strip = node("div", null, "usage-strip");
+    const strip = node("div", null, "usage-overview");
     strip.dataset.role = "usage-summary";
     if (data?.mode === "group") {
       const groupUsage = data?.usage && typeof data.usage === "object" ? data.usage : {};
       const selectedId = String(panel.dataset.selectedTaskId || "");
       const selected = (Array.isArray(data?.tasks) ? data.tasks : []).find((item) => String(item?.task?.task_id || "") === selectedId) || data?.tasks?.[0];
       const selectedUsage = usageSummaryValues(selected?.usage);
-      strip.appendChild(node("span", `子任务 Tokens：${usageValue(groupUsage.total_tokens)}`, "usage-pill"));
-      strip.appendChild(node("span", `子任务 Credits：${usageValue(groupUsage.credits)}`, "usage-pill"));
-      strip.appendChild(node("span", `当前 Tokens：${usageValue(selectedUsage.totalTokens)}`, "usage-pill"));
-      strip.appendChild(node("span", `当前 Credits：${usageValue(selectedUsage.credits)}`, "usage-pill"));
+      strip.appendChild(usageOverviewCard("子任务 Tokens", groupUsage.total_tokens, "token"));
+      strip.appendChild(usageOverviewCard("子任务 Credits", groupUsage.credits, "credit"));
+      strip.appendChild(usageOverviewCard("当前 Tokens", selectedUsage.totalTokens, "token"));
+      strip.appendChild(usageOverviewCard("当前 Credits", selectedUsage.credits, "credit"));
     } else {
       const selectedUsage = usageSummaryValues(data?.usage);
-      strip.appendChild(node("span", `Tokens：${usageValue(selectedUsage.totalTokens)}`, "usage-pill"));
-      strip.appendChild(node("span", `Credits：${usageValue(selectedUsage.credits)}`, "usage-pill"));
+      strip.appendChild(usageOverviewCard("Tokens", selectedUsage.totalTokens, "token"));
+      strip.appendChild(usageOverviewCard("Credits", selectedUsage.credits, "credit"));
     }
-    container.appendChild(strip);
+    host.appendChild(strip);
   }
 
   function appendSection(title, rows, open) {
@@ -696,7 +1038,7 @@ def render_voyager_panel_html() -> str:
     });
   }
 
-  // v1.0.9.3: persist the current presentation state (tab/details/scroll)
+  // v1.0.9: persist the current presentation state (tab/details/scroll)
   // right before a refresh or teardown. State lives only in iframe memory.
   function beforeRefresh() {
     savePanelUIState();
@@ -854,7 +1196,7 @@ def render_voyager_panel_html() -> str:
     }
   }
 
-  // v1.0.9.3: concurrent workbench — left task navigation + right detail workspace.
+  // v1.0.9: concurrent workbench — left task navigation + right detail workspace.
   const GROUP_TABS = ["摘要", "完整回答", "执行活动", "文件变更", "用量"];
 
   function defaultTabForState(state) {
@@ -871,18 +1213,22 @@ def render_voyager_panel_html() -> str:
     body.appendChild(part);
   }
 
-  function appendSummaryList(body, title, value) {
+  function appendSummaryList(body, title, value, evidenceStatus = "unknown") {
     if (!Array.isArray(value) || !value.length) return;
     const part = node("div", null, "result-part");
     part.appendChild(node("div", title, "result-title"));
-    const list = node("ul", null, "result-list");
-    for (const item of value) list.appendChild(node("li", item));
-    part.appendChild(list);
+    if (title === "关键依据") part.appendChild(evidenceList(value, evidenceStatus));
+    else {
+      const list = node("ul", null, "result-list");
+      for (const item of value) list.appendChild(node("li", item));
+      part.appendChild(list);
+    }
     body.appendChild(part);
   }
 
   function renderTabBody(item, tab) {
     const body = node("div", null, "wb-body");
+    if (tab === "摘要") body.classList.add("wb-body-summary");
     const task = item?.task || {};
     const state = task.state || (item?.ok === false ? "failed" : "queued");
     if (tab === "摘要") {
@@ -898,7 +1244,7 @@ def render_voyager_panel_html() -> str:
           || (task.active ? "任务正在执行。"
             : (state === "completed" ? "任务已完成。" : "暂无可展示的结构化结果。"));
         appendSummaryText(body, "结论", conclusion);
-        appendSummaryList(body, "关键依据", card?.key_evidence);
+        appendSummaryList(body, "关键依据", card?.key_evidence, state);
         appendSummaryList(body, "风险", card?.risks);
         appendSummaryList(body, "下一步", card?.next_steps);
         if (!card && task.active) {
@@ -935,8 +1281,8 @@ def render_voyager_panel_html() -> str:
       head.appendChild(node("span", stateLabel(state), "wb-task-state"));
       entry.appendChild(head);
       const meta = node("div", null, "wb-task-meta");
-      if (task.crew) meta.appendChild(node("span", task.crew));
-      if (task.model) meta.appendChild(node("span", task.model));
+      const taskIdentity = [task.crew, task.model].filter(Boolean).join(" / ");
+      if (taskIdentity) meta.appendChild(node("span", taskIdentity, "wb-task-identity"));
       entry.appendChild(meta);
       if (taskId) entry.appendChild(node("div", `任务 ${taskId}`, "wb-task-id"));
       const duration = formatDuration(task.duration_seconds);
@@ -945,6 +1291,7 @@ def render_voyager_panel_html() -> str:
       if (failure) entry.appendChild(node("div", failure, "wb-task-failure"));
       entry.addEventListener("click", () => {
         panel.dataset.selectedTaskId = taskId;
+        renderUsageStrip(summaryEl, latestData);
         if (!GROUP_TABS.includes(panel.dataset.activeTab)) {
           panel.dataset.activeTab = defaultTabForState(state);
         }
@@ -1004,12 +1351,13 @@ def render_voyager_panel_html() -> str:
 
     summaryEl.replaceChildren();
     summaryEl.className = "summary";
-    resultPart("结论", items.length ? `并发任务组包含 ${items.length} 个明确子任务；从左侧选择任务查看详情。` : "未找到该并发组中的任务。");
+    const grid = node("div", null, "summary-grid");
+    summaryEl.appendChild(grid);
     const completed = items.filter((item) => item?.task?.state === "completed").length;
     const active = items.filter((item) => item?.task?.active).length;
     const failed = items.filter((item) => ["failed", "lost", "orphaned"].includes(item?.task?.state)).length;
-    resultPart("关键依据", [`已完成 ${completed} 个`, `执行中 ${active} 个`, `异常 ${failed} 个`]);
-    renderUsageStrip(summaryEl, latestData);
+    resultPart("关键依据", [`${completed} 个`, `${active} 个`, `${failed} 个`], grid, ["completed", "running", "failed"]);
+    renderUsageStrip(grid, latestData);
 
     renderGroupBody();
     renderSuccessfulSyncStamp(latestData);
@@ -1172,7 +1520,7 @@ def render_voyager_panel_html() -> str:
   }, { passive: true });
 
   const bridgeReady = request("ui/initialize", {
-    appInfo: { name: "tp-voyager-agent-panel", version: "1.0.9.3" },
+    appInfo: { name: "tp-voyager-agent-panel", version: "1.0.9" },
     appCapabilities: {},
     protocolVersion: "2026-01-26",
   }, BRIDGE_INIT_TIMEOUT_MS).then(() => {

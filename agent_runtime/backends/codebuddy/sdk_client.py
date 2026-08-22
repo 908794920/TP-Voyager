@@ -36,11 +36,11 @@ from agent_runtime.backends.errors import (
 _CODEBUDDY_USAGE_FIELDS = (
     "input_tokens", "inputTokens", "prompt_tokens",
     "output_tokens", "outputTokens", "completion_tokens",
-    "cache_read_input_tokens", "cacheReadTokens",
+    "cache_read_input_tokens", "cacheReadTokens", "prompt_cache_hit_tokens",
     "cache_creation_input_tokens", "cacheCreationInputTokens",
     "cached_input_tokens", "cachedInputTokens",
-    "cache_miss_tokens", "cacheMissTokens",
-    "cache_write_input_tokens", "cacheWriteTokens",
+    "cache_miss_tokens", "cacheMissTokens", "prompt_cache_miss_tokens",
+    "cache_write_input_tokens", "cacheWriteTokens", "prompt_cache_write_tokens",
     "cache_read_tokens", "cache_write_tokens",
     "total_tokens", "totalTokens",
     "reasoning_tokens", "reasoningTokens",
@@ -81,9 +81,15 @@ def _codebuddy_stream_usage_update(event: object) -> dict[str, Any]:
     if kind != "usage_update":
         return {}
     nested = candidate.get("usage") if isinstance(candidate.get("usage"), dict) else {}
-    # Nested ``usage`` is the v2.99 ACP Credit shape; top-level fields remain
-    # accepted for protocol-compatible Token extensions.
-    return {**_normalize_codebuddy_usage(candidate), **_normalize_codebuddy_usage(nested)}
+    meta = candidate.get("_meta") if isinstance(candidate.get("_meta"), dict) else {}
+    meta_usage = meta.get("usage") if isinstance(meta.get("usage"), dict) else {}
+    # Native ACP v2.99+ publishes Credit in ``update._meta.usage``.  Keep the
+    # older top-level/nested shapes as explicit SDK compatibility only.
+    return {
+        **_normalize_codebuddy_usage(candidate),
+        **_normalize_codebuddy_usage(nested),
+        **_normalize_codebuddy_usage(meta_usage),
+    }
 
 _CODEBUDDY_USAGE_ID_KEYS = (
     # Provider/business correlation IDs only.  In particular, the SDK
@@ -94,6 +100,7 @@ _CODEBUDDY_USAGE_ID_KEYS = (
     "messageRequestId", "message_request_id",
     "promptRequestId", "prompt_request_id",
     "messageId", "message_id",
+    "codebuddy.ai/requestId", "codebuddy.ai/messageRequestId",
 )
 
 

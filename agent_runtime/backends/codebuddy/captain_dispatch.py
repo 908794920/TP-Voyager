@@ -1,4 +1,4 @@
-"""Captain adapter for CodeBuddy official controlled SDK routes."""
+"""Captain adapter for CodeBuddy controlled native ACP routes with explicit SDK compatibility."""
 
 from __future__ import annotations
 
@@ -17,7 +17,6 @@ from agent_runtime.application.dispatch.workspace import (
 )
 from agent_runtime.application.task_launch_service import TaskLaunchRequest, TaskLaunchService
 from agent_runtime.backends.codebuddy.process import resolve_codebuddy_cli
-from agent_runtime.backends.codebuddy.sdk_client import load_codebuddy_sdk
 from agent_runtime.domain.dispatch import (
     _MANDATORY_FORBIDDEN,
     CaptainDispatchRequest,
@@ -34,8 +33,7 @@ class CodeBuddyContextReadOnlyDispatcher:
 
     Read-only supports either native workspace exploration (Read/Glob/Grep) or
     an explicit Runtime-rendered immutable context snapshot. T4 patch mode runs
-    CodeBuddy in an isolated Git worktree and relies on the SDK host permission callback for per-tool path
-    and command enforcement.
+    CodeBuddy in an isolated Git worktree and relies on ACP filesystem/terminal callbacks plus CLI tool restriction for per-tool path and command enforcement.
     """
 
     def __init__(
@@ -57,12 +55,12 @@ class CodeBuddyContextReadOnlyDispatcher:
         if request.model_parameters and request.model_parameters.context_window_tokens is not None:
             return self._reject(
                 "MODEL_PARAMETERS_UNSUPPORTED",
-                "CodeBuddy controlled SDK route does not expose context_window_tokens",
+                "CodeBuddy controlled route does not expose context_window_tokens",
             )
         if request.model_parameters and request.model_parameters.reasoning_effort not in {"", "low", "medium", "high", "xhigh"}:
             return self._reject(
                 "MODEL_PARAMETERS_UNSUPPORTED",
-                "CodeBuddy controlled SDK supports reasoning_effort low, medium, high or xhigh",
+                "CodeBuddy controlled route supports reasoning_effort low, medium, high or xhigh",
             )
         if request.access_mode == "patch":
             return self._dispatch_patch(request)
@@ -130,7 +128,7 @@ class CodeBuddyContextReadOnlyDispatcher:
             TaskLaunchRequest(
                 prompt=prompt,
                 runtime="codebuddy",
-                route="sdk_context_read_only",
+                route="acp_read_only",
                 cwd=request.cwd,
                 timeout_seconds=timeout,
                 model=request.model,
@@ -194,7 +192,7 @@ class CodeBuddyContextReadOnlyDispatcher:
             TaskLaunchRequest(
                 prompt=prompt,
                 runtime="codebuddy",
-                route="sdk_patch",
+                route="acp_patch",
                 cwd=workspace.worktree_root,
                 timeout_seconds=timeout,
                 model=request.model,
@@ -256,7 +254,7 @@ class CodeBuddyContextReadOnlyDispatcher:
             TaskLaunchRequest(
                 prompt=self._build_verification_prompt(request.objective, policy),
                 runtime="codebuddy",
-                route="sdk_verify",
+                route="acp_verify",
                 cwd=request.cwd,
                 timeout_seconds=timeout,
                 model=request.model,
@@ -363,7 +361,6 @@ class CodeBuddyContextReadOnlyDispatcher:
     @staticmethod
     def _default_preflight() -> None:
         resolve_codebuddy_cli()
-        load_codebuddy_sdk()
 
     @staticmethod
     def _reject(reason_code: str, detail: str) -> dict[str, Any]:

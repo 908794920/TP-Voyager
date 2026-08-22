@@ -143,6 +143,8 @@ class BackendUsage:
     # latest-value observations and must never be cumulatively re-added.
     accounting: str = "delta"
     sample_id: str = ""
+    # Provider request identity used to deduplicate late/replayed usage facts.
+    request_id: str = ""
     total_tokens: int | None = None
     input_tokens: int | None = None
     cache_read_tokens: int | None = None
@@ -235,6 +237,7 @@ class BackendUsage:
             "source": str(self.source or "")[:120],
             "accounting": self.accounting if self.accounting in {"delta", "snapshot"} else "delta",
             "sample_id": str(self.sample_id or "")[:160] or None,
+            "request_id": str(self.request_id or "")[:160] or None,
             "usage": usage,
             "model_usage": self._safe_model_usage(self.model_usage),
             "provider_usage": raw,

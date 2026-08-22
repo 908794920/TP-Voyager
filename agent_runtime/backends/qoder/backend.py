@@ -29,6 +29,7 @@ from agent_runtime.backends.errors import (
 )
 from agent_runtime.backends.qoder.acp_client import QoderAcpClient
 from agent_runtime.backends.qoder.process import resolve_qoder_cli
+from agent_runtime.backends.qoder.sdk_usage import QoderSdkUsageAdapter
 from agent_runtime.backends.workspace_snapshot import materialize_workspace_snapshot
 
 @dataclass
@@ -106,6 +107,7 @@ class QoderBackend:
         read_only_acp_client_factory=None,
         patch_acp_client_factory=None,
         verification_acp_client_factory=None,
+        sdk_usage_adapter_factory=None,
     ) -> None:
         self._read_only_acp_client_factory = (
             read_only_acp_client_factory
@@ -121,6 +123,9 @@ class QoderBackend:
                 read_only=False, allow_permissions=True,
                 allow_file_writes=False, allow_terminal=True, **kwargs
             )
+        )
+        self._sdk_usage_adapter_factory = sdk_usage_adapter_factory or (
+            lambda **kwargs: QoderSdkUsageAdapter(**kwargs)
         )
         self._lock = threading.RLock()
         self._live: dict[str, _LiveExecution] = {}
@@ -437,6 +442,56 @@ class QoderBackend:
                 source="qoder_acp_terminal_snapshot",
                 accounting="snapshot",
             )
+
+            # Qoder ACP may omit Credit usage even for a successful task.  The
+            # SDK adapter copies this *existing* local session into an in-memory
+            # store and reads provider-reported Assistant/Result usage.  It
+            # never starts or resumes another Agent task.
+            sdk_status = "provider_omitted"
+            sdk_facts: tuple[BackendUsage, ...] = ()
+            try:
+                cli_path = str(getattr(client, "cli_path", "") or "")
+                if cli_path and result.session_id:
+                    adapter = self._sdk_usage_adapter_factory(cli_path=cli_path)
+                    collection = adapter.collect_session_usage(
+                        session_id=result.session_id,
+                        cwd=str(getattr(client, "cwd", request.cwd)),
+                        model=request.model,
+                    )
+                    sdk_status = str(getattr(collection, "status", "provider_omitted") or "provider_omitted")
+                    sdk_facts = tuple(getattr(collection, "facts", ()) or ())
+                    if callable(usage_sink):
+                        for sdk_fact in sdk_facts:
+                            if isinstance(sdk_fact, BackendUsage):
+                                usage_sink(sdk_fact)
+            except Exception:
+                # Auxiliary usage collection must never mask the ACP execution
+                # result or synthesize a numeric fact.
+                sdk_status = "provider_omitted"
+                sdk_facts = ()
+
+            observability = dict(result.observability or {})
+            acp_provenance = (
+                observability.get("usage_provenance")
+                if isinstance(observability.get("usage_provenance"), dict)
+                else {}
+            )
+            if sdk_status == "observed" and sdk_facts:
+                has_request_identity = any(str(fact.request_id or fact.sample_id or "").strip() for fact in sdk_facts)
+                observability["usage_provenance"] = {
+                    "status": "observed",
+                    "request_identity": "provider" if has_request_identity else "unavailable",
+                    "event_count": int(acp_provenance.get("event_count") or 0),
+                    "events": list(acp_provenance.get("events") or [])[-16:],
+                    "acp_status": str(acp_provenance.get("status") or "provider_omitted"),
+                    "sdk_status": "observed",
+                }
+            elif acp_provenance:
+                observability["usage_provenance"] = {
+                    **acp_provenance,
+                    "sdk_status": sdk_status,
+                }
+
             backend_result = BackendResult(
                 backend="qoder",
                 stop_reason=result.stop_reason,
@@ -451,7 +506,7 @@ class QoderBackend:
                     "usage": usage_fact.to_dict() if usage_fact is not None else {},
                 },
                 observability={
-                    **result.observability,
+                    **observability,
                     "access_mode": mode,
                     "command_whitelist_size": len(command_specs) if mode in {"patch", "verification"} else 0,
                 },

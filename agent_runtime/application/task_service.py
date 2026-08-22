@@ -872,13 +872,18 @@ class TaskService:
         anonymous_deltas: list[dict[str, Any]] = []
         identified_deltas: dict[tuple[str, str], dict[str, Any]] = {}
         snapshots: list[dict[str, Any]] = []
+        session_facts: list[dict[str, Any]] = []
         for payload in payloads:
             accounting = str(payload.get("accounting") or "delta").strip().lower()
-            if accounting == "snapshot":
-                snapshots.append(payload)
-                continue
             scope = str(payload.get("scope") or "turn")
             if scope != "turn":
+                # Session-scoped cumulative facts (for example Qoder SDK
+                # ResultMessage.total_credits) must not replace the latest
+                # turn-level Token/cache snapshot. Session Credits are read
+                # independently below from every payload.
+                session_facts.append(payload)
+                continue
+            if accounting == "snapshot":
                 snapshots.append(payload)
                 continue
             sample_id = str(payload.get("sample_id") or "").strip()
@@ -981,6 +986,11 @@ class TaskService:
 
         latest = payloads[-1]
         latest_usage = latest.get("usage") if isinstance(latest.get("usage"), dict) else {}
+        latest_request_id = ""
+        for payload in payloads:
+            candidate = str(payload.get("request_id") or "").strip()
+            if candidate:
+                latest_request_id = candidate
         usage_summary: dict[str, Any] = {
             **totals,
             "credits": turn_credits,
@@ -1003,8 +1013,9 @@ class TaskService:
             "scope": "session",
             "model": latest.get("model"),
             "source": latest.get("source"),
-            "accounting": "snapshot" if snapshots else "delta",
+            "accounting": "snapshot" if (snapshots or session_facts) else "delta",
             "sample_id": latest.get("sample_id"),
+            "request_id": latest_request_id or None,
             "usage": usage_summary,
             "model_usage": latest.get("model_usage") if isinstance(latest.get("model_usage"), dict) else {},
             "provider_usage": latest.get("provider_usage") if isinstance(latest.get("provider_usage"), dict) else {},

@@ -262,6 +262,46 @@ const groupSnapshot = (rows, credits = null, totalTokens = null) => ({{
     return;
   }}
 
+  if (scenario === "evidence_status_points") {{
+    const grouped = groupSnapshot(1, 0, 0);
+    const completed = snapshot("completed");
+    completed.task = {{ ...completed.task, task_id: "task-completed", state: "completed", active: false }};
+    const running = snapshot("running");
+    running.task = {{ ...running.task, task_id: "task-running", state: "running", active: true }};
+    const failed = snapshot("failed");
+    failed.task = {{ ...failed.task, task_id: "task-failed", state: "failed", active: false }};
+    grouped.task_ids = ["task-completed", "task-running", "task-failed"];
+    grouped.tasks = [completed, running, failed];
+    send({{
+      jsonrpc: "2.0", method: "ui/notifications/tool-result",
+      params: {{ structuredContent: grouped }},
+    }});
+    await flush();
+    const evidenceItems = summary.querySelectorAll(".evidence-item");
+    finish({{
+      statuses: evidenceItems.map((item) => item.dataset.evidenceStatus || ""),
+      classes: evidenceItems.map((item) => item.className),
+      itemLabels: evidenceItems.map((item) => item.attributes["aria-label"] || ""),
+      labels: evidenceItems.map((item) => (item.querySelector(".evidence-status-dot") || {{ attributes: {{}} }}).attributes["aria-label"] || ""),
+      text: evidenceItems.map((item) => item.textContent),
+    }});
+    return;
+  }}
+
+  if (scenario === "usage_unknown_styling") {{
+    send({{
+      jsonrpc: "2.0", method: "ui/notifications/tool-result",
+      params: {{ structuredContent: groupSnapshot(1, null, null) }},
+    }});
+    await flush();
+    const cards = summary.querySelectorAll(".usage-card");
+    finish({{
+      classes: cards.map((item) => item.className),
+      text: cards.map((item) => item.textContent),
+    }});
+    return;
+  }}
+
   if (scenario === "single_usage_display") {{
     const usage = {{
       schema: "tp-voyager.usage/v1", provider: "codebuddy", model: "hy3",
@@ -281,6 +321,71 @@ const groupSnapshot = (rows, credits = null, totalTokens = null) => ({{
     usageTab.dispatchEvent({{ type: "click" }});
     await flush();
     finish({{ summary: summary.textContent, details: details.textContent }});
+    return;
+  }}
+
+  if (scenario === "ui_structure_boundary") {{
+    const grouped = groupSnapshot(2, 0.9, 220);
+    grouped.task_ids = ["task-1", "task-2"];
+    grouped.tasks[0].task = {{
+      ...grouped.tasks[0].task, task_id: "task-1", crew: "qoder", model: "lite",
+    }};
+    grouped.tasks[0].usage = {{
+      schema: "tp-voyager.usage/v1", provider: "qoder", model: "lite",
+      usage: {{
+        total_tokens: 120, input_tokens: 90, cache_read_tokens: 30,
+        cache_miss_tokens: 50, cache_write_tokens: 10, output_tokens: 30,
+        reasoning_tokens: 10, answer_tokens: 20, credits: 0.4,
+        session_credits: 4.2, derived_fields: ["cache_miss_tokens"],
+      }},
+    }};
+    grouped.tasks[0].files = [{{
+      kind: "file_change", action: "modify", path: "src/example.py",
+      capture_state: "captured", summary: "updated safely",
+    }}];
+    const second = snapshot("completed");
+    second.task = {{
+      ...second.task, task_id: "task-2", state: "completed", active: false,
+      crew: "codebuddy", model: "hy3",
+    }};
+    second.usage = {{
+      schema: "tp-voyager.usage/v1", provider: "codebuddy", model: "hy3",
+      usage: {{ total_tokens: 100, credits: 0.5, reasoning_tokens: 4, answer_tokens: 12 }},
+    }};
+    grouped.tasks.push(second);
+    send({{
+      jsonrpc: "2.0", method: "ui/notifications/tool-result",
+      params: {{ structuredContent: grouped }},
+    }});
+    await flush();
+    const tabs = details.querySelectorAll(".wb-tab").map((item) => item.textContent);
+    const identities = details.querySelectorAll(".wb-task-identity").map((item) => item.textContent);
+    const initialUsageOverview = summary.textContent;
+    details.querySelectorAll(".wb-task")[1].dispatchEvent({{ type: "click" }});
+    await flush();
+    const secondTaskUsageOverview = summary.textContent;
+    details.querySelectorAll(".wb-task")[0].dispatchEvent({{ type: "click" }});
+    await flush();
+    const usageTab = details.querySelectorAll(".wb-tab").find((item) => item.textContent === "用量");
+    usageTab.dispatchEvent({{ type: "click" }});
+    await flush();
+    const usageMetrics = details.querySelector(".usage-metrics");
+    const usageLabels = details.querySelectorAll(".usage-metric-label").map((item) => item.textContent);
+    const usageText = usageMetrics ? usageMetrics.textContent : "";
+    const activityTab = details.querySelectorAll(".wb-tab").find((item) => item.textContent === "执行活动");
+    activityTab.dispatchEvent({{ type: "click" }});
+    await flush();
+    const activityCount = details.querySelectorAll(".activity-item").length;
+    const activityMarkerCount = details.querySelectorAll(".activity-marker").length;
+    const fileTab = details.querySelectorAll(".wb-tab").find((item) => item.textContent === "文件变更");
+    fileTab.dispatchEvent({{ type: "click" }});
+    await flush();
+    finish({{
+      tabs, identities, initialUsageOverview, secondTaskUsageOverview,
+      usageLabels, usageText, activityCount, activityMarkerCount,
+      fileItemCount: details.querySelectorAll(".file-change-item").length,
+      filePathText: (details.querySelector(".file-change-path") || {{ textContent: "" }}).textContent,
+    }});
     return;
   }}
 
@@ -506,6 +611,20 @@ class VoyagerPanelRuntimeTests(unittest.TestCase):
         self.assertEqual(result["activeTab"], "执行活动")
         self.assertEqual(result["scrollTop"], result["scrollHeight"])
 
+    def test_group_key_evidence_exposes_semantic_status_points(self) -> None:
+        result = _run_panel_runtime("evidence_status_points")
+        self.assertEqual(result["statuses"], ["completed", "running", "failed"])
+        self.assertTrue(all("evidence-status-" in item for item in result["classes"]))
+        self.assertEqual(result["itemLabels"], ["completed", "running", "failed"])
+        self.assertEqual(result["labels"], ["已完成", "执行中", "异常"])
+        self.assertEqual(result["text"], ["已完成 1 个", "执行中 1 个", "异常 1 个"])
+
+    def test_usage_overview_unknown_values_receive_neutral_class(self) -> None:
+        result = _run_panel_runtime("usage_unknown_styling")
+        self.assertEqual(len(result["classes"]), 4)
+        self.assertTrue(all("usage-card-unknown" in item for item in result["classes"]))
+        self.assertTrue(all("暂无数据" in item for item in result["text"]))
+
     def test_single_task_usage_displays_token_credit_and_unknown_incomplete_cache_rate(self) -> None:
         result = _run_panel_runtime("single_usage_display")
         self.assertIn("Tokens：120", result["summary"])
@@ -513,9 +632,6 @@ class VoyagerPanelRuntimeTests(unittest.TestCase):
         self.assertIn("总 Token120", result["details"])
         self.assertIn("本轮 Credit0.75", result["details"])
         self.assertIn("缓存命中率暂无数据", result["details"])
-        for hidden in ("思考过程", "回复内容", "Provider", "Model"):
-            self.assertNotIn(hidden, result["details"])
-
 
     def test_group_usage_displays_only_supported_token_credit_fields(self) -> None:
         result = _run_panel_runtime("group_usage_display")
@@ -529,8 +645,29 @@ class VoyagerPanelRuntimeTests(unittest.TestCase):
             "会话累计 Credit4.2",
         ):
             self.assertIn(visible, result["details"])
-        for hidden in ("思考过程", "回复内容", "Provider", "Model"):
-            self.assertNotIn(hidden, result["details"])
+
+    def test_usage_boundary_is_scoped_and_task_identity_remains_compact(self) -> None:
+        result = _run_panel_runtime("ui_structure_boundary")
+        self.assertEqual(result["tabs"], ["摘要", "完整回答", "执行活动", "文件变更", "用量"])
+        self.assertEqual(result["identities"], ["qoder / lite", "codebuddy / hy3"])
+        self.assertIn("当前 Tokens：120", result["initialUsageOverview"])
+        self.assertIn("当前 Credits：0.4", result["initialUsageOverview"])
+        self.assertIn("当前 Tokens：100", result["secondTaskUsageOverview"])
+        self.assertIn("当前 Credits：0.5", result["secondTaskUsageOverview"])
+        self.assertEqual(
+            result["usageLabels"],
+            [
+                "总 Token", "输入 Token", "缓存命中", "缓存未命中推导",
+                "缓存写入", "输出 Token", "缓存命中率推导", "本轮 Credit",
+                "会话累计 Credit",
+            ],
+        )
+        for hidden in ("Provider", "Model", "思考过程", "回复内容"):
+            self.assertNotIn(hidden, result["usageText"])
+        self.assertGreaterEqual(result["activityCount"], 1)
+        self.assertEqual(result["activityMarkerCount"], result["activityCount"])
+        self.assertEqual(result["fileItemCount"], 1)
+        self.assertEqual(result["filePathText"], "src/example.py")
 
     def test_usage_only_refresh_does_not_rebuild_group_workbench(self) -> None:
         result = _run_panel_runtime("usage_only_skips_workbench_rebuild")
